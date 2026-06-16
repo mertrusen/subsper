@@ -400,6 +400,13 @@
   patchDesktopI18N();
   tweakUI();
   if (typeof applyLanguage === "function") applyLanguage();
+  // Insurance: bind the buttons directly to the desktop handlers so the inline
+  // onclick can never fall through to the Premiere flow (no "In/Out" error here).
+  const _bind = (id, fn) => { const el = document.getElementById(id); if (el && typeof fn === "function") el.onclick = (e) => { e.preventDefault(); fn(); }; };
+  _bind("transcribe-btn", startTranscription);
+  _bind("enhance-btn", enhanceAudio);
+  _bind("silence-cut-btn", cutSilences);
+  _bind("send-btn", sendToPremiere);
   wireDragDrop();
   setStatus(typeof t === "function" ? t("status_ready") : "Open a video or audio file to begin", "info");
 

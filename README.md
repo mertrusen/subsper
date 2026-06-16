@@ -1,5 +1,7 @@
 # Subsper — Desktop
 
+By **zipheron**.
+
 Local AI subtitles, audio cleanup & silence cutting for **CapCut** (or any editor).
 No Premiere needed. Runs on **Windows** and macOS. 100% offline & free.
 
@@ -9,7 +11,7 @@ No Premiere needed. Runs on **Windows** and macOS. 100% offline & free.
 
 ### Windows
 1. Go to the **[Releases](../../releases)** page and download the latest
-   `WhisperStudio-Setup-x.x.x.exe`.
+   `Subsper-Setup-x.x.x.exe`.
 2. Run it (Windows SmartScreen may warn because the app isn't code-signed →
    *More info → Run anyway*). Install.
 3. **First run — install the engine (one time).** Open the app → **Setup** tab.
@@ -44,7 +46,7 @@ don't need a Windows PC.
    git tag v1.0.0
    git push origin v1.0.0
    ```
-   GitHub Actions builds and attaches `WhisperStudio-Setup-1.0.0.exe` to a Release.
+   GitHub Actions builds and attaches `Subsper-Setup-1.0.0.exe` to a Release.
 
 ### First-time push
 ```
@@ -52,13 +54,13 @@ cd WhisperStudioDesktop
 git init
 git add .
 git commit -m "Subsper Desktop"
-gh repo create whisper-studio-desktop --public --source=. --push
+gh repo create subsper --public --source=. --push
 ```
 
 ### Build locally instead (optional)
 ```
 npm install
-npm run dist:win    # on Windows → dist/WhisperStudio-Setup-x.x.x.exe
+npm run dist:win    # on Windows → dist/Subsper-Setup-x.x.x.exe
 npm run dist:mac    # on macOS  → dist/*.dmg
 npm start           # run from source
 ```

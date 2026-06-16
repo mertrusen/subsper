@@ -1,10 +1,10 @@
 {
   "name": "subsper",
   "productName": "Subsper",
-  "version": "1.2.5",
-  "description": "Subsper — local AI subtitles, audio cleanup & silence cutting for CapCut and any editor.",
+  "version": "1.0.0",
+  "description": "Subsper \u2014 AI subtitles, audio cleanup & silence cutting. By zipheron.",
   "main": "electron-main.js",
-  "author": "Whisper Studio",
+  "author": "zipheron",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
@@ -17,7 +17,7 @@
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.subsper.app",
+    "appId": "com.zipheron.subsper",
     "productName": "Subsper",
     "files": [
       "electron-main.js",
@@ -36,7 +36,8 @@
       "target": [
         "nsis"
       ],
-      "artifactName": "Subsper-Setup-${version}.${ext}"
+      "artifactName": "Subsper-Setup-${version}.${ext}",
+      "publisherName": "zipheron"
     },
     "nsis": {
       "oneClick": false,

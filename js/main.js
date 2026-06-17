@@ -42,7 +42,9 @@ const DEFAULT_SETTINGS = {
     fillerWords:     "",          // extra fillers (comma/newline separated); blank = built-in only
     fillerOn:        true,        // include built-in filler list
     profanityList:   "",          // extra profanity words
-    profanityMode:   "asterisk",  // asterisk | remove
+    profanityMode:   "remove",    // remove | asterisk
+    // ── AI & API ──
+    geminiApiKey:    "",          // Google Gemini API Key
     // ── Audio enhancement ──
     audioDenoise:    true,
     audioNormalize:  true,
@@ -148,6 +150,10 @@ const I18N = {
     lbl_prompt_words: "Context words (AI prompt)", hint_prompt_words: "Difficult words/names that the AI might mis-hear. These are sent as a prompt to improve accuracy. Comma-separated.",
     sync_title: "Sync with Correct Text", sync_ph: "Paste the fully corrected text here. This will replace words in subtitles while keeping the timing intact.",
     sync_hint: "Word alignment algorithm will modify the current segments.", tip_sync: "Sync with correct text", btn_sync: "Sync",
+    sec_api: "AI & API", nm_gemini_api: "Gemini API Key", ds_gemini_api: "Get a free key from Google AI Studio to use AI tools.",
+    lbl_ai_tools: "AI Studio", tip_ai: "AI Video Tools",
+    ai_summary: "Summary & Title", ai_shorts: "Extract Shorts", ai_broll: "B-Roll Ideas",
+    ai_ph: "Generated insights will appear here...",
     nm_filler: "Filler words", ds_filler: "Include the built-in list (ee, ıı, şey, um, uh…)",
     lbl_extrafiller: "Extra fillers to remove",
     nm_prof: "Profanity filter", ds_prof: "How to handle matched words",
@@ -295,6 +301,10 @@ const I18N = {
     lbl_prompt_words: "Bağlam kelimeleri (AI prompt)", hint_prompt_words: "Yapay zekanın yanlış duyabileceği zor kelimeler/isimler. Doğruluğu artırmak için prompt olarak gönderilir. Virgülle ayırın.",
     sync_title: "Doğru Metin ile Eşleştir", sync_ph: "Tamamen düzeltilmiş doğru metni buraya yapıştırın. Zamanlamaları bozmadan altyazıdaki kelimeleri değiştirecektir.",
     sync_hint: "Kelime eşleştirme algoritması mevcut segmentleri düzenler.", tip_sync: "Doğru metin ile eşleştir", btn_sync: "Eşleştir",
+    sec_api: "Yapay Zeka & API", nm_gemini_api: "Gemini API Anahtarı", ds_gemini_api: "Google AI Studio'dan ücretsiz alacağınız anahtarla çalışır.",
+    lbl_ai_tools: "AI Studio", tip_ai: "Yapay Zeka Araçları",
+    ai_summary: "Özet & Başlık", ai_shorts: "Shorts Çıkar", ai_broll: "B-Roll Fikirleri",
+    ai_ph: "Üretilen fikirler burada görünecek...",
     nm_filler: "Dolgu kelimeler", ds_filler: "Yerleşik listeyi kullan (ee, ıı, şey, um, uh…)",
     lbl_extrafiller: "Kaldırılacak ekstra dolgular",
     nm_prof: "Küfür filtresi", ds_prof: "Eşleşen kelimeler nasıl gizlensin",
@@ -649,7 +659,7 @@ function wcpp() {
 // the root cause of "Could not run Python" on Windows).
 function spawnEnv() {
     // Force Python to emit UTF-8 on stdout — otherwise on Windows it uses the
-    // locale codepage (e.g. cp1254) and Turkish/Unicode text comes back as � .
+    // locale codepage (e.g. cp1254) and Turkish/Unicode text comes back as  .
     const utf8 = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
     if (IS_WIN) return Object.assign({}, process.env, utf8);
     const extra = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin";
@@ -915,9 +925,11 @@ function initSettingsUI() {
     chk("set-autocleanup", settings.autoCleanup);
     chk("set-filleron", settings.fillerOn);
     set("set-fillers", settings.fillerWords);
-    set("set-profanity", settings.profanityList);
-    set("set-profmode", settings.profanityMode);
+    set("set-prof-list", settings.profanityList);
+    set("set-prof-mode", settings.profanityMode);
 
+    // AI & API
+    set("set-gemini-key", settings.geminiApiKey || "");
 
     chk("set-karaoke", settings.karaoke);
     const kHi = $("set-karaoke-hi"); if (kHi) kHi.value = "#" + (settings.karaokeHi || "FFE000");
@@ -1596,6 +1608,81 @@ function toggleSyncPanel() {
 
 function closeSyncPanel() {
     if ($("sync-panel")) $("sync-panel").style.display = "none";
+}
+
+function toggleAiPanel() {
+    const ap = $("ai-panel");
+    const show = ap.style.display === "none" || !ap.style.display;
+    if (show) {
+        closeFindReplace();
+        closeSyncPanel();
+        ap.style.display = "flex";
+    } else {
+        closeAiPanel();
+    }
+}
+
+function closeAiPanel() {
+    if ($("ai-panel")) $("ai-panel").style.display = "none";
+}
+
+function fmtMMSS(sec) {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `[${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}]`;
+}
+
+async function askAi(type) {
+    const key = settings.geminiApiKey || "";
+    if (!key) {
+        showError("Missing API Key", "Please enter your Gemini API Key in the Settings panel under 'AI & API'.");
+        return;
+    }
+    if (segments.length === 0) {
+        showToast("No transcription available to analyze.", "error");
+        return;
+    }
+    
+    // Build transcript
+    let transcript = "";
+    segments.forEach(seg => {
+        if (!seg.text) return;
+        transcript += `${fmtMMSS(seg.start)} ${seg.text}\n`;
+    });
+    
+    let prompt = "";
+    if (type === "summary") {
+        prompt = "Analyze the following video transcript. Provide 3 catchy, SEO-friendly YouTube titles and a well-written description summary (2-3 paragraphs).\n\nTranscript:\n" + transcript;
+    } else if (type === "shorts") {
+        prompt = "Analyze the following video transcript and identify the top 3 most engaging 30-60 second segments that would make viral YouTube Shorts. For each short, provide the start/end timecodes, a catchy title, and a brief explanation of why it would go viral.\n\nTranscript:\n" + transcript;
+    } else if (type === "broll") {
+        prompt = "Analyze the following video transcript. Suggest 5-10 strategic B-roll (stock footage) inserts to make the video more engaging. Provide the exact timecode for each insert and describe the visual clearly.\n\nTranscript:\n" + transcript;
+    }
+    
+    const outBox = $("ai-output");
+    outBox.value = "Thinking...";
+    
+    try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: "You are an expert video editor and YouTube strategist. Respond clearly using Markdown formatting. If the transcript is in Turkish, respond in Turkish. If English, respond in English." }] }
+            })
+        });
+        
+        const data = await res.json();
+        if (!res.ok) {
+            throw new Error(data.error?.message || "API Error");
+        }
+        
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response generated.";
+        outBox.value = text;
+    } catch (e) {
+        console.error("Gemini Error:", e);
+        outBox.value = "Error: " + e.message;
+    }
 }
 
 function doSyncText() {

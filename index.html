@@ -168,6 +168,20 @@
       </div>
     </div>
 
+    <!-- AI Panel -->
+    <div class="find-panel" id="ai-panel" style="display:none; flex-direction:column; gap:8px">
+      <div style="display:flex; justify-content:space-between; align-items:center">
+        <span style="font-size:12px; font-weight:600; color:var(--text)" data-i18n="lbl_ai_tools">AI Studio</span>
+        <button class="btn-secondary" onclick="closeAiPanel()" data-i18n="btn_close">Close</button>
+      </div>
+      <div style="display:flex; gap:6px; margin-bottom:4px">
+        <button class="btn-secondary" onclick="askAi('summary')" data-i18n="ai_summary" style="flex:1">Summary</button>
+        <button class="btn-secondary" onclick="askAi('shorts')" data-i18n="ai_shorts" style="flex:1">Shorts</button>
+        <button class="btn-secondary" onclick="askAi('broll')" data-i18n="ai_broll" style="flex:1">B-Roll</button>
+      </div>
+      <textarea id="ai-output" class="settings-textarea" rows="10" data-i18n-ph="ai_ph" placeholder="Generated insights will appear here..." readonly></textarea>
+    </div>
+
     <!-- Segments list -->
     <div class="segments-wrap" id="segments-wrap">
       <div class="empty-state">
@@ -182,6 +196,7 @@
       <span class="seg-count" id="seg-count" data-i18n-tip="tip_segcount"></span>
       <button class="btn-secondary" onclick="toggleFindReplace()" data-i18n-tip="tip_find"><span class="ic" data-icon="search"></span></button>
       <button class="btn-secondary" onclick="toggleSyncPanel()" data-i18n-tip="tip_sync"><span class="ic" data-icon="refresh"></span></button>
+      <button class="btn-secondary" onclick="toggleAiPanel()" data-i18n-tip="tip_ai"><span class="ic" data-icon="wand"></span></button>
       <div class="export-wrap">
         <button class="btn-secondary" onclick="toggleCleanMenu()" data-i18n-tip="tip_clean"><span class="ic" data-icon="sparkles"></span></button>
         <div class="export-menu" id="clean-menu" style="display:none">
@@ -387,6 +402,16 @@
                     placeholder="word1, word2"
                     oninput="onSettingChange('profanityList', this.value)"></textarea>
           <div class="setting-hint" data-i18n="hint_cleanrun">Run any of these from the clean-up menu on the Subtitles tab.</div>
+        </div>
+      </div>
+
+      <div class="setup-section-title" style="margin-top:16px" data-i18n="sec_api">AI & API</div>
+      <div class="setting-item">
+        <div class="setting-sub" style="display:block; border-top:none; padding-top:4px">
+          <div class="setting-slider-header"><span data-i18n="nm_gemini_api">Gemini API Key</span></div>
+          <input type="password" id="set-gemini-key" class="settings-textarea" style="height:32px; font-size:14px; padding:0 8px"
+                 oninput="onSettingChange('geminiApiKey', this.value)">
+          <div class="setting-hint" data-i18n="ds_gemini_api">Get a free key from Google AI Studio to use AI tools.</div>
         </div>
       </div>
 

@@ -182,7 +182,15 @@ function ensureModel(modelKey, onProgress) {
     if (safeExists(dest)) return Promise.resolve(dest);
     const file = GGML_FILES[modelKey] || GGML_FILES.turbo;
     const url  = HF_BASE + file;
-    try { fs.mkdirSync(path.dirname(dest), { recursive: true }); } catch (e) {}
+    const dir = path.dirname(dest);
+    try {
+        if (!fs.existsSync(dir)) {
+            try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {
+                try { fs.mkdirSync(path.dirname(dir)); } catch(e2){}
+                try { fs.mkdirSync(dir); } catch(e3){}
+            }
+        }
+    } catch (e) {}
     const tmp = dest + ".part";
     const MAX = 8;
 

@@ -1,6 +1,20 @@
-# Subsper — Desktop
+# Subsper
 
-By **zipheron**.
+By **zipheron**. Local AI subtitles, audio cleanup & silence cutting. 100% offline & free.
+
+This repo holds **two apps that share the same engine**:
+
+| App | For | Where |
+|-----|-----|-------|
+| **Desktop** (this folder) | CapCut / any editor — no Premiere needed. Windows + macOS. | [Releases](../../releases) → `.exe` / `.dmg` |
+| **Premiere extension** | Adobe Premiere Pro users | [`extension/`](extension/) — see [extension/README.md](extension/README.md) |
+
+The Premiere extension reuses the Desktop app's bundled engine, so **installing the
+Desktop app makes both work** — no Python, no terminal.
+
+---
+
+## Subsper — Desktop
 
 Local AI subtitles, audio cleanup & silence cutting for **CapCut** (or any editor).
 No Premiere needed. Runs on **Windows** and macOS. 100% offline & free.

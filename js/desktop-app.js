@@ -11,6 +11,11 @@
   const osD   = require("os");
   const { spawn: spawnD } = require("child_process");
 
+  // Bundled zero-setup engine (whisper.cpp). Pure-Node module next to main.js.
+  let WCPP = null;
+  try { WCPP = require(pathD.join(window.__APP_DIR__, "js", "whispercpp.js")); }
+  catch (e) { console.error("[Desktop] whispercpp module load failed:", e); }
+
   // ── Desktop state ─────────────────────────────────────────────────────────
   let mediaPath = null;       // currently loaded video/audio file
   let mediaEl   = null;       // <video> used for preview + playback
@@ -70,6 +75,32 @@
   }
 
   // ── Transcription (file-based, reuses main.js helpers) ────────────────────
+  // Bundled engine path: download model (once) → ffmpeg to 16 kHz WAV → whisper.cpp.
+  // Returns the same shape as runPython("transcribe.py") so the rest of the flow
+  // is identical. No Python needed.
+  async function transcribeViaCpp(inputPath, modelKey, language) {
+    try {
+      if (!WCPP.modelExists(modelKey)) {
+        setStatus(`Downloading ${modelKey} model… (one-time)`, "info");
+        await WCPP.ensureModel(modelKey, frac =>
+          setStatus(`Downloading ${modelKey} model… ${Math.round(frac * 100)}%`, "info"));
+      }
+      setStatus("Preparing audio…", "info");
+      const wav = pathD.join(osD.tmpdir(), `subsper_${Date.now()}.wav`);
+      await WCPP.toWav16k(extDir(), inputPath, wav);
+
+      setStatus("Transcribing (Subsper engine)…", "info");
+      const r = await WCPP.transcribeWav({
+        appDir: extDir(), wavPath: wav, modelKey, language,
+        onLog: s => { const m = /progress\s*=\s*(\d+)\s*%/i.exec(s); if (m) setStatus(`Transcribing… ${m[1]}%`, "info"); },
+      });
+      try { fsD.unlinkSync(wav); } catch (e) {}
+      return { success: true, segments: r.segments, text: r.text, language: r.language, engine: "whisper.cpp", notes: [] };
+    } catch (e) {
+      return { success: false, error: (e && e.message) || String(e) };
+    }
+  }
+
   startTranscription = async function () {
     if (isRunning) return;
     if (!mediaPath) { showToast("Open a video/audio file first", "info", 2500); pickMedia(); return; }
@@ -85,13 +116,25 @@
     const language = document.getElementById("lang-select").value;
 
     try {
-      const engLabel = { whisperx:"WhisperX", mlx:"mlx-whisper", openai:"openai-whisper", auto:"Whisper" }[settings.engine] || "Whisper";
-      setStatus(`Transcribing with ${engLabel}… (first run may download the model)`, "info");
       showProgress(true);
 
-      const txRes = await runPython("transcribe.py",
-        [mediaPath, model, language, settings.engine, settings.diarize ? "1" : "0"],
-        stderr => { if (/download/i.test(stderr)) setStatus("Downloading model… (one-time)", "info"); });
+      // Engine routing: the bundled whisper.cpp is the default zero-setup engine.
+      // Python engines (whisperx/mlx/openai) are the optional "Pro" path — used
+      // when explicitly chosen, or when diarization (speaker labels) is on.
+      const wantPython = settings.diarize ||
+                         ["whisperx", "mlx", "openai"].indexOf(settings.engine) !== -1;
+      const useCpp = WCPP && !wantPython;
+
+      let txRes;
+      if (useCpp) {
+        txRes = await transcribeViaCpp(mediaPath, model, language);
+      } else {
+        const engLabel = { whisperx:"WhisperX", mlx:"mlx-whisper", openai:"openai-whisper", auto:"Whisper" }[settings.engine] || "Whisper";
+        setStatus(`Transcribing with ${engLabel}… (first run may download the model)`, "info");
+        txRes = await runPython("transcribe.py",
+          [mediaPath, model, language, settings.engine, settings.diarize ? "1" : "0"],
+          stderr => { if (/download/i.test(stderr)) setStatus("Downloading model… (one-time)", "info"); });
+      }
 
       if (!txRes.success) { handleError(txRes.error || "Transcription failed."); return; }
 

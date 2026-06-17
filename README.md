@@ -7,29 +7,25 @@ No Premiere needed. Runs on **Windows** and macOS. 100% offline & free.
 
 ---
 
-## ⬇️ For users — install the app
+## ⬇️ For users — install the app (zero setup)
+
+**No Python. No ffmpeg. No terminal.** The AI engine (whisper.cpp + ffmpeg) is
+bundled inside the app. The only one-time step is a model download on first use.
 
 ### Windows
 1. Go to the **[Releases](../../releases)** page and download the latest
    `Subsper-Setup-x.x.x.exe`.
-2. Run it (Windows SmartScreen may warn because the app isn't code-signed →
+2. Run it (Windows SmartScreen may warn because the app isn't code-signed yet →
    *More info → Run anyway*). Install.
-3. **First run — install the engine (one time).** Open the app → **Setup** tab.
-   It checks what's missing and gives you copy-paste commands / one-click installs:
-   - **Python** — [python.org](https://www.python.org/downloads/) → tick *“Add Python to PATH”*
-   - **ffmpeg** — in PowerShell: `winget install Gyan.FFmpeg`
-   - **Whisper** — click **Install automatically** in the Setup tab (or `pip install openai-whisper`)
-4. Click **Re-check** until everything is green, then open a video and transcribe.
+3. Open a video → **Transcribe**. On the **first** run it downloads the speech
+   model once (cached in `%APPDATA%\Subsper\models`); after that it's instant & offline.
 
-### macOS
-```
-brew install python3 ffmpeg
-pip3 install openai-whisper      # or: pip3 install whisperx
-```
-Then run the app (or `npm start` from source) and check the **Setup** tab.
+### macOS (Apple Silicon)
+Download `Subsper-x.x.x-mac.dmg` from **Releases**, drag to Applications, open it
+(first launch: right-click → Open to bypass Gatekeeper), pick a video → **Transcribe**.
 
-> The app itself is small. The AI engine (Python + Whisper) is installed once on the
-> machine — this keeps the download tiny and lets you pick the engine you want.
+> **Optional — Pro engine:** for speaker labels (diarization) install Python +
+> WhisperX and pick it in Settings. Everyone else needs nothing.
 
 ---
 

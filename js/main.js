@@ -116,10 +116,10 @@ const I18N = {
     sub_work_tx: "Edit", sub_settings: "Settings", sub_detect: "Detect",
     // transcribe controls
     lbl_model: "Model", lbl_language: "Language", opt_auto: "Auto detect",
-    btn_transcribe: "Transcribe In/Out Selection", btn_loadsrt: "Load SRT",
+    btn_transcribe: "Transcribe", btn_loadsrt: "Load SRT",
     btn_play: "Play", btn_pause: "Pause",
     btn_enhance: "Enhance Audio — denoise + normalize",
-    empty_p: "Set In (I) and Out (O) points on your timeline, then click Transcribe.",
+    empty_p: "Click Transcribe to subtitle your whole timeline — or set In/Out (I/O) first for just a range.",
     empty_hint: "Click a word to split there · double-click text to edit.",
     // find / replace
     find_ph: "Find…", replace_ph: "Replace with… (optional)",
@@ -183,7 +183,7 @@ const I18N = {
     tip_sub_sl_settings: "Threshold (dB), minimum length and cut padding",
     tip_model: "Whisper model: turbo = fast & accurate (recommended), large = best but slower, small/base = fast but less accurate",
     tip_lang: "Spoken language. 'Auto detect' finds it — but picking it gives more accurate results",
-    tip_transcribe: "Transcribes the audio in the In (I) / Out (O) range on your timeline",
+    tip_transcribe: "Transcribes the In/Out range — or the WHOLE timeline if no In/Out is set",
     tip_loadsrt: "Load an existing .srt subtitle file and edit it here",
     tip_play: "Play / pause in Premiere. Clicking a segment also jumps there and plays",
     tip_enhance: "Cleans the In/Out audio: reduces noise + balances loudness (−16 LUFS). Imports the clean WAV to the project",
@@ -675,8 +675,19 @@ function runCmd(cmd, args) {
 // ── ExtendScript ──────────────────────────────────────────────────────────
 function loadHostJSX() {
     return new Promise(resolve => {
-        const jsxPath = path.join(extDir(), "jsx", "host.jsx").replace(/\\/g, "/");
-        csInterface.evalScript(`$.evalFile("${jsxPath}")`, () => resolve());
+        const jsxPath = path.join(extDir(), "jsx", "host.jsx");
+        // Read the host source with Node and inject it straight into the
+        // ExtendScript engine. This redefines every function on each call and
+        // is IMMUNE to (a) the ScriptPath "load once per engine" cache and
+        // (b) $.evalFile path quirks on macOS that silently keep stale code.
+        try {
+            const src = fs.readFileSync(jsxPath, "utf8");
+            csInterface.evalScript(src, () => resolve());
+        } catch (e) {
+            // Fallback: evalFile by path if the read ever fails
+            const p = jsxPath.replace(/\\/g, "/");
+            csInterface.evalScript(`$.evalFile("${p}")`, () => resolve());
+        }
     });
 }
 
@@ -1091,6 +1102,7 @@ async function detectSilences() {
     showSilenceProgress(true);
 
     try {
+        await loadHostJSX();
         const seqInfo = await evalScript("getSequenceInfo()");
         if (!seqInfo.success) {
             setSilenceStatus(seqInfo.error || "Error reading timeline", "error");
@@ -1098,7 +1110,7 @@ async function detectSilences() {
             return;
         }
         if (!seqInfo.clips || seqInfo.clips.length === 0) {
-            setSilenceStatus("No clips in In/Out range. Set In/Out over a clip first.", "warning");
+            setSilenceStatus("No audio clips on the timeline. Add a clip first.", "warning");
             return;
         }
 
@@ -1159,9 +1171,10 @@ async function detectSilences() {
 
 // Shared: extract In/Out audio → return detected silence ranges in TIMELINE seconds
 async function findSilenceRanges() {
+    await loadHostJSX();
     const seqInfo = await evalScript("getSequenceInfo()");
     if (!seqInfo.success) throw new Error(seqInfo.error || "Error reading timeline");
-    if (!seqInfo.clips || seqInfo.clips.length === 0) throw new Error("No clips in In/Out range. Set In/Out over a clip first.");
+    if (!seqInfo.clips || seqInfo.clips.length === 0) throw new Error("No audio clips on the timeline. Add a clip first.");
 
     const tmpAudio = path.join(os.tmpdir(), `silence_${Date.now()}.wav`);
     const clipsArg = JSON.stringify({ clips: seqInfo.clips, duration: seqInfo.duration });
@@ -1247,10 +1260,11 @@ async function enhanceAudio() {
     setAudioStatus("Reading timeline for audio enhancement…", "info");
     showAudioProgress(true);
     try {
+        await loadHostJSX();
         const seqInfo = await evalScript("getSequenceInfo()");
         if (!seqInfo.success) { setAudioStatus(seqInfo.error || "Error reading timeline", "error"); return; }
         if (!seqInfo.clips || seqInfo.clips.length === 0) {
-            setAudioStatus("No clips in the In/Out range. Set In/Out over a clip first.", "warning");
+            setAudioStatus("No audio clips on the timeline. Add a clip first.", "warning");
             return;
         }
 
@@ -1772,10 +1786,10 @@ function classifyError(raw) {
         why:  "A sequence (timeline) must be open and active in Premiere.",
         fix:  "Open a sequence in the Timeline panel and try again.",
     };
-    if ((e.includes("in") || e.includes("out")) && e.includes("point")) return {
-        what: "No In/Out points set.",
-        why:  "Transcription requires a selected time range.",
-        fix:  "Press I to set an In point and O to set an Out point on the timeline, then try again.",
+    if (e.includes("timeline is empty")) return {
+        what: "The timeline is empty.",
+        why:  "There are no clips on the active sequence to transcribe.",
+        fix:  "Add a video or audio clip to the timeline, then try again.",
     };
     if (e.includes("source media file not found")) return {
         what: "Source media file is offline.",
@@ -1848,14 +1862,16 @@ async function startTranscription() {
         setStatus("Reading timeline…", "info");
         showProgress(true);
 
+        await loadHostJSX();   // always run the freshest host.jsx (defeats JSX cache)
         const seqInfo = await evalScript("getSequenceInfo()");
         if (!seqInfo.success) { handleError(seqInfo.error); return; }
         if (!seqInfo.clips || seqInfo.clips.length === 0) {
-            handleError("No clips found in the selected In/Out range.\nMake sure your In/Out points overlap a clip on the timeline.");
+            handleError("No audio clips found on the timeline.\nAdd a video/audio clip, then try again.");
             return;
         }
 
-        setStatus(`Extracting audio… (${seqInfo.duration.toFixed(1)}s selected)`, "info");
+        const scopeNote = seqInfo.wholeSequence ? "whole timeline" : "In/Out range";
+        setStatus(`Extracting audio… (${seqInfo.duration.toFixed(1)}s — ${scopeNote})`, "info");
 
         const tmpAudio = path.join(os.tmpdir(), `whisper_${Date.now()}.wav`);
         const clipsArg = JSON.stringify({ clips: seqInfo.clips, duration: seqInfo.duration });

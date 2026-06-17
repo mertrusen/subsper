@@ -728,6 +728,16 @@ function runCmd(cmd, args) {
     });
 }
 
+// Auto-install a Python package on first feature use (like the model downloads
+// itself). Returns true on success. --user so no sudo needed. runCmd handles the
+// Rosetta arch wrap so the install matches the interpreter that imports it.
+async function ensurePyPackage(pipName) {
+    const py = findPython();
+    if (!py) return false;
+    const res = await runCmd(py, ["-m", "pip", "install", "--user", pipName]);
+    return res.code === 0;
+}
+
 // ── ExtendScript ──────────────────────────────────────────────────────────
 function loadHostJSX() {
     return new Promise(resolve => {
@@ -1400,18 +1410,27 @@ async function fixPunctuation(opts) {
     }
     const btn = $("punct-btn");
     if (btn) { btn.disabled = true; btn.classList.add("busy"); }
-    setStatus(opts.auto ? "Auto-punctuating…" : "Restoring punctuation… (first run downloads the model)", "info");
     showProgress(true);
 
-    let res;
-    try {
-        const payload = JSON.stringify({
-            segments: segments.map(s => ({ text: s.text })),
-            language: (lastLanguage || "auto"),
-        });
-        res = await runPython("punctuate.py", [payload]);
-    } catch (e) {
-        res = { success: false, error: e && e.message ? e.message : String(e) };
+    const payload = JSON.stringify({
+        segments: segments.map(s => ({ text: s.text })),
+        language: (lastLanguage || "auto"),
+    });
+    const runPunct = async () => {
+        try { return await runPython("punctuate.py", [payload]); }
+        catch (e) { return { success: false, error: e && e.message ? e.message : String(e) }; }
+    };
+
+    setStatus(opts.auto ? "Auto-punctuating…" : "Restoring punctuation…", "info");
+    let res = await runPunct();
+
+    // First use: the punctuation pack isn't installed yet → install it
+    // automatically (like the model auto-downloads), then retry. No Setup trip.
+    const missing = res && res.error && (res.error.includes("not installed") || res.error.includes("No module"));
+    if (missing) {
+        setStatus("Setting up punctuation… (one-time download, please wait)", "info");
+        const ok = await ensurePyPackage("deepmultilingualpunctuation");
+        if (ok) { setStatus(opts.auto ? "Auto-punctuating…" : "Restoring punctuation…", "info"); res = await runPunct(); }
     }
 
     showProgress(false);
@@ -1419,17 +1438,18 @@ async function fixPunctuation(opts) {
 
     if (!res || !res.success || !Array.isArray(res.segments)) {
         const err = (res && res.error) || "Punctuation restore failed";
-        if (err.includes("not installed") || err.includes("No module")) {
-            setStatus("Punctuation model not installed", "warning");
+        if (err.includes("not installed") || err.includes("No module") || err.includes("Could not start Python")) {
+            // Auto-install couldn't complete (no Python, or pip/network failed).
+            setStatus("Couldn't set up punctuation automatically", "warning");
             if (!opts.silent) {
                 showError(
-                    "Punctuation restore is not installed.",
-                    "It uses the free offline 'deepmultilingualpunctuation' model.",
-                    "Install it from the Setup tab, then try again.",
+                    "Couldn't set up punctuation automatically.",
+                    "It needs Python 3 + internet (free offline model 'deepmultilingualpunctuation').",
+                    "Install Python 3, or run in Terminal:  pip install deepmultilingualpunctuation",
                     "Go to Setup", () => switchTab("setup")
                 );
             } else {
-                showToast("Auto-punctuate skipped — model not installed (Setup tab)", "info", 5000);
+                showToast("Auto-punctuate skipped — couldn't set up the pack", "info", 5000);
             }
         } else {
             if (!opts.silent) handleError(err);

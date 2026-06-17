@@ -682,7 +682,11 @@
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
-  <script src="js/CSInterface.js"></script>
+  <!-- DESKTOP footer (NOT the extension's CSInterface). Order matters:
+       desktop-shim defines fake CSInterface + __APP_DIR__ BEFORE main.js,
+       desktop-app overrides the Premiere I/O boundary AFTER main.js. -->
+  <script src="js/desktop-shim.js"></script>
   <script src="js/main.js"></script>
+  <script src="js/desktop-app.js"></script>
 </body>
 </html>

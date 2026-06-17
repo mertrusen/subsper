@@ -177,6 +177,7 @@ const I18N = {
     sec_syscheck: "System Check (optional / Pro)", sec_models: "Whisper Models", sec_install: "Install Notes",
     setup_optional: "✓ Subsper's built-in engine works out of the box — no setup needed. Everything below is OPTIONAL — install Python + a Pro engine only if you want speaker labels, auto-punctuation, or an alternative engine.",
     nm_builtin: "Subsper Built-in engine", ds_builtin_ok: "✓ Ready — bundled whisper.cpp + ffmpeg, no setup", ds_builtin_dl: "Bundled — the model downloads on first transcription",
+    py_optional: "Not detected — that's fine. Install Python only for optional Pro features (speaker labels, etc.).",
     btn_recheck: "Re-check", btn_reload: "Reload Extension",
     // tooltips
     tip_tab_transcribe: "Auto-generate and edit subtitles from your video",
@@ -330,6 +331,7 @@ const I18N = {
     sec_syscheck: "Sistem Kontrolü (opsiyonel / Pro)", sec_models: "Whisper Modelleri", sec_install: "Kurulum Notları",
     setup_optional: "✓ Subsper'in yerleşik motoru kutudan çıktığı gibi çalışır — kurulum gerekmez. Aşağıdaki her şey OPSİYONELDİR — yalnızca konuşmacı etiketleri, otomatik noktalama veya alternatif motor istiyorsan Python + bir Pro motor kur.",
     nm_builtin: "Subsper Yerleşik motor", ds_builtin_ok: "✓ Hazır — gömülü whisper.cpp + ffmpeg, kurulum yok", ds_builtin_dl: "Gömülü — model ilk transcribe'da iner",
+    py_optional: "Algılanmadı — sorun değil. Python'ı yalnızca opsiyonel Pro özellikler (konuşmacı etiketleri vb.) için kur.",
     btn_recheck: "Yeniden Tara", btn_reload: "Eklentiyi Yenile",
     tip_tab_transcribe: "Videodan otomatik altyazı oluştur ve düzenle",
     tip_tab_silence: "Sessiz boşlukları bul, işaretle veya kes",
@@ -2539,10 +2541,27 @@ async function runDiagnostics() {
     diagData = data;
 
     if (!data || data.error) {
-        setupIndicator.className  = "setup-indicator error";
-        setupBadge.style.display  = "inline-flex";
-        $("checks-list").innerHTML = `<div class="check-loading" style="color:var(--red2)">
-          Could not run Python. Is Python 3 installed?</div>`;
+        // No Python — that's fine. The built-in engine needs none. Show it as
+        // ready and frame Python as an optional Pro prerequisite (no scary red).
+        const bi = builtinEngineReady();
+        $("checks-list").innerHTML = `<div class="check-item">
+            <div class="check-icon check-${bi ? "ok" : "warn"}">${icon(bi ? "check" : "alert")}</div>
+            <div class="check-body">
+              <div class="check-name">${t("nm_builtin")}</div>
+              <div class="check-detail ${bi ? "ok" : "warn"}">${bi ? t("ds_builtin_ok") : t("ds_builtin_dl")}</div>
+            </div>
+          </div>
+          <div class="check-item">
+            <div class="check-icon check-opt">${icon("close")}</div>
+            <div class="check-body">
+              <div class="check-name">Python</div>
+              <div class="check-detail opt">${t("py_optional")}</div>
+            </div>
+          </div>`;
+        $("models-list").innerHTML = "";
+        applyEngineAvailability();
+        setupIndicator.className = "setup-indicator ok";  // built-in works regardless
+        setupBadge.style.display = "none";
         return;
     }
 

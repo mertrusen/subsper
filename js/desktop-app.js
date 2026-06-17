@@ -393,6 +393,35 @@
       mediaEl.controls = true;
       mediaEl.style.cssText = "width:100%;max-height:220px;background:#000;border-radius:8px;margin-bottom:10px;display:none";
 
+      mediaEl.ontimeupdate = () => {
+          const t = mediaEl.currentTime;
+          if (typeof segments === "undefined" || !segments || segments.length === 0) return;
+          
+          let activeIdx = -1;
+          for (let i = 0; i < segments.length; i++) {
+              if (t >= segments[i].seqStart && t <= segments[i].seqEnd) {
+                  activeIdx = i; break;
+              } else if (t < segments[i].seqStart) {
+                  break;
+              }
+          }
+          
+          const wrap = document.getElementById("segments-wrap");
+          if (wrap) {
+              const nodes = wrap.querySelectorAll(".segment");
+              nodes.forEach((n, i) => {
+                  if (i === activeIdx) {
+                      if (!n.classList.contains("playing")) {
+                          n.classList.add("playing");
+                          n.scrollIntoView({ behavior: "smooth", block: "center" });
+                      }
+                  } else {
+                      n.classList.remove("playing");
+                  }
+              });
+          }
+      };
+
       controls.insertBefore(openBtn, controls.firstChild);
       controls.insertBefore(mediaEl, controls.children[1]);
       controls.insertBefore(nameRow, controls.children[2]);

@@ -2717,46 +2717,38 @@ async function installPackage(pkg, key) {
     if (btn) { btn.textContent = "Installing…"; btn.disabled = true; btn.classList.add("installing"); }
 
     const py  = findPython();
-    const res = await runCmd(py, ["-m", "pip", "install", "--user", pkg]);
+    let res = await runCmd(py, ["-m", "pip", "install", "--user", pkg]);
+    
+    // First verification
+    let check = await runCmd(py, [path.join(extDir(), "scripts", "check_setup.py")]);
+    let parsed = {};
+    try { parsed = JSON.parse(check.out); } catch(e) {}
 
-    await runDiagnostics();
+    // If pip succeeded but import still fails (e.g. wrong architecture cached, or corrupt), force clean and reinstall
+    if (res.code === 0 && parsed[key] && parsed[key].status !== "ok") {
+        if (btn) { btn.textContent = "Fixing Corrupted Files…"; }
+        await runCmd(py, ["-c", "import site, shutil; site_dir = site.getusersitepackages(); shutil.rmtree(site_dir, ignore_errors=True)"]);
+        res = await runCmd(py, ["-m", "pip", "install", "--user", "--no-cache-dir", pkg]);
+        check = await runCmd(py, [path.join(extDir(), "scripts", "check_setup.py")]);
+        try { parsed = JSON.parse(check.out); } catch(e) {}
+    }
 
-    if (res.code === 0) {
-        if (diagData && diagData[key] && diagData[key].status !== "ok") {
-            showToast(`${pkg} installed, but Python cannot load it (likely corrupted dependencies like ~orch). Manually delete broken folders in site-packages and try again.`, "error", 10000);
-            if (btn) {
-                btn.textContent = "Install automatically";
-                btn.disabled    = false;
-                btn.classList.remove("installing");
-            }
-        } else {
-            showToast(`${pkg} installed successfully!`, "success");
-        }
-    } else {
-        showToast(`Install failed: ${res.err.slice(0, 120)}`, "error", 6000);
+    if (res.code === 0 && parsed[key] && parsed[key].status === "ok") {
         if (btn) {
-            btn.textContent = diagData?.[key]?.fix_label || "Install automatically";
-            btn.disabled    = false;
+            btn.textContent = "Installed";
+            btn.classList.remove("installing");
+            btn.classList.add("installed");
+        }
+        await runDiagnostics();
+    } else {
+        if (btn) {
+            btn.textContent = "Install Failed";
+            btn.disabled = false;
             btn.classList.remove("installing");
         }
+        alert("Failed to install " + pkg + ".\n\n" + res.err + "\n\nImport check output:\n" + check.out);
     }
 }
-
-document.addEventListener("click", async (e) => {
-    if (e.target && e.target.id === "btn-clean-python") {
-        if (!confirm("Are you sure you want to delete all cached Python packages (site-packages)? This will fix architecture corruption but you will need to re-download the packages. (Eski bozuk dosyaları tamamen silmek istediğinize emin misiniz?)")) return;
-        
-        e.target.textContent = "Cleaning...";
-        e.target.disabled = true;
-        const py = findPython();
-        await runCmd(py, ["-c", "import site, shutil; site_dir = site.getusersitepackages(); shutil.rmtree(site_dir, ignore_errors=True)"]);
-        
-        e.target.textContent = "Cleaned! Refreshing...";
-        await runDiagnostics();
-        e.target.textContent = "Clean Broken Packages";
-        e.target.disabled = false;
-    }
-});
 
 function renderModels(models) {
     if (!models?.cached?.length) {

@@ -36,6 +36,7 @@ const DEFAULT_SETTINGS = {
     theme:            "dark",     // dark | light | auto
     // ── Transcript clean-up ──
     customDict:      "",          // one "wrong=right" rule per line
+    promptWords:     "",          // comma-separated context words sent as initial_prompt
     autoCleanup:     false,       // apply dictionary + fillers automatically after transcribe
     fillerWords:     "",          // extra fillers (comma/newline separated); blank = built-in only
     fillerOn:        true,        // include built-in filler list
@@ -44,9 +45,6 @@ const DEFAULT_SETTINGS = {
     // ── Audio enhancement ──
     audioDenoise:    true,
     audioNormalize:  true,
-    // ── Send to Premiere ──
-    sendMode:        "caption",   // caption (SRT track) | graphics (MOGRT text)
-    mogrtPath:       "",          // chosen .mogrt template for styled graphics
     // ── Edit automation ──
     zoomAmount:      8,           // % push-in per clip
     zoomStyle:       "alternate", // alternate | in
@@ -145,6 +143,7 @@ const I18N = {
     nm_diar: "Speaker Labels (Pro)", ds_diar: "Tags who is speaking. Needs the WhisperX Pro engine + a free HuggingFace token.",
     nm_autocleanup: "Auto clean-up", ds_autocleanup: "Apply dictionary & remove fillers when transcription finishes",
     lbl_dict: "Custom dictionary", hint_dict: "Fixes names, brands & mis-hearings. Format: wrong=right (whole word, case-insensitive).",
+    lbl_prompt_words: "Context words (AI prompt)", hint_prompt_words: "Difficult words/names that the AI might mis-hear. These are sent as a prompt to improve accuracy. Comma-separated.",
     nm_filler: "Filler words", ds_filler: "Include the built-in list (ee, ıı, şey, um, uh…)",
     lbl_extrafiller: "Extra fillers to remove",
     nm_prof: "Profanity filter", ds_prof: "How to handle matched words",
@@ -240,18 +239,6 @@ const I18N = {
     tip_uilang: "Interface & tooltip language",
     tip_seek: "Jump here and play", tip_edit: "Edit text (double-click also works)",
     tip_split: "Split this segment in half", tip_del: "Delete this segment",
-    // send-to-Premiere mode
-    sec_send: "Send to Premiere", nm_sendmode: "Send subtitles as",
-    ds_sendmode: "Caption track = simple, fast. Styled graphics = editable text clips with your style (like AutoCut/FireCut).",
-    opt_caption: "Caption track (SRT)", opt_graphics: "Styled graphics (MOGRT)",
-    lbl_mogrt: "Style template (.mogrt)", btn_pickmogrt: "Choose .mogrt…",
-    mogrt_none: "No template chosen", act_send_gfx: "Send as Graphics",
-    hint_mogrt: "Export a styled text template once from Premiere: Graphics workspace → make a text layer → Export Motion Graphics Template. Then pick it here.",
-    tip_sendmode: "How captions land in Premiere: a plain caption track, or editable styled text graphics via a Motion Graphics Template",
-    tip_pickmogrt: "Pick the .mogrt template whose style the subtitles will use",
-    err_nomogrt_what: "No .mogrt template selected.",
-    err_nomogrt_why: "Styled graphics mode places each subtitle using a Motion Graphics Template — you need to pick one first.",
-    err_nomogrt_fix: "Export a styled text template from Premiere (Graphics → text layer → Export Motion Graphics Template), then choose it in Settings.",
     // new tabs
     tab_edit: "Edit", tab_audio: "Audio", sub_actions: "Tools",
     tip_tab_edit: "Automated editing — cut silences, fillers, shorten pauses, auto-zoom",
@@ -300,6 +287,7 @@ const I18N = {
     nm_diar: "Konuşmacı Etiketleri (Pro)", ds_diar: "Kim konuşuyor etiketler. WhisperX Pro motoru + ücretsiz HuggingFace token gerekir.",
     nm_autocleanup: "Otomatik temizlik", ds_autocleanup: "İş bitince sözlüğü uygular ve dolgu kelimeleri siler",
     lbl_dict: "Özel sözlük", hint_dict: "İsim/marka/yanlış duymaları düzeltir. Format: yanlış=doğru (tam kelime, büyük-küçük fark etmez).",
+    lbl_prompt_words: "Bağlam kelimeleri (AI prompt)", hint_prompt_words: "Yapay zekanın yanlış duyabileceği zor kelimeler/isimler. Doğruluğu artırmak için prompt olarak gönderilir. Virgülle ayırın.",
     nm_filler: "Dolgu kelimeler", ds_filler: "Yerleşik listeyi kullan (ee, ıı, şey, um, uh…)",
     lbl_extrafiller: "Kaldırılacak ekstra dolgular",
     nm_prof: "Küfür filtresi", ds_prof: "Eşleşen kelimeler nasıl gizlensin",
@@ -392,17 +380,6 @@ const I18N = {
     tip_uilang: "Arayüz ve tooltip dili",
     tip_seek: "Bu ana git ve oynat", tip_edit: "Metni düzenle (çift tıklama da olur)",
     tip_split: "Bu segmenti ortadan ikiye böl", tip_del: "Bu segmenti sil",
-    sec_send: "Premiere'e Gönderme", nm_sendmode: "Altyazıyı şu şekilde gönder",
-    ds_sendmode: "Caption track = basit, hızlı. Stilli grafik = senin stilinle düzenlenebilir metin klipleri (AutoCut/FireCut gibi).",
-    opt_caption: "Caption track (SRT)", opt_graphics: "Stilli grafik (MOGRT)",
-    lbl_mogrt: "Stil şablonu (.mogrt)", btn_pickmogrt: ".mogrt seç…",
-    mogrt_none: "Şablon seçilmedi", act_send_gfx: "Grafik Olarak Gönder",
-    hint_mogrt: "Premiere'den bir kez stilli metin şablonu çıkar: Graphics çalışma alanı → bir metin katmanı yap → Export Motion Graphics Template. Sonra buradan seç.",
-    tip_sendmode: "Altyazılar Premiere'e nasıl gelsin: düz caption track mi, yoksa MOGRT ile düzenlenebilir stilli metin grafiği mi",
-    tip_pickmogrt: "Altyazıların kullanacağı stildeki .mogrt şablonunu seç",
-    err_nomogrt_what: "Hiç .mogrt şablonu seçilmedi.",
-    err_nomogrt_why: "Stilli grafik modu her altyazıyı bir Motion Graphics Template ile yerleştirir — önce bir tane seçmen gerekir.",
-    err_nomogrt_fix: "Premiere'den stilli bir metin şablonu çıkar (Graphics → metin katmanı → Export Motion Graphics Template), sonra Ayarlar'dan seç.",
     tab_edit: "Düzen", tab_audio: "Ses", sub_actions: "İşlemler",
     tip_tab_edit: "Otomatik kurgu — sessizlik/dolgu kes, duraklama kısalt, oto-zoom",
     tip_tab_audio: "Ses araçları — temizle, dengele, küfür bip'le",
@@ -925,16 +902,14 @@ function initSettingsUI() {
 
     // Transcript clean-up
     set("set-dict", settings.customDict);
+    set("set-prompt-words", settings.promptWords || "");
+    updateDictCount();
     chk("set-autocleanup", settings.autoCleanup);
     chk("set-filleron", settings.fillerOn);
     set("set-fillers", settings.fillerWords);
     set("set-profanity", settings.profanityList);
     set("set-profmode", settings.profanityMode);
 
-    // Send to Premiere
-    set("set-sendmode", settings.sendMode);
-    const gsub = $("graphics-sub"); if (gsub) gsub.style.display = settings.sendMode === "graphics" ? "block" : "none";
-    updateMogrtLabel();
 
     chk("set-karaoke", settings.karaoke);
     const kHi = $("set-karaoke-hi"); if (kHi) kHi.value = "#" + (settings.karaokeHi || "FFE000");
@@ -1437,6 +1412,19 @@ function parseDictRules(str) {
     return rules;
 }
 
+function updateDictCount() {
+    const el = $("dict-rule-count");
+    const errEl = $("dict-errors");
+    if (!el) return;
+    const raw = (settings.customDict || "").trim();
+    if (!raw) { el.textContent = ""; if (errEl) errEl.textContent = ""; return; }
+    const lines = raw.split(/\r?\n/).filter(l => l.trim());
+    const rules = parseDictRules(raw);
+    const invalid = lines.length - rules.length;
+    el.textContent = rules.length + " rule" + (rules.length !== 1 ? "s" : "") + " active";
+    if (errEl) errEl.textContent = invalid > 0 ? invalid + " invalid line" + (invalid !== 1 ? "s" : "") + " (missing =)" : "";
+}
+
 function applyDictionary(opts) {
     opts = opts || {};
     const rules = parseDictRules(settings.customDict);
@@ -1915,6 +1903,7 @@ async function startTranscription() {
                 setStatus("Transcribing (Subsper engine)…", "info");
                 const r = await W.transcribeWav({
                     appDir: extDir(), wavPath: tmpAudio, modelKey: model, language,
+                    initialPrompt: settings.promptWords || "",
                     spawnOpts: { env: spawnEnv() },
                     onLog: s => { const m = /progress\s*=\s*(\d+)\s*%/i.exec(s); if (m) setStatus(`Transcribing… ${m[1]}%`, "info"); },
                 });
@@ -1937,7 +1926,7 @@ async function startTranscription() {
             const engLabel = { whisperx: "WhisperX", mlx: "mlx-whisper", openai: "openai-whisper", auto: "Whisper" }[settings.engine] || "Whisper";
             setStatus(`Transcribing with ${engLabel}… (first run may download the model)`, "info");
             txRes = await runPython("transcribe.py",
-                [tmpAudio, model, language, settings.engine, settings.diarize ? "1" : "0"],
+                [tmpAudio, model, language, settings.engine, settings.diarize ? "1" : "0", settings.promptWords || ""],
                 stderr => {
                     if (stderr.includes("Downloading") || stderr.includes("download"))
                         setStatus("Downloading model… (one-time, please wait)", "info");
@@ -2396,107 +2385,6 @@ async function sendToPremiere() {
     }
 }
 
-// ── Send as styled Essential Graphics (MOGRT) — like AutoCut / FireCut ─────
-async function sendStyledGraphics() {
-    if (segments.length === 0) return;
-
-    const mogrt = settings.mogrtPath;
-    if (!mogrt || !fs.existsSync(mogrt)) {
-        setStatus("No MOGRT template selected", "warning");
-        showError(
-            t("err_nomogrt_what"),
-            t("err_nomogrt_why"),
-            t("err_nomogrt_fix"),
-            t("btn_pickmogrt"),
-            () => { switchMainTab("transcribe"); switchSubTab("transcribe", "settings"); setTimeout(pickMOGRT, 150); }
-        );
-        return;
-    }
-
-    sendBtn.disabled = true;
-    setStatus("Placing styled graphics on the timeline…", "info");
-    showProgress(true);
-    hideError(); hideSRTSaved();
-
-    const finalSegs = settings.gapFill ? applyGapFill(segments, settings.gapMax) : segments;
-    const items = finalSegs.map(seg => ({
-        text:  settings.autoSplit ? wrapText(seg.text, settings.maxCharsPerLine, settings.maxLines) : seg.text,
-        start: seg.seqStart,
-        end:   seg.seqEnd,
-    }));
-    const payload = JSON.stringify({ mogrtPath: mogrt.replace(/\\/g, "/"), items });
-    const escaped = payload.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-
-    const result = await evalScript(`importTextGraphics('${escaped}')`);
-
-    showProgress(false);
-    sendBtn.disabled = false;
-
-    if (result.diag) console.log("[Whisper] graphics diag:", result.diag);
-
-    if (result && result.success && result.placed > 0) {
-        setStatus(`✓ Placed ${result.placed} styled graphic(s) on track V${(result.track || 0) + 1}`, "success");
-        showToast(`${result.placed} styled captions added to the timeline`, "success", 5000);
-    } else {
-        const err = (result && result.error) || "Could not place graphics.";
-        handleError(err);
-        if (result && result.diag) {
-            showError(
-                "Styled graphics could not be placed correctly.",
-                "Diagnostic (send me this): " + result.diag.join("  •  "),
-                "This usually means the MOGRT's text parameter name differs in your Premiere version — paste the diagnostic above and I'll tune it."
-            );
-        }
-    }
-}
-
-// Pick a .mogrt template file (CEP file dialog)
-function pickMOGRT() {
-    let chosen = null;
-    try {
-        if (window.cep && window.cep.fs && window.cep.fs.showOpenDialogEx) {
-            const res = window.cep.fs.showOpenDialogEx(false, false, "Choose a .mogrt template", "", ["mogrt"]);
-            if (res && res.data && res.data.length) chosen = res.data[0];
-        }
-    } catch (e) {}
-    if (!chosen) {
-        // Fallback: hidden file input
-        const inp = document.getElementById("mogrt-file-input");
-        if (inp) {
-            inp.onchange = e => {
-                const f = e.target.files[0];
-                if (f && f.path) { settings.mogrtPath = f.path; saveSettings(); updateMogrtLabel(); showToast("MOGRT selected", "success"); }
-                inp.value = "";
-            };
-            inp.click();
-        }
-        return;
-    }
-    settings.mogrtPath = chosen;
-    saveSettings();
-    updateMogrtLabel();
-    showToast("MOGRT template selected", "success");
-}
-
-function updateMogrtLabel() {
-    const el = $("mogrt-name");
-    if (el) {
-        const p = settings.mogrtPath;
-        el.textContent = p ? p.split(/[\\/]/).pop() : t("mogrt_none");
-        el.classList.toggle("set", !!p);
-    }
-}
-
-function onSendModeChange(val) {
-    settings.sendMode = val;
-    saveSettings();
-    const sub = $("graphics-sub");
-    if (sub) sub.style.display = val === "graphics" ? "block" : "none";
-    // reflect on the send button label
-    const sb = $("send-btn");
-    if (sb) sb.querySelector("span") && (sb.querySelector("span").textContent =
-        val === "graphics" ? t("act_send_gfx") : t("act_send"));
-}
 
 // ── Setup / Diagnostics ───────────────────────────────────────────────────
 let diagData = null;

@@ -175,7 +175,8 @@ const I18N = {
     sil_status: "Detect silences in your In/Out selection",
     // setup
     sec_syscheck: "System Check (optional / Pro)", sec_models: "Whisper Models", sec_install: "Install Notes",
-    setup_optional: "✓ Subsper works out of the box — no setup needed. This page is only for optional Pro features (speaker labels).",
+    setup_optional: "✓ Subsper's built-in engine works out of the box — no setup needed. Everything below is OPTIONAL — install Python + a Pro engine only if you want speaker labels, auto-punctuation, or an alternative engine.",
+    nm_builtin: "Subsper Built-in engine", ds_builtin_ok: "✓ Ready — bundled whisper.cpp + ffmpeg, no setup", ds_builtin_dl: "Bundled — the model downloads on first transcription",
     btn_recheck: "Re-check", btn_reload: "Reload Extension",
     // tooltips
     tip_tab_transcribe: "Auto-generate and edit subtitles from your video",
@@ -327,7 +328,8 @@ const I18N = {
     hint_sil: "Düşük dB = sadece derin sessizlikler. Süreyi artırınca kısa duraklamalar atlanır. Pay, keserken nefes bırakır.",
     sil_status: "In/Out seçimindeki sessizlikleri tespit et",
     sec_syscheck: "Sistem Kontrolü (opsiyonel / Pro)", sec_models: "Whisper Modelleri", sec_install: "Kurulum Notları",
-    setup_optional: "✓ Subsper kutudan çıktığı gibi çalışır — kurulum gerekmez. Bu sayfa yalnızca opsiyonel Pro özellikler (konuşmacı etiketleri) içindir.",
+    setup_optional: "✓ Subsper'in yerleşik motoru kutudan çıktığı gibi çalışır — kurulum gerekmez. Aşağıdaki her şey OPSİYONELDİR — yalnızca konuşmacı etiketleri, otomatik noktalama veya alternatif motor istiyorsan Python + bir Pro motor kur.",
+    nm_builtin: "Subsper Yerleşik motor", ds_builtin_ok: "✓ Hazır — gömülü whisper.cpp + ffmpeg, kurulum yok", ds_builtin_dl: "Gömülü — model ilk transcribe'da iner",
     btn_recheck: "Yeniden Tara", btn_reload: "Eklentiyi Yenile",
     tip_tab_transcribe: "Videodan otomatik altyazı oluştur ve düzenle",
     tip_tab_silence: "Sessiz boşlukları bul, işaretle veya kes",
@@ -2553,6 +2555,13 @@ async function runDiagnostics() {
     setupBadge.style.display = data._ready ? "none" : "inline-flex";
 }
 
+function builtinEngineReady() {
+    const W = wcpp();
+    if (!W) return false;
+    try { return fs.existsSync(W.whisperBin(extDir())) && fs.existsSync(W.ffmpegBin(extDir())); }
+    catch (e) { return false; }
+}
+
 function renderChecks(data) {
     const keys = [
         { key: "python"     },
@@ -2562,7 +2571,15 @@ function renderChecks(data) {
         { key: "mlx_whisper"},
         { key: "punctuation"},
     ];
-    let html = "";
+    // Built-in engine row first — this is what 99% of users use; needs no setup.
+    const bi = builtinEngineReady();
+    let html = `<div class="check-item">
+      <div class="check-icon check-${bi ? "ok" : "warn"}">${icon(bi ? "check" : "alert")}</div>
+      <div class="check-body">
+        <div class="check-name">${t("nm_builtin")}</div>
+        <div class="check-detail ${bi ? "ok" : "warn"}">${bi ? t("ds_builtin_ok") : t("ds_builtin_dl")}</div>
+      </div>
+    </div>`;
     for (const { key } of keys) {
         const c = data[key]; if (!c) continue;
         const st = c.status;             // ok | warn | missing | na

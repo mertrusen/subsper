@@ -1,7 +1,7 @@
 {
   "name": "subsper",
   "productName": "Subsper",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "Subsper — AI subtitles, audio cleanup & silence cutting. By zipheron.",
   "main": "electron-main.js",
   "author": "zipheron",
@@ -58,15 +58,12 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["arm64"]
+          "arch": ["x64"]
         }
       ],
       "category": "public.app-category.video",
       "artifactName": "Subsper-${version}-mac.${ext}",
-      "binaries": [
-        "bin/darwin-arm64/ffmpeg",
-        "bin/darwin-arm64/whisper-cli"
-      ]
+      "identity": null
     },
     "dmg": {
       "writeUpdateInfo": false

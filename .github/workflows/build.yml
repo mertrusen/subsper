@@ -33,7 +33,7 @@ jobs:
           if-no-files-found: error
 
   macos:
-    runs-on: macos-15   # Apple Silicon runner → darwin-arm64 binaries
+    runs-on: macos-13   # Intel runner → darwin-x64 binaries
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

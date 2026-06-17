@@ -16,7 +16,7 @@ let lastLanguage = "";
 
 // ── Settings (persisted to localStorage) ──────────────────────────────────
 const DEFAULT_SETTINGS = {
-    engine:          "auto",      // try whisperx → mlx → openai; works with whatever is installed
+    engine:          "cpp",       // bundled whisper.cpp — zero setup. Pro: whisperx/mlx/openai (Python)
     diarize:         false,
     autoPunctuate:   false,
     autoSplit:       true,
@@ -138,8 +138,11 @@ const I18N = {
     lbl_theme: "Appearance", theme_dark: "Dark", theme_light: "Light", theme_auto: "Auto",
     tip_theme: "Switch appearance — Dark / Light / Auto (follow system)",
     // settings items
-    nm_engine: "Engine", ds_engine: "WhisperX gives the most accurate word timing + speaker labels",
-    nm_diar: "Speaker Labels", ds_diar: "Tags who is speaking. WhisperX only — needs a free HuggingFace token.",
+    nm_engine: "Engine", ds_engine: "Built-in works instantly with no setup. Pro engines need Python (optional).",
+    opt_eng_cpp: "Subsper Built-in — no setup needed ★", opt_eng_whisperx: "Pro: WhisperX — speaker labels (needs Python)",
+    opt_eng_mlx: "Pro: mlx-whisper — Apple Silicon (needs Python)", opt_eng_openai: "Pro: openai-whisper (needs Python)",
+    pro_unavailable: "Pro engines need Python + WhisperX (optional). Built-in is selected.",
+    nm_diar: "Speaker Labels (Pro)", ds_diar: "Tags who is speaking. Needs the WhisperX Pro engine + a free HuggingFace token.",
     nm_autopunct: "Auto-punctuation", ds_autopunct: "Restore punctuation & casing right after transcribing",
     nm_autocleanup: "Auto clean-up", ds_autocleanup: "Apply dictionary & remove fillers when transcription finishes",
     lbl_dict: "Custom dictionary", hint_dict: "Fixes names, brands & mis-hearings. Format: wrong=right (whole word, case-insensitive).",
@@ -171,7 +174,8 @@ const I18N = {
     hint_sil: "Lower dB = only deeper silences count. Raise length to skip brief pauses. Padding leaves breath when cutting.",
     sil_status: "Detect silences in your In/Out selection",
     // setup
-    sec_syscheck: "System Check", sec_models: "Whisper Models", sec_install: "Install Notes",
+    sec_syscheck: "System Check (optional / Pro)", sec_models: "Whisper Models", sec_install: "Install Notes",
+    setup_optional: "✓ Subsper works out of the box — no setup needed. This page is only for optional Pro features (speaker labels).",
     btn_recheck: "Re-check", btn_reload: "Reload Extension",
     // tooltips
     tip_tab_transcribe: "Auto-generate and edit subtitles from your video",
@@ -288,8 +292,11 @@ const I18N = {
     sec_interface: "Arayüz", lbl_uilang: "Dil", sec_modellang: "Model & Dil",
     lbl_theme: "Görünüm", theme_dark: "Koyu", theme_light: "Açık", theme_auto: "Otomatik",
     tip_theme: "Görünümü değiştir — Koyu / Açık / Otomatik (sistemi takip et)",
-    nm_engine: "Motor", ds_engine: "WhisperX en doğru kelime zamanı + konuşmacı etiketi verir",
-    nm_diar: "Konuşmacı Etiketleri", ds_diar: "Kim konuşuyor etiketler. Sadece WhisperX — ücretsiz HuggingFace token gerekir.",
+    nm_engine: "Motor", ds_engine: "Yerleşik motor kurulum gerektirmez, anında çalışır. Pro motorlar Python ister (opsiyonel).",
+    opt_eng_cpp: "Subsper Yerleşik — kurulum gerekmez ★", opt_eng_whisperx: "Pro: WhisperX — konuşmacı etiketi (Python gerekir)",
+    opt_eng_mlx: "Pro: mlx-whisper — Apple Silicon (Python gerekir)", opt_eng_openai: "Pro: openai-whisper (Python gerekir)",
+    pro_unavailable: "Pro motorlar Python + WhisperX ister (opsiyonel). Yerleşik motor seçildi.",
+    nm_diar: "Konuşmacı Etiketleri (Pro)", ds_diar: "Kim konuşuyor etiketler. WhisperX Pro motoru + ücretsiz HuggingFace token gerekir.",
     nm_autopunct: "Otomatik noktalama", ds_autopunct: "Transkripsiyon biter bitmez noktalama ve büyük harfleri düzeltir",
     nm_autocleanup: "Otomatik temizlik", ds_autocleanup: "İş bitince sözlüğü uygular ve dolgu kelimeleri siler",
     lbl_dict: "Özel sözlük", hint_dict: "İsim/marka/yanlış duymaları düzeltir. Format: yanlış=doğru (tam kelime, büyük-küçük fark etmez).",
@@ -319,7 +326,8 @@ const I18N = {
     lbl_silthr: "Sessizlik eşiği", lbl_sildur: "Min. sessizlik süresi", lbl_silpad: "Kesim payı (konuşma etrafı)",
     hint_sil: "Düşük dB = sadece derin sessizlikler. Süreyi artırınca kısa duraklamalar atlanır. Pay, keserken nefes bırakır.",
     sil_status: "In/Out seçimindeki sessizlikleri tespit et",
-    sec_syscheck: "Sistem Kontrolü", sec_models: "Whisper Modelleri", sec_install: "Kurulum Notları",
+    sec_syscheck: "Sistem Kontrolü (opsiyonel / Pro)", sec_models: "Whisper Modelleri", sec_install: "Kurulum Notları",
+    setup_optional: "✓ Subsper kutudan çıktığı gibi çalışır — kurulum gerekmez. Bu sayfa yalnızca opsiyonel Pro özellikler (konuşmacı etiketleri) içindir.",
     btn_recheck: "Yeniden Tara", btn_reload: "Eklentiyi Yenile",
     tip_tab_transcribe: "Videodan otomatik altyazı oluştur ve düzenle",
     tip_tab_silence: "Sessiz boşlukları bul, işaretle veya kes",
@@ -614,6 +622,17 @@ function resolvePythonAsync() {
 
 function extDir()     { return csInterface.getSystemPath(SystemPath.EXTENSION); }
 function scriptsDir() { return path.join(extDir(), "scripts"); }
+
+// Bundled zero-setup engine (whisper.cpp). Loaded lazily, cached. Returns null
+// if unavailable so callers can fall back to the Python engine.
+let _WCPP;
+function wcpp() {
+    if (_WCPP === undefined) {
+        try { _WCPP = _req(path.join(extDir(), "js", "whispercpp.js")); }
+        catch (e) { console.error("[Subsper] whispercpp load failed:", e); _WCPP = null; }
+    }
+    return _WCPP;
+}
 
 // ── Run Python script ─────────────────────────────────────────────────────
 // Augment PATH so spawned tools (python/ffmpeg) are found. On macOS, GUI apps
@@ -1871,29 +1890,51 @@ async function startTranscription() {
         }
 
         const scopeNote = seqInfo.wholeSequence ? "whole timeline" : "In/Out range";
-        setStatus(`Extracting audio… (${seqInfo.duration.toFixed(1)}s — ${scopeNote})`, "info");
-
         const tmpAudio = path.join(os.tmpdir(), `whisper_${Date.now()}.wav`);
-        const clipsArg = JSON.stringify({ clips: seqInfo.clips, duration: seqInfo.duration });
 
-        const extractRes = await runPython("extract_audio.py", [clipsArg, tmpAudio]);
-        if (!extractRes.success) { handleError(extractRes.error || "Audio extraction failed."); return; }
+        // Engine routing: bundled whisper.cpp (zero-setup) is the default. Python
+        // (whisperx/mlx/openai) is used only when explicitly chosen or when
+        // diarization (speaker labels) is on — the optional "Pro" path.
+        const wantPython = settings.diarize ||
+                           ["whisperx", "mlx", "openai"].indexOf(settings.engine) !== -1;
+        const W = wantPython ? null : wcpp();
 
-        const engLabel = { whisperx: "WhisperX", mlx: "mlx-whisper", openai: "openai-whisper", auto: "Whisper" }[settings.engine] || "Whisper";
-        setStatus(`Transcribing with ${engLabel}… (first run may download the model)`, "info");
+        let txRes;
+        if (W) {
+            try {
+                setStatus(`Extracting audio… (${seqInfo.duration.toFixed(1)}s — ${scopeNote})`, "info");
+                await W.extractClipsToWav(extDir(),
+                    { clips: seqInfo.clips, duration: seqInfo.duration }, tmpAudio, { env: spawnEnv() });
+                if (!W.modelExists(model)) {
+                    setStatus(`Downloading ${model} model… (one-time)`, "info");
+                    await W.ensureModel(model, frac =>
+                        setStatus(`Downloading ${model} model… ${Math.round(frac * 100)}%`, "info"));
+                }
+                setStatus("Transcribing (Subsper engine)…", "info");
+                const r = await W.transcribeWav({
+                    appDir: extDir(), wavPath: tmpAudio, modelKey: model, language,
+                    spawnOpts: { env: spawnEnv() },
+                    onLog: s => { const m = /progress\s*=\s*(\d+)\s*%/i.exec(s); if (m) setStatus(`Transcribing… ${m[1]}%`, "info"); },
+                });
+                txRes = { success: true, segments: r.segments, text: r.text, language: r.language, engine: "whisper.cpp", notes: [] };
+            } catch (e) {
+                txRes = { success: false, error: (e && e.message) || String(e) };
+            }
+        } else {
+            setStatus(`Extracting audio… (${seqInfo.duration.toFixed(1)}s — ${scopeNote})`, "info");
+            const clipsArg = JSON.stringify({ clips: seqInfo.clips, duration: seqInfo.duration });
+            const extractRes = await runPython("extract_audio.py", [clipsArg, tmpAudio]);
+            if (!extractRes.success) { handleError(extractRes.error || "Audio extraction failed."); return; }
 
-        const txArgs = [
-            tmpAudio,
-            model,
-            language,
-            settings.engine,
-            settings.diarize ? "1" : "0",
-        ];
-
-        const txRes = await runPython("transcribe.py", txArgs, stderr => {
-            if (stderr.includes("Downloading") || stderr.includes("download"))
-                setStatus("Downloading model… (one-time, please wait)", "info");
-        });
+            const engLabel = { whisperx: "WhisperX", mlx: "mlx-whisper", openai: "openai-whisper", auto: "Whisper" }[settings.engine] || "Whisper";
+            setStatus(`Transcribing with ${engLabel}… (first run may download the model)`, "info");
+            txRes = await runPython("transcribe.py",
+                [tmpAudio, model, language, settings.engine, settings.diarize ? "1" : "0"],
+                stderr => {
+                    if (stderr.includes("Downloading") || stderr.includes("download"))
+                        setStatus("Downloading model… (one-time, please wait)", "info");
+                });
+        }
 
         try { if (fs.existsSync(tmpAudio)) fs.unlinkSync(tmpAudio); } catch {}
 
@@ -2457,6 +2498,36 @@ function onSendModeChange(val) {
 // ── Setup / Diagnostics ───────────────────────────────────────────────────
 let diagData = null;
 
+// Gate the optional "Pro" engines (Python) by what's actually installed, so the
+// end user can never pick a broken option. Built-in (whisper.cpp) always works.
+function applyEngineAvailability() {
+    const sel = $("set-engine");
+    if (!sel) return;
+    const note = $("engine-pro-note");
+    const ok = (k) => diagData && diagData[k] && diagData[k].status === "ok";
+    const avail = { whisperx: ok("whisperx"), mlx: ok("mlx_whisper"), openai: ok("whisper") };
+
+    ["whisperx", "mlx", "openai"].forEach(v => {
+        const opt = sel.querySelector(`option[value="${v}"]`);
+        if (opt) opt.disabled = !avail[v];
+    });
+    const diar = $("set-diarize");
+    if (diar) {
+        diar.disabled = !avail.whisperx;
+        if (!avail.whisperx && diar.checked) { diar.checked = false; settings.diarize = false; saveSettings(); }
+    }
+    // If a Pro engine is selected but isn't installed, fall back to Built-in.
+    if (["whisperx", "mlx", "openai"].indexOf(settings.engine) !== -1 && !avail[settings.engine]) {
+        settings.engine = "cpp"; saveSettings();
+    }
+    sel.value = settings.engine;
+    if (note) {
+        const anyPro = avail.whisperx || avail.mlx || avail.openai;
+        if (anyPro) { note.style.display = "none"; }
+        else { note.textContent = t("pro_unavailable"); note.style.display = "block"; }
+    }
+}
+
 async function runDiagnostics() {
     setupIndicator.className = "setup-indicator loading";
     $("checks-list").innerHTML = `<div class="check-loading">Checking…</div>`;
@@ -2476,6 +2547,7 @@ async function runDiagnostics() {
     renderChecks(data);
     renderModels(data.models);
     renderSetupNotes(data._os || "mac");
+    applyEngineAvailability();
 
     setupIndicator.className = `setup-indicator ${data._ready ? "ok" : "warn"}`;
     setupBadge.style.display = data._ready ? "none" : "inline-flex";
@@ -2680,14 +2752,16 @@ function initTooltips() {
     // never blocks the UI), then run the diagnostic.
     resolvePythonAsync().then(() => runPython("check_setup.py", [])).then(data => {
         diagData = data;
+        applyEngineAvailability();
         if (!data || !data._ready) {
-            setupIndicator.className = "setup-indicator warn";
-            setupBadge.style.display = "inline-flex";
+            // Built-in engine works regardless — Setup is only for optional Pro.
+            setupIndicator.className = "setup-indicator ok";
         } else {
             setupIndicator.className = "setup-indicator ok";
         }
     }).catch(() => {
-        setupIndicator.className = "setup-indicator error";
-        setupBadge.style.display = "inline-flex";
+        diagData = null;
+        applyEngineAvailability();
+        setupIndicator.className = "setup-indicator ok";
     });
 })();

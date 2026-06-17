@@ -211,6 +211,81 @@ function toWav16k(appDir, inputPath, outWav, spawnOpts) {
     });
 }
 
+// ── Timeline clip extraction (Premiere) → one 16 kHz mono WAV ───────────────
+// Node port of extract_audio.py so the extension needs no Python/ffmpeg install.
+function normalizePath(p) {
+    if (!p) return p;
+    if (p.indexOf("file:///") === 0)      p = p.slice(7);
+    else if (p.indexOf("file://") === 0)  p = p.slice(6);
+    else if (p.indexOf("file:/") === 0)   p = p.slice(5);
+    try { p = decodeURIComponent(p); } catch (e) {}
+    return p;
+}
+
+function _ffSingleClip(appDir, clip, outWav, spawnOpts) {
+    return new Promise((resolve, reject) => {
+        const srcStart = Math.max(0, parseFloat(clip.srcStart) || 0);
+        const duration = parseFloat(clip.duration) || 0;
+        if (duration < 0.01) return reject(new Error("Clip duration too small (check the clip)."));
+        const args = ["-y", "-ss", String(srcStart), "-i", normalizePath(clip.path),
+                      "-t", String(duration), "-vn", "-ar", "16000", "-ac", "1",
+                      "-acodec", "pcm_s16le", outWav];
+        const ff = cp.spawn(ffmpegBin(appDir), args, spawnOpts || {});
+        let err = ""; ff.stderr.on("data", d => { err += d.toString(); });
+        ff.on("error", e => reject(new Error("ffmpeg could not run: " + e.message)));
+        ff.on("close", c => c === 0 ? resolve(outWav)
+            : reject(new Error("ffmpeg failed: " + err.slice(-300))));
+    });
+}
+
+function _ffMixClips(appDir, parts, outWav, totalDur, spawnOpts) {
+    // parts: [{wav, offset}]  → adelay each by its timeline offset, then amix
+    return new Promise((resolve, reject) => {
+        const inputs = [], filters = [];
+        parts.forEach((p, i) => {
+            inputs.push("-i", p.wav);
+            const d = Math.max(0, Math.round(p.offset * 1000));
+            filters.push(`[${i}]adelay=${d}|${d}[d${i}]`);
+        });
+        const map = parts.map((_, i) => `[d${i}]`).join("");
+        const flt = filters.join(";") + `;${map}amix=inputs=${parts.length}:duration=longest:normalize=0[out]`;
+        const args = ["-y", ...inputs, "-filter_complex", flt, "-map", "[out]",
+                      "-t", String(totalDur), "-ar", "16000", "-ac", "1", outWav];
+        const ff = cp.spawn(ffmpegBin(appDir), args, spawnOpts || {});
+        let err = ""; ff.stderr.on("data", d => { err += d.toString(); });
+        ff.on("error", e => reject(new Error("ffmpeg could not run: " + e.message)));
+        ff.on("close", c => c === 0 ? resolve(outWav)
+            : reject(new Error("Audio mix failed: " + err.slice(-300))));
+    });
+}
+
+/* clipsData: { clips:[{path,srcStart,duration,timelineStart}], duration }
+ * → writes a single 16 kHz mono WAV to outWav. */
+async function extractClipsToWav(appDir, clipsData, outWav, spawnOpts) {
+    const clips = (clipsData.clips || []).map(c => ({ ...c, path: normalizePath(c.path) }));
+    if (!clips.length) throw new Error("No clips to extract.");
+    const missing = clips.find(c => !safeExists(c.path));
+    if (missing) throw new Error("Source media file not found on disk:\n" + missing.path +
+                                 "\nRe-link the offline clip in Premiere and try again.");
+    if (clips.length === 1) return _ffSingleClip(appDir, clips[0], outWav, spawnOpts);
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "subsper_ext_"));
+    try {
+        const parts = [];
+        for (let i = 0; i < clips.length; i++) {
+            const seg = path.join(tmpDir, "seg_" + i + ".wav");
+            try { await _ffSingleClip(appDir, clips[i], seg, spawnOpts);
+                  parts.push({ wav: seg, offset: parseFloat(clips[i].timelineStart) || 0 }); }
+            catch (e) { /* skip a bad clip, keep going */ }
+        }
+        if (!parts.length) throw new Error("All audio extractions failed.");
+        if (parts.length === 1) { fs.copyFileSync(parts[0].wav, outWav); return outWav; }
+        return await _ffMixClips(appDir, parts, outWav, parseFloat(clipsData.duration) || 0, spawnOpts);
+    } finally {
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
+    }
+}
+
 // ── Transcribe a 16 kHz WAV with the bundled whisper.cpp ─────────────────────
 /* opts: { appDir, wavPath, modelKey, language, threads, onLog }
  * → Promise<{ segments, text, language, engine }> */
@@ -264,4 +339,5 @@ module.exports = {
     platKey, whisperBin, ffmpegBin, resolveBin,
     modelsDir, modelPath, modelExists, ensureModel, GGML_FILES,
     parseWhisperJson, toWav16k, transcribeWav, dtwPreset,
+    normalizePath, extractClipsToWav,
 };

@@ -871,6 +871,10 @@ function initSettingsUI() {
     chk("set-diarize", settings.diarize);
     chk("set-autopunct", settings.autoPunctuate);
 
+    // Threads
+    set("set-threads", settings.threads);
+    txt("threads-val", settings.threads == 0 ? "Auto" : settings.threads);
+
     // Transcript clean-up
     set("set-dict", settings.customDict);
     chk("set-autocleanup", settings.autoCleanup);

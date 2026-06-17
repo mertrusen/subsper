@@ -63,10 +63,7 @@
       ],
       "category": "public.app-category.video",
       "artifactName": "Subsper-${version}-mac.${ext}",
-      "hardenedRuntime": true,
-      "gatekeeperAssess": false,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "identity": null
     },
     "dmg": {
       "writeUpdateInfo": false

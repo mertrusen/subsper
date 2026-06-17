@@ -40,6 +40,7 @@ jobs:
       - run: npm run dist:win   # runs prep (skips compile on cache hit) then packages
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          SKIP_WHISPER_GPU: "1"
       - uses: actions/upload-artifact@v4
         with:
           name: win-installer

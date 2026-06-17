@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const isWin = process.platform === "win32";
 const EXE   = isWin ? ".exe" : "";
+const skipWinGpu = isWin && process.env.SKIP_WHISPER_GPU === "1";
 
 const PLAT =
   isWin                       ? "win-x64" :
@@ -88,7 +89,8 @@ async function copyFfmpeg() {
   log("platform:", PLAT, "| out:", OUT);
   if (isWin) {
     buildWhisper(false); // CPU
-    buildWhisper(true);  // GPU (Vulkan)
+    if (skipWinGpu) log("SKIP_WHISPER_GPU=1, skipping whisper-cli-gpu build");
+    else buildWhisper(true);  // GPU (Vulkan)
   } else {
     buildWhisper(false);
   }

@@ -680,11 +680,36 @@ function spawnEnv() {
     });
 }
 
+// macOS Rosetta: when this app runs translated (x64) on Apple Silicon, a child
+// Python would also launch x64 and FAIL to import arm64-installed packages
+// (torch etc.) — the exact reason "punctuation installed but won't run". Wrap
+// python with `arch -arm64` so it runs natively and matches the packages that
+// installPackage/ensurePyPackage installed. Cached.
+let _rosetta;
+function isRosetta() {
+    if (_rosetta === undefined) {
+        _rosetta = false;
+        try {
+            if (process.platform === "darwin")
+                _rosetta = require("child_process")
+                    .execSync("sysctl -n sysctl.proc_translated 2>/dev/null", { encoding: "utf8" })
+                    .trim() === "1";
+        } catch (e) { _rosetta = false; }
+    }
+    return _rosetta;
+}
+function archWrap(cmd, args) {
+    if (process.platform === "darwin" && /python/.test(cmd) && isRosetta())
+        return { cmd: "arch", args: ["-arm64", cmd, ...args] };
+    return { cmd, args };
+}
+
 function runPython(scriptName, args, onStderr) {
     return new Promise(resolve => {
         const py     = findPython();
         const script = path.join(scriptsDir(), scriptName);
-        const proc   = spawn(py, [script, ...args], { env: spawnEnv() });
+        const w      = archWrap(py, [script, ...args]);
+        const proc   = spawn(w.cmd, w.args, { env: spawnEnv() });
         const STDERR_CAP = 32000;
         let stdout = "", stderr = "";
         // setEncoding("utf8") decodes correctly even when a multi-byte char is
@@ -709,15 +734,8 @@ function runPython(scriptName, args, onStderr) {
 }
 
 function runCmd(cmd, args) {
-    if (process.platform === "darwin" && cmd.includes("python")) {
-        try {
-            const isRosetta = require("child_process").execSync("sysctl -n sysctl.proc_translated 2>/dev/null", {encoding:"utf8"}).trim();
-            if (isRosetta === "1") {
-                args = ["-arm64", cmd, ...args];
-                cmd = "arch";
-            }
-        } catch(e) {}
-    }
+    const w = archWrap(cmd, args);
+    cmd = w.cmd; args = w.args;
     return new Promise(resolve => {
         const proc = spawn(cmd, args, { env: spawnEnv() });
         let out = "", err = "";
@@ -2688,7 +2706,7 @@ function renderChecks(data) {
     // punctuation). EXTRA = redundant alternative ENGINES the Built-in already
     // covers (openai-whisper, mlx) — shown muted, WITHOUT an install button.
     const CORE  = ["python", "ffmpeg", "whisperx", "punctuation"];
-    const EXTRA = ["whisper", "mlx_whisper"];
+    const EXTRA = [];   // openai-whisper / mlx hidden entirely — Built-in covers them
 
     const bi = builtinEngineReady();
     let html = `<div class="check-item">

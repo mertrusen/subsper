@@ -35,6 +35,7 @@ const DEFAULT_SETTINGS = {
     uiLang:           "en",       // interface language: en | tr
     theme:            "dark",     // dark | light | auto
     // ── Transcript clean-up ──
+    punctAllowed:    ".,?!:;\"'()[]{}-", // which punctuation to keep
     customDict:      "",          // one "wrong=right" rule per line
     promptWords:     "",          // comma-separated context words sent as initial_prompt
     autoCleanup:     false,       // apply dictionary + fillers automatically after transcribe
@@ -143,6 +144,7 @@ const I18N = {
     nm_diar: "Speaker Labels (Pro)", ds_diar: "Tags who is speaking. Needs the WhisperX Pro engine + a free HuggingFace token.",
     nm_autocleanup: "Auto clean-up", ds_autocleanup: "Apply dictionary & remove fillers when transcription finishes",
     lbl_dict: "Custom dictionary", hint_dict: "Fixes names, brands & mis-hearings. Format: wrong=right (whole word, case-insensitive).",
+    lbl_punct_filter: "Allowed Punctuation", hint_punct_filter: "Only these punctuation marks will be kept. Delete all to remove all punctuation.",
     lbl_prompt_words: "Context words (AI prompt)", hint_prompt_words: "Difficult words/names that the AI might mis-hear. These are sent as a prompt to improve accuracy. Comma-separated.",
     nm_filler: "Filler words", ds_filler: "Include the built-in list (ee, ıı, şey, um, uh…)",
     lbl_extrafiller: "Extra fillers to remove",
@@ -287,6 +289,7 @@ const I18N = {
     nm_diar: "Konuşmacı Etiketleri (Pro)", ds_diar: "Kim konuşuyor etiketler. WhisperX Pro motoru + ücretsiz HuggingFace token gerekir.",
     nm_autocleanup: "Otomatik temizlik", ds_autocleanup: "İş bitince sözlüğü uygular ve dolgu kelimeleri siler",
     lbl_dict: "Özel sözlük", hint_dict: "İsim/marka/yanlış duymaları düzeltir. Format: yanlış=doğru (tam kelime, büyük-küçük fark etmez).",
+    lbl_punct_filter: "İzin Verilen Noktalama", hint_punct_filter: "Sadece bu işaretler korunur (örn. sadece soru işareti için '?' yazın). Hepsini silerseniz tüm noktalamalar kalkar.",
     lbl_prompt_words: "Bağlam kelimeleri (AI prompt)", hint_prompt_words: "Yapay zekanın yanlış duyabileceği zor kelimeler/isimler. Doğruluğu artırmak için prompt olarak gönderilir. Virgülle ayırın.",
     nm_filler: "Dolgu kelimeler", ds_filler: "Yerleşik listeyi kullan (ee, ıı, şey, um, uh…)",
     lbl_extrafiller: "Kaldırılacak ekstra dolgular",
@@ -901,6 +904,7 @@ function initSettingsUI() {
     txt("threads-val", settings.threads == 0 ? "Auto" : settings.threads);
 
     // Transcript clean-up
+    set("set-punct-allowed", settings.punctAllowed !== undefined ? settings.punctAllowed : ".,?!:;\"'()[]{}-");
     set("set-dict", settings.customDict);
     set("set-prompt-words", settings.promptWords || "");
     updateDictCount();
@@ -1423,6 +1427,33 @@ function updateDictCount() {
     const invalid = lines.length - rules.length;
     el.textContent = rules.length + " rule" + (rules.length !== 1 ? "s" : "") + " active";
     if (errEl) errEl.textContent = invalid > 0 ? invalid + " invalid line" + (invalid !== 1 ? "s" : "") + " (missing =)" : "";
+}
+
+function applyPunctuationFilter(opts) {
+    opts = opts || {};
+    if (settings.punctAllowed === undefined || settings.punctAllowed === null) return 0;
+    const allowed = settings.punctAllowed;
+    const allPunct = ".,?!:;\"'()[]{}-";
+    let stripRegexStr = "";
+    for (const char of allPunct) {
+        if (!allowed.includes(char)) stripRegexStr += escRe(char);
+    }
+    if (!stripRegexStr) return 0;
+    const regex = new RegExp(`[${stripRegexStr}]`, "g");
+    
+    let changed = 0;
+    segments.forEach(s => {
+        if (!s.text) return;
+        const old = s.text;
+        // removing punctuation might leave double spaces, let's fix them
+        s.text = s.text.replace(regex, "").replace(/\s{2,}/g, " ").trim();
+        if (s.text !== old) changed++;
+    });
+    if (changed > 0 && !opts.silent) {
+        renderSegments();
+        if (selectedIndex >= 0) selectSegment(selectedIndex);
+    }
+    return changed;
 }
 
 function applyDictionary(opts) {
@@ -1972,6 +2003,7 @@ async function startTranscription() {
             seqEnd:   seqInfo.inTime + seg.end,
         }));
 
+        applyPunctuationFilter({ silent: true });
         renderSegments();
 
         if (segments.length === 0) {

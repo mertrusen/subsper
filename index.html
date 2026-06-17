@@ -333,6 +333,13 @@
           <div class="setting-hint" data-i18n="hint_prompt_words">Difficult words/names that the AI might mis-hear. These are sent as a prompt to improve accuracy. Comma-separated.</div>
         </div>
 
+        <div class="setting-sub" style="display:block; margin-top:8px">
+          <div class="setting-slider-header"><span data-i18n="lbl_punct_filter">Allowed Punctuation</span></div>
+          <input type="text" id="set-punct-allowed" class="settings-textarea" style="height:32px; font-size:14px; padding:0 8px"
+                 oninput="onSettingChange('punctAllowed', this.value)">
+          <div class="setting-hint" data-i18n="hint_punct_filter">Only these punctuation marks will be kept. Delete all to remove all punctuation.</div>
+        </div>
+
         <div class="setting-row" style="margin-top:12px">
           <div class="setting-info">
             <div class="setting-name" data-i18n="nm_filler">Filler words</div>

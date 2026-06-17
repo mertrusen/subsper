@@ -2742,6 +2742,22 @@ async function installPackage(pkg, key) {
     }
 }
 
+document.addEventListener("click", async (e) => {
+    if (e.target && e.target.id === "btn-clean-python") {
+        if (!confirm("Are you sure you want to delete all cached Python packages (site-packages)? This will fix architecture corruption but you will need to re-download the packages. (Eski bozuk dosyaları tamamen silmek istediğinize emin misiniz?)")) return;
+        
+        e.target.textContent = "Cleaning...";
+        e.target.disabled = true;
+        const py = findPython();
+        await runCmd(py, ["-c", "import site, shutil; site_dir = site.getusersitepackages(); shutil.rmtree(site_dir, ignore_errors=True)"]);
+        
+        e.target.textContent = "Cleaned! Refreshing...";
+        await runDiagnostics();
+        e.target.textContent = "Clean Broken Packages";
+        e.target.disabled = false;
+    }
+});
+
 function renderModels(models) {
     if (!models?.cached?.length) {
         $("models-list").innerHTML = `

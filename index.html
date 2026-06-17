@@ -415,11 +415,14 @@
           <div class="setting-hint" data-i18n="ds_gemini_api">Get a free key from Google AI Studio to use AI tools.</div>
           
           <div class="setting-slider-header" style="margin-top:12px"><span data-i18n="nm_gemini_model">Gemini Model</span></div>
-          <select id="set-gemini-model" style="width:100%" onchange="onSettingChange('geminiModel', this.value)">
-            <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash (Fast & Cheap)</option>
-            <option value="gemini-1.5-pro-latest">Gemini 1.5 Pro (Best Quality)</option>
-            <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-          </select>
+          <input type="text" id="set-gemini-model" list="gemini-models" class="settings-textarea" style="height:32px; font-size:14px; padding:0 8px; width:100%"
+                 onchange="onSettingChange('geminiModel', this.value)" oninput="onSettingChange('geminiModel', this.value)">
+          <datalist id="gemini-models">
+            <option value="gemini-1.5-flash-latest">
+            <option value="gemini-1.5-pro-latest">
+            <option value="gemini-2.0-flash-exp">
+            <option value="gemini-2.5-flash">
+          </datalist>
         </div>
       </div>
 

@@ -2,8 +2,11 @@ name: Build
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   windows:
@@ -14,16 +17,15 @@ jobs:
         with: { node-version: 22 }
       - run: npm install
       - name: Build bundled engine (whisper.cpp + ffmpeg)
-        shell: bash
         run: node scripts/fetch-binaries.mjs
       - run: npm run dist:win
         env:
-          GH_TOKEN: ${{ github.token }}
-      - name: Upload Windows Artifact
-        uses: actions/upload-artifact@v4
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: actions/upload-artifact@v4
         with:
-          name: windows-installer
+          name: win-installer
           path: dist/*.exe
+          if-no-files-found: error
 
   macos:
     runs-on: macos-15
@@ -38,23 +40,25 @@ jobs:
       - run: npm run dist:mac
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-          GH_TOKEN: ${{ github.token }}
-      - name: Upload Mac Artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: mac-dmg
+          name: mac-installer
           path: dist/*.dmg
+          if-no-files-found: error
 
   release:
     needs: [windows, macos]
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - name: Release
+      - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/windows-installer/*.exe
-            artifacts/mac-dmg/*.dmg
+            artifacts/win-installer/*.exe
+            artifacts/mac-installer/*.dmg
+          generate_release_notes: true
+          fail_on_unmatched_files: true

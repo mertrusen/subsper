@@ -82,8 +82,9 @@
     try {
       if (!WCPP.modelExists(modelKey)) {
         setStatus(`Downloading ${modelKey} model… (one-time)`, "info");
-        await WCPP.ensureModel(modelKey, frac =>
-          setStatus(`Downloading ${modelKey} model… ${Math.round(frac * 100)}%`, "info"));
+        await WCPP.ensureModel(modelKey, (frac, got, total, phase) =>
+          setStatus(phase ? `Reconnecting… (download resumes automatically)`
+                          : `Downloading ${modelKey} model… ${Math.round(frac * 100)}%`, "info"));
       }
       setStatus("Preparing audio…", "info");
       const wav = pathD.join(osD.tmpdir(), `subsper_${Date.now()}.wav`);

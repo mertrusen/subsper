@@ -88,47 +88,82 @@ function modelPath(modelKey) {
 
 function modelExists(modelKey) { return safeExists(modelPath(modelKey)); }
 
-/* Download the GGML model for `modelKey` if missing. onProgress(fraction,bytes,total). */
+const RETRIABLE = /ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|socket hang up|timed out|network|EPIPE|ECONNREFUSED|aborted/i;
+
+/* Download the GGML model for `modelKey` if missing. Resumable + auto-retry, so
+ * a dropped connection on a big (1.6 GB) model continues instead of restarting.
+ * onProgress(fraction, bytes, total[, phase]). */
 function ensureModel(modelKey, onProgress) {
+    const dest = modelPath(modelKey);
+    if (safeExists(dest)) return Promise.resolve(dest);
+    const file = GGML_FILES[modelKey] || GGML_FILES.turbo;
+    const url  = HF_BASE + file;
+    try { fs.mkdirSync(path.dirname(dest), { recursive: true }); } catch (e) {}
+    const tmp = dest + ".part";
+    const MAX = 8;
+
     return new Promise((resolve, reject) => {
-        const dest = modelPath(modelKey);
-        if (safeExists(dest)) return resolve(dest);
-        const file = GGML_FILES[modelKey] || GGML_FILES.turbo;
-        const url  = HF_BASE + file;
-        try { fs.mkdirSync(path.dirname(dest), { recursive: true }); } catch (e) {}
-        const tmp = dest + ".part";
-        _download(url, tmp, onProgress)
-            .then(() => { fs.renameSync(tmp, dest); resolve(dest); })
-            .catch(err => { try { fs.unlinkSync(tmp); } catch (e) {} reject(err); });
+        let attempt = 0;
+        const tryOnce = () => {
+            attempt++;
+            _downloadResume(url, tmp, onProgress)
+                .then(() => { try { fs.renameSync(tmp, dest); } catch (e) {} resolve(dest); })
+                .catch(err => {
+                    const msg = (err && err.message) || String(err);
+                    if (attempt < MAX && RETRIABLE.test(msg)) {
+                        if (onProgress) onProgress(0, 0, 0, "reconnecting " + attempt);
+                        setTimeout(tryOnce, 1500 * attempt);   // backoff; keeps the .part to resume
+                    } else {
+                        try { fs.unlinkSync(tmp); } catch (e) {}
+                        reject(new Error("Model download failed (" + msg +
+                            "). Check your internet connection and press Transcribe again."));
+                    }
+                });
+        };
+        tryOnce();
     });
 }
 
-function _download(url, dest, onProgress, redirects) {
-    redirects = redirects || 0;
+/* Resumable HTTPS download (handles HuggingFace→CDN redirects + Range resume). */
+function _downloadResume(url, dest, onProgress) {
     return new Promise((resolve, reject) => {
-        if (redirects > 6) return reject(new Error("Too many redirects"));
-        const out = fs.createWriteStream(dest);
-        const req = https.get(url, { headers: { "User-Agent": "Subsper" } }, res => {
-            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                out.close(); try { fs.unlinkSync(dest); } catch (e) {}
-                const next = res.headers.location.startsWith("http")
-                    ? res.headers.location
-                    : new URL(res.headers.location, url).toString();
-                return resolve(_download(next, dest, onProgress, redirects + 1));
-            }
-            if (res.statusCode !== 200) {
-                out.close(); return reject(new Error("Model download failed: HTTP " + res.statusCode));
-            }
-            const total = parseInt(res.headers["content-length"] || "0", 10);
-            let got = 0;
-            res.on("data", chunk => {
-                got += chunk.length;
-                if (onProgress && total) onProgress(got / total, got, total);
+        const startByte = safeExists(dest) ? (fs.statSync(dest).size || 0) : 0;
+
+        const doReq = (u, redirects) => {
+            if (redirects > 8) return reject(new Error("Too many redirects"));
+            const headers = { "User-Agent": "Subsper/1.0", "Accept-Encoding": "identity" };
+            if (startByte > 0) headers["Range"] = "bytes=" + startByte + "-";
+
+            const req = https.get(u, { headers }, res => {
+                const code = res.statusCode;
+                if (code >= 300 && code < 400 && res.headers.location) {
+                    res.resume();
+                    const next = res.headers.location.startsWith("http")
+                        ? res.headers.location
+                        : new URL(res.headers.location, u).toString();
+                    return doReq(next, redirects + 1);
+                }
+                if (code === 416) { res.resume(); return resolve(dest); }   // already complete
+                if (code !== 200 && code !== 206) { res.resume(); return reject(new Error("HTTP " + code)); }
+
+                const resuming = code === 206;                  // server honored Range
+                const out = fs.createWriteStream(dest, { flags: resuming ? "a" : "w" });
+                let got = resuming ? startByte : 0;
+                const remaining = parseInt(res.headers["content-length"] || "0", 10);
+                const total = resuming ? startByte + remaining : remaining;
+                let settled = false;
+                const fail = (e) => { if (settled) return; settled = true; try { out.destroy(); } catch (x) {} reject(e); };
+
+                res.on("data", c => { got += c.length; if (onProgress && total) onProgress(got / total, got, total); });
+                res.on("error", fail);
+                out.on("error", fail);
+                out.on("finish", () => { if (settled) return; settled = true; out.close(() => resolve(dest)); });
+                res.pipe(out);
             });
-            res.pipe(out);
-            out.on("finish", () => out.close(resolve));
-        });
-        req.on("error", err => { try { fs.unlinkSync(dest); } catch (e) {} reject(err); });
+            req.on("error", reject);
+            req.setTimeout(60000, () => req.destroy(new Error("Download timed out")));
+        };
+        doReq(url, 0);
     });
 }
 

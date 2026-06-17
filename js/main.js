@@ -1911,8 +1911,9 @@ async function startTranscription() {
                     { clips: seqInfo.clips, duration: seqInfo.duration }, tmpAudio, { env: spawnEnv() });
                 if (!W.modelExists(model)) {
                     setStatus(`Downloading ${model} model… (one-time)`, "info");
-                    await W.ensureModel(model, frac =>
-                        setStatus(`Downloading ${model} model… ${Math.round(frac * 100)}%`, "info"));
+                    await W.ensureModel(model, (frac, got, total, phase) =>
+                        setStatus(phase ? "Reconnecting… (download resumes automatically)"
+                                        : `Downloading ${model} model… ${Math.round(frac * 100)}%`, "info"));
                 }
                 setStatus("Transcribing (Subsper engine)…", "info");
                 const r = await W.transcribeWav({

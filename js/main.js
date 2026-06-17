@@ -45,7 +45,7 @@ const DEFAULT_SETTINGS = {
     profanityMode:   "remove",    // remove | asterisk
     // ── AI & API ──
     geminiApiKey:    "",          // Google Gemini API Key
-    geminiModel:     "gemini-1.5-flash-latest", // Default Gemini model
+    geminiModel:     "gemini-3.5-flash", // Default Gemini model
     // ── Audio enhancement ──
     audioDenoise:    true,
     audioNormalize:  true,
@@ -931,7 +931,7 @@ function initSettingsUI() {
 
     // AI & API
     set("set-gemini-key", settings.geminiApiKey || "");
-    set("set-gemini-model", settings.geminiModel || "gemini-1.5-flash-latest");
+    set("set-gemini-model", settings.geminiModel || "gemini-3.5-flash");
 
     chk("set-karaoke", settings.karaoke);
     const kHi = $("set-karaoke-hi"); if (kHi) kHi.value = "#" + (settings.karaokeHi || "FFE000");
@@ -1667,7 +1667,7 @@ async function askAi(type) {
     outBox.value = "Thinking...";
     
     try {
-        const model = settings.geminiModel || "gemini-1.5-flash-latest";
+        const model = settings.geminiModel || "gemini-3.5-flash";
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },

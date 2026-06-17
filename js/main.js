@@ -2673,8 +2673,19 @@ async function installPackage(pkg, key) {
     const py  = findPython();
     const res = await runCmd(py, ["-m", "pip", "install", "--user", pkg]);
 
+    await runDiagnostics();
+
     if (res.code === 0) {
-        showToast(`${pkg} installed successfully!`, "success");
+        if (diagData && diagData[key] && diagData[key].status !== "ok") {
+            showToast(`${pkg} installed, but Python cannot load it (likely corrupted dependencies like ~orch). Manually delete broken folders in site-packages and try again.`, "error", 10000);
+            if (btn) {
+                btn.textContent = "Install automatically";
+                btn.disabled    = false;
+                btn.classList.remove("installing");
+            }
+        } else {
+            showToast(`${pkg} installed successfully!`, "success");
+        }
     } else {
         showToast(`Install failed: ${res.err.slice(0, 120)}`, "error", 6000);
         if (btn) {
@@ -2683,7 +2694,6 @@ async function installPackage(pkg, key) {
             btn.classList.remove("installing");
         }
     }
-    await runDiagnostics();
 }
 
 function renderModels(models) {

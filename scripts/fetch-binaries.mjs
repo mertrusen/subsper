@@ -48,7 +48,7 @@ function buildWhisper() {
   let flags = "-DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_EXAMPLES=ON";
   if (process.platform === "darwin") {
     flags += " -DGGML_METAL_EMBED_LIBRARY=ON";
-    if (process.env.FORCE_MAC_X64) flags += " -DCMAKE_OSX_ARCHITECTURES=x86_64";
+    if (process.env.FORCE_MAC_X64) flags += " -DCMAKE_OSX_ARCHITECTURES=x86_64 -DGGML_NATIVE=OFF";
   } else if (isWin) {
     // Static CRT so the .exe doesn't need vcruntime DLLs on the user's PC.
     flags += " -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DCMAKE_POLICY_DEFAULT_CMP0091=NEW";

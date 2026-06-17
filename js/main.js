@@ -2663,12 +2663,12 @@ function builtinEngineReady() {
 }
 
 function renderChecks(data) {
-    // CORE = built-in prerequisites + the one meaningful Pro engine (WhisperX,
-    // for speaker labels). EXTRA = redundant alternative engines the Built-in
-    // already covers — shown muted, WITHOUT install buttons, so nobody clicks a
-    // confusing/optional install they don't need.
-    const CORE  = ["python", "ffmpeg", "whisperx"];
-    const EXTRA = ["whisper", "mlx_whisper", "punctuation"];
+    // CORE = built-in prerequisites + things that ENABLE a feature, so they keep
+    // an install button: WhisperX (speaker labels) and punctuation (auto-fix
+    // punctuation). EXTRA = redundant alternative ENGINES the Built-in already
+    // covers (openai-whisper, mlx) — shown muted, WITHOUT an install button.
+    const CORE  = ["python", "ffmpeg", "whisperx", "punctuation"];
+    const EXTRA = ["whisper", "mlx_whisper"];
 
     const bi = builtinEngineReady();
     let html = `<div class="check-item">

@@ -45,6 +45,7 @@ const DEFAULT_SETTINGS = {
     profanityMode:   "remove",    // remove | asterisk
     // ── AI & API ──
     geminiApiKey:    "",          // Google Gemini API Key
+    geminiModel:     "gemini-1.5-flash-latest", // Default Gemini model
     // ── Audio enhancement ──
     audioDenoise:    true,
     audioNormalize:  true,
@@ -930,6 +931,7 @@ function initSettingsUI() {
 
     // AI & API
     set("set-gemini-key", settings.geminiApiKey || "");
+    set("set-gemini-model", settings.geminiModel || "gemini-1.5-flash-latest");
 
     chk("set-karaoke", settings.karaoke);
     const kHi = $("set-karaoke-hi"); if (kHi) kHi.value = "#" + (settings.karaokeHi || "FFE000");
@@ -1657,13 +1659,16 @@ async function askAi(type) {
         prompt = "Analyze the following video transcript and identify the top 3 most engaging 30-60 second segments that would make viral YouTube Shorts. For each short, provide the start/end timecodes, a catchy title, and a brief explanation of why it would go viral.\n\nTranscript:\n" + transcript;
     } else if (type === "broll") {
         prompt = "Analyze the following video transcript. Suggest 5-10 strategic B-roll (stock footage) inserts to make the video more engaging. Provide the exact timecode for each insert and describe the visual clearly.\n\nTranscript:\n" + transcript;
+    } else if (type === "grammar") {
+        prompt = "Analyze the following video transcript. Fix all spelling, punctuation, and grammatical errors without changing the timecodes. Return ONLY the fully corrected transcript with the exact same timecodes. Do not include any introductory or concluding text.\n\nTranscript:\n" + transcript;
     }
     
     const outBox = $("ai-output");
     outBox.value = "Thinking...";
     
     try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${key}`, {
+        const model = settings.geminiModel || "gemini-1.5-flash-latest";
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

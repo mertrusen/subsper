@@ -156,12 +156,12 @@
     </div>
 
     <!-- Sync Correct Text -->
-    <div class="find-panel" id="sync-panel" style="display:none; flex-direction:column; gap:8px">
+    <div class="find-panel" id="sync-panel" style="display:none; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto">
       <div style="display:flex; justify-content:space-between; align-items:center">
         <span style="font-size:12px; font-weight:600; color:var(--text)" data-i18n="sync_title">Sync with Correct Text</span>
         <button class="btn-secondary" onclick="closeSyncPanel()" data-i18n="btn_close">Close</button>
       </div>
-      <textarea id="sync-input" class="settings-textarea" rows="6" data-i18n-ph="sync_ph" placeholder="Paste the fully corrected text here. This will replace words in subtitles while keeping the timing intact."></textarea>
+      <textarea id="sync-input" class="settings-textarea" rows="6" style="flex:1; min-height:100px; resize:none" data-i18n-ph="sync_ph" placeholder="Paste the fully corrected text here. This will replace words in subtitles while keeping the timing intact."></textarea>
       <div style="display:flex; justify-content:space-between; align-items:center">
         <span class="setting-hint" data-i18n="sync_hint" id="sync-status">Word alignment algorithm will modify the current segments.</span>
         <button class="btn-send" onclick="doSyncText()" data-i18n="btn_sync">Sync</button>
@@ -169,17 +169,18 @@
     </div>
 
     <!-- AI Panel -->
-    <div class="find-panel" id="ai-panel" style="display:none; flex-direction:column; gap:8px">
+    <div class="find-panel" id="ai-panel" style="display:none; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto">
       <div style="display:flex; justify-content:space-between; align-items:center">
         <span style="font-size:12px; font-weight:600; color:var(--text)" data-i18n="lbl_ai_tools">AI Studio</span>
         <button class="btn-secondary" onclick="closeAiPanel()" data-i18n="btn_close">Close</button>
       </div>
-      <div style="display:flex; gap:6px; margin-bottom:4px">
-        <button class="btn-secondary" onclick="askAi('summary')" data-i18n="ai_summary" style="flex:1">Summary</button>
-        <button class="btn-secondary" onclick="askAi('shorts')" data-i18n="ai_shorts" style="flex:1">Shorts</button>
-        <button class="btn-secondary" onclick="askAi('broll')" data-i18n="ai_broll" style="flex:1">B-Roll</button>
+      <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px">
+        <button class="btn-secondary" onclick="askAi('summary')" data-i18n="ai_summary" style="flex:1 1 40%">Summary</button>
+        <button class="btn-secondary" onclick="askAi('shorts')" data-i18n="ai_shorts" style="flex:1 1 40%">Shorts</button>
+        <button class="btn-secondary" onclick="askAi('broll')" data-i18n="ai_broll" style="flex:1 1 40%">B-Roll</button>
+        <button class="btn-secondary" onclick="askAi('grammar')" data-i18n="ai_grammar" style="flex:1 1 40%">Fix Grammar</button>
       </div>
-      <textarea id="ai-output" class="settings-textarea" rows="10" data-i18n-ph="ai_ph" placeholder="Generated insights will appear here..." readonly></textarea>
+      <textarea id="ai-output" class="settings-textarea" style="flex:1; min-height:100px; resize:none" data-i18n-ph="ai_ph" placeholder="Generated insights will appear here..." readonly></textarea>
     </div>
 
     <!-- Segments list -->
@@ -412,6 +413,13 @@
           <input type="password" id="set-gemini-key" class="settings-textarea" style="height:32px; font-size:14px; padding:0 8px"
                  oninput="onSettingChange('geminiApiKey', this.value)">
           <div class="setting-hint" data-i18n="ds_gemini_api">Get a free key from Google AI Studio to use AI tools.</div>
+          
+          <div class="setting-slider-header" style="margin-top:12px"><span data-i18n="nm_gemini_model">Gemini Model</span></div>
+          <select id="set-gemini-model" style="width:100%" onchange="onSettingChange('geminiModel', this.value)">
+            <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash (Fast & Cheap)</option>
+            <option value="gemini-1.5-pro-latest">Gemini 1.5 Pro (Best Quality)</option>
+            <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+          </select>
         </div>
       </div>
 

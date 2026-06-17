@@ -18,7 +18,6 @@ let lastLanguage = "";
 const DEFAULT_SETTINGS = {
     engine:          "cpp",       // bundled whisper.cpp — zero setup. Pro: whisperx/mlx/openai (Python)
     diarize:         false,
-    autoPunctuate:   false,
     autoSplit:       true,
     maxCharsPerLine: 42,
     maxLines:        2,
@@ -144,7 +143,6 @@ const I18N = {
     opt_eng_mlx: "Pro: mlx-whisper — Apple Silicon (needs Python)", opt_eng_openai: "Pro: openai-whisper (needs Python)",
     pro_unavailable: "Pro engines need Python + WhisperX (optional). Built-in is selected.",
     nm_diar: "Speaker Labels (Pro)", ds_diar: "Tags who is speaking. Needs the WhisperX Pro engine + a free HuggingFace token.",
-    nm_autopunct: "Auto-punctuation", ds_autopunct: "Restore punctuation & casing right after transcribing",
     nm_autocleanup: "Auto clean-up", ds_autocleanup: "Apply dictionary & remove fillers when transcription finishes",
     lbl_dict: "Custom dictionary", hint_dict: "Fixes names, brands & mis-hearings. Format: wrong=right (whole word, case-insensitive).",
     nm_filler: "Filler words", ds_filler: "Include the built-in list (ee, ıı, şey, um, uh…)",
@@ -176,7 +174,7 @@ const I18N = {
     sil_status: "Detect silences in your In/Out selection",
     // setup
     sec_syscheck: "System Check (optional / Pro)", sec_models: "Whisper Models", sec_install: "Install Notes",
-    setup_optional: "✓ Subsper's built-in engine works out of the box — no setup needed. Everything below is OPTIONAL — install Python + a Pro engine only if you want speaker labels, auto-punctuation, or an alternative engine.",
+    setup_optional: "✓ Subsper's built-in engine works out of the box — no setup needed. Everything below is OPTIONAL — install Python + WhisperX only if you want speaker labels.",
     nm_builtin: "Subsper Built-in engine", ds_builtin_ok: "✓ Ready — bundled whisper.cpp + ffmpeg, no setup", ds_builtin_dl: "Bundled — the model downloads on first transcription",
     py_optional: "Not detected — that's fine. Install Python only for optional Pro features (speaker labels, etc.).",
     opt_alt_note: "Optional alternative engine — the Built-in engine already covers this. No need to install.",
@@ -200,7 +198,7 @@ const I18N = {
     tip_replaceinput: "Text to replace the match with. Leave empty to delete the word",
     tip_replaceall: "Replace all matches",
     tip_segcount: "Total number of segments (subtitle lines)",
-    tip_find: "Find & replace text", tip_punct: "Auto-fix punctuation & capitalization",
+    tip_find: "Find & replace text",
     tip_clean: "Clean-up menu: dictionary, fillers, profanity filter",
     tip_clean_dict: "Apply your wrong=right rules from Settings",
     tip_clean_filler: "Remove filler words (ee, ıı, şey, um, uh…)",
@@ -215,7 +213,6 @@ const I18N = {
     tip_send: "Send the subtitle to the Premiere timeline as a caption track",
     tip_engine: "Which AI engine transcribes. WhisperX = word-level timing + speaker labels (needed for karaoke). mlx = fastest on Apple Silicon. openai = most compatible.",
     tip_diar: "Labels who is speaking (Speaker 1, 2…). WhisperX only. Needs a free HuggingFace token.",
-    tip_autopunct: "Auto-fixes punctuation & capitalization right after transcribing",
     tip_autocleanup: "After transcribing, applies dictionary rules and removes filler words automatically",
     tip_filler: "Use the built-in filler list (ee, ıı, şey, yani, um, uh…)",
     tip_profmode: "How to hide profanity: first letter + asterisks (s***) or remove (—)",
@@ -301,7 +298,6 @@ const I18N = {
     opt_eng_mlx: "Pro: mlx-whisper — Apple Silicon (Python gerekir)", opt_eng_openai: "Pro: openai-whisper (Python gerekir)",
     pro_unavailable: "Pro motorlar Python + WhisperX ister (opsiyonel). Yerleşik motor seçildi.",
     nm_diar: "Konuşmacı Etiketleri (Pro)", ds_diar: "Kim konuşuyor etiketler. WhisperX Pro motoru + ücretsiz HuggingFace token gerekir.",
-    nm_autopunct: "Otomatik noktalama", ds_autopunct: "Transkripsiyon biter bitmez noktalama ve büyük harfleri düzeltir",
     nm_autocleanup: "Otomatik temizlik", ds_autocleanup: "İş bitince sözlüğü uygular ve dolgu kelimeleri siler",
     lbl_dict: "Özel sözlük", hint_dict: "İsim/marka/yanlış duymaları düzeltir. Format: yanlış=doğru (tam kelime, büyük-küçük fark etmez).",
     nm_filler: "Dolgu kelimeler", ds_filler: "Yerleşik listeyi kullan (ee, ıı, şey, um, uh…)",
@@ -331,7 +327,7 @@ const I18N = {
     hint_sil: "Düşük dB = sadece derin sessizlikler. Süreyi artırınca kısa duraklamalar atlanır. Pay, keserken nefes bırakır.",
     sil_status: "In/Out seçimindeki sessizlikleri tespit et",
     sec_syscheck: "Sistem Kontrolü (opsiyonel / Pro)", sec_models: "Whisper Modelleri", sec_install: "Kurulum Notları",
-    setup_optional: "✓ Subsper'in yerleşik motoru kutudan çıktığı gibi çalışır — kurulum gerekmez. Aşağıdaki her şey OPSİYONELDİR — yalnızca konuşmacı etiketleri, otomatik noktalama veya alternatif motor istiyorsan Python + bir Pro motor kur.",
+    setup_optional: "✓ Subsper'in yerleşik motoru kutudan çıktığı gibi çalışır — kurulum gerekmez. Aşağıdaki her şey OPSİYONELDİR — yalnızca konuşmacı etiketleri istiyorsan Python + WhisperX kur.",
     nm_builtin: "Subsper Yerleşik motor", ds_builtin_ok: "✓ Hazır — gömülü whisper.cpp + ffmpeg, kurulum yok", ds_builtin_dl: "Gömülü — model ilk transcribe'da iner",
     py_optional: "Algılanmadı — sorun değil. Python'ı yalnızca opsiyonel Pro özellikler (konuşmacı etiketleri vb.) için kur.",
     opt_alt_note: "Opsiyonel alternatif motor — Yerleşik motor bunu zaten karşılıyor. Kurmana gerek yok.",
@@ -354,7 +350,7 @@ const I18N = {
     tip_replaceinput: "Bulunan kelimenin yerine yazılacak metin. Boş bırakırsan kelimeyi siler",
     tip_replaceall: "Bulunan tüm eşleşmeleri değiştir",
     tip_segcount: "Toplam segment (altyazı satırı) sayısı",
-    tip_find: "Metin içinde ara ve değiştir", tip_punct: "Noktalama ve büyük harfleri otomatik düzelt",
+    tip_find: "Metin içinde ara ve değiştir",
     tip_clean: "Temizlik menüsü: sözlük, dolgu kelimeler, küfür filtresi",
     tip_clean_dict: "Ayarlardaki yanlış=doğru kurallarını uygula",
     tip_clean_filler: "Dolgu kelimeleri sil (ee, ıı, şey, um, uh…)",
@@ -369,7 +365,6 @@ const I18N = {
     tip_send: "Altyazıyı Premiere zaman çizelgesine caption track olarak gönder",
     tip_engine: "Hangi yapay zekâ motoru yazıya döksün. WhisperX = kelime kelime zaman + konuşmacı (karaoke için gerekli). mlx = Apple Silicon'da en hızlı. openai = en uyumlu.",
     tip_diar: "Kim konuşuyor diye etiketler (Konuşmacı 1, 2…). Sadece WhisperX. Ücretsiz HuggingFace token gerektirir.",
-    tip_autopunct: "Transkripsiyon biter bitmez noktalama ve büyük harfleri otomatik düzeltir",
     tip_autocleanup: "Transkripsiyon bitince sözlük kurallarını uygular ve dolgu kelimeleri otomatik siler",
     tip_filler: "Yerleşik dolgu kelime listesini kullan (ee, ıı, şey, yani, um, uh…)",
     tip_profmode: "Küfür nasıl gizlensin: ilk harf + yıldız (s***) ya da tamamen kaldır (—)",
@@ -923,7 +918,6 @@ function initSettingsUI() {
     set("set-theme", settings.theme);
     set("set-engine", settings.engine);
     chk("set-diarize", settings.diarize);
-    chk("set-autopunct", settings.autoPunctuate);
 
     // Threads
     set("set-threads", settings.threads);
@@ -1415,78 +1409,6 @@ async function applyAutoZoom() {
         showEditProgress(false);
         if (btn) btn.disabled = false;
     }
-}
-
-// ── Punctuation restore ───────────────────────────────────────────────────
-// opts.silent  → don't show the "not installed" error panel (used by auto mode)
-// opts.auto    → called automatically right after transcription
-async function fixPunctuation(opts) {
-    opts = opts || {};
-    if (segments.length === 0) {
-        if (!opts.silent) showToast("Nothing to fix yet", "info", 2000);
-        return;
-    }
-    const btn = $("punct-btn");
-    if (btn) { btn.disabled = true; btn.classList.add("busy"); }
-    showProgress(true);
-
-    const payload = JSON.stringify({
-        segments: segments.map(s => ({ text: s.text })),
-        language: (lastLanguage || "auto"),
-    });
-    const runPunct = async () => {
-        try { return await runPython("punctuate.py", [payload]); }
-        catch (e) { return { success: false, error: e && e.message ? e.message : String(e) }; }
-    };
-
-    setStatus(opts.auto ? "Auto-punctuating…" : "Restoring punctuation…", "info");
-    let res = await runPunct();
-
-    // First use: the punctuation pack isn't installed yet → install it
-    // automatically (like the model auto-downloads), then retry. No Setup trip.
-    const missing = res && res.error && (res.error.includes("not installed") || res.error.includes("No module"));
-    if (missing) {
-        setStatus("Setting up punctuation… (one-time download, please wait)", "info");
-        const ok = await ensurePyPackage("deepmultilingualpunctuation");
-        if (ok) { setStatus(opts.auto ? "Auto-punctuating…" : "Restoring punctuation…", "info"); res = await runPunct(); }
-    }
-
-    showProgress(false);
-    if (btn) { btn.disabled = false; btn.classList.remove("busy"); }
-
-    if (!res || !res.success || !Array.isArray(res.segments)) {
-        const err = (res && res.error) || "Punctuation restore failed";
-        if (err.includes("not installed") || err.includes("No module") || err.includes("Could not start Python")) {
-            // Auto-install couldn't complete (no Python, or pip/network failed).
-            setStatus("Couldn't set up punctuation automatically", "warning");
-            if (!opts.silent) {
-                showError(
-                    "Couldn't set up punctuation automatically.",
-                    "It needs Python 3 + internet (free offline model 'deepmultilingualpunctuation').",
-                    "Install Python 3, or run in Terminal:  pip install deepmultilingualpunctuation",
-                    "Go to Setup", () => switchTab("setup")
-                );
-            } else {
-                showToast("Auto-punctuate skipped — couldn't set up the pack", "info", 5000);
-            }
-        } else {
-            if (!opts.silent) handleError(err);
-            else showToast("Auto-punctuate failed: " + err.split("\n")[0], "warning", 5000);
-        }
-        return;
-    }
-
-    let changed = 0;
-    res.segments.forEach((s, i) => {
-        if (segments[i] && s && typeof s.text === "string" && s.text !== segments[i].text) {
-            segments[i].text = s.text;
-            changed++;
-        }
-    });
-    renderSegments();
-    if (selectedIndex >= 0) selectSegment(selectedIndex);
-    setStatus(`Punctuation restored — ${changed} segment(s) updated`, "success");
-    if (!opts.silent || changed > 0) showToast(`Punctuation fixed (${changed} updated)`, "success");
 }
 
 // ── Transcript clean-up (dictionary · fillers · profanity) ────────────────
@@ -2076,11 +1998,6 @@ async function startTranscription() {
             // Diarization requested but produced no speakers → tell the user why
             if (settings.diarize && !segments.some(s => s.speaker)) {
                 showToast("Speaker labels need a HuggingFace token (see Settings). Transcribed without them.", "info", 6000);
-            }
-
-            // Auto-punctuation (runs after transcription if enabled)
-            if (settings.autoPunctuate) {
-                await fixPunctuation({ silent: true, auto: true });
             }
 
             // Auto clean-up: dictionary + filler removal (profanity left manual)
@@ -2701,11 +2618,10 @@ function builtinEngineReady() {
 }
 
 function renderChecks(data) {
-    // CORE = built-in prerequisites + things that ENABLE a feature, so they keep
-    // an install button: WhisperX (speaker labels) and punctuation (auto-fix
-    // punctuation). EXTRA = redundant alternative ENGINES the Built-in already
-    // covers (openai-whisper, mlx) — shown muted, WITHOUT an install button.
-    const CORE  = ["python", "ffmpeg", "whisperx", "punctuation"];
+    // CORE = built-in prerequisites + WhisperX (speaker labels) which keeps an
+    // install button. Everything else (openai-whisper, mlx, punctuation) is not
+    // needed — the Built-in engine already transcribes + punctuates — so it's hidden.
+    const CORE  = ["python", "ffmpeg", "whisperx"];
     const EXTRA = [];   // openai-whisper / mlx hidden entirely — Built-in covers them
 
     const bi = builtinEngineReady();

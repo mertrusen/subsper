@@ -195,7 +195,6 @@
         updateSegCount();
         if (settings.diarize && !segments.some(s => s.speaker))
           showToast("Speaker labels need a HuggingFace token (Settings).", "info", 6000);
-        if (settings.autoPunctuate) await fixPunctuation({ silent: true, auto: true });
         if (settings.autoCleanup) {
           const d = applyDictionary({ silent:true }), f = removeFillers({ silent:true });
           renderSegments(); reselect();

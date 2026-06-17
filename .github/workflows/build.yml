@@ -5,6 +5,11 @@ on:
     tags: [ 'v*' ]
   workflow_dispatch:
 
+# A new build supersedes any in-progress one (no more piled-up duplicate builds).
+concurrency:
+  group: build-${{ github.workflow }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -16,9 +21,15 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm install
-      - name: Build bundled engine (whisper.cpp + ffmpeg)
-        run: node scripts/fetch-binaries.mjs
-      - run: npm run dist:win
+      # Cache the compiled whisper-cli + ffmpeg so it's built ONCE, not every
+      # release. Key changes only when the build script changes → instant after
+      # the first build (cuts ~20 min Windows compile to seconds).
+      - name: Cache engine binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: engine-${{ runner.os }}-${{ hashFiles('scripts/fetch-binaries.mjs') }}
+      - run: npm run dist:win   # runs prep (skips compile on cache hit) then packages
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - uses: actions/upload-artifact@v4
@@ -35,8 +46,11 @@ jobs:
         with: { node-version: 22 }
       - run: brew install cmake || true
       - run: npm install
-      - name: Build bundled engine (whisper.cpp + ffmpeg)
-        run: node scripts/fetch-binaries.mjs
+      - name: Cache engine binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: engine-${{ runner.os }}-${{ hashFiles('scripts/fetch-binaries.mjs') }}
       - run: npm run dist:mac
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"

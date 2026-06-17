@@ -692,6 +692,15 @@ function runPython(scriptName, args, onStderr) {
 }
 
 function runCmd(cmd, args) {
+    if (process.platform === "darwin" && cmd.includes("python")) {
+        try {
+            const isRosetta = require("child_process").execSync("sysctl -n sysctl.proc_translated 2>/dev/null", {encoding:"utf8"}).trim();
+            if (isRosetta === "1") {
+                args = ["-arm64", cmd, ...args];
+                cmd = "arch";
+            }
+        } catch(e) {}
+    }
     return new Promise(resolve => {
         const proc = spawn(cmd, args);
         let out = "", err = "";

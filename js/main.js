@@ -2559,6 +2559,43 @@ function applyEngineAvailability() {
     }
 }
 
+async function installPackage(pkg, key) {
+    const btn = $(`btn-install-${key}`);
+    if (btn) { btn.textContent = "Installing…"; btn.disabled = true; btn.classList.add("installing"); }
+
+    const py  = findPython();
+    let res = await runCmd(py, ["-m", "pip", "install", "--user", pkg]);
+    
+    // First verification
+    let check = await runCmd(py, [path.join(extDir(), "scripts", "check_setup.py")]);
+    let parsed = {};
+    try { parsed = JSON.parse(check.out); } catch(e) {}
+
+    // If pip succeeded but import still fails (e.g. wrong architecture cached, or corrupt), force reinstall
+    if (res.code === 0 && parsed[key] && parsed[key].status !== "ok") {
+        if (btn) { btn.textContent = "Fixing Corrupted Files…"; }
+        res = await runCmd(py, ["-m", "pip", "install", "--user", "--force-reinstall", "--no-cache-dir", pkg]);
+        check = await runCmd(py, [path.join(extDir(), "scripts", "check_setup.py")]);
+        try { parsed = JSON.parse(check.out); } catch(e) {}
+    }
+
+    if (res.code === 0 && parsed[key] && parsed[key].status === "ok") {
+        if (btn) {
+            btn.textContent = "Installed";
+            btn.classList.remove("installing");
+            btn.classList.add("installed");
+        }
+        await runDiagnostics();
+    } else {
+        if (btn) {
+            btn.textContent = "Install Failed";
+            btn.disabled = false;
+            btn.classList.remove("installing");
+        }
+        alert("Failed to install " + pkg + ".\n\n" + res.err + "\n\nImport check output:\n" + check.out);
+    }
+}
+
 async function runDiagnostics() {
     setupIndicator.className = "setup-indicator loading";
     $("checks-list").innerHTML = `<div class="check-loading">Checking…</div>`;

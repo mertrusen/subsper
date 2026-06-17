@@ -76,7 +76,7 @@
 
   <!-- ═══ PANEL: TRANSCRIBE — WORK ═══ -->
   <div id="panel-tx-work" class="panel">
-
+    <div class="work-left">
     <div class="status-bar info" id="status-bar" data-i18n="status_ready">Ready</div>
     <div class="progress-wrap"><div class="progress-bar" id="progress-bar"></div></div>
 
@@ -180,9 +180,11 @@
         <button class="btn-secondary" onclick="askAi('broll')" data-i18n="ai_broll" style="flex:1 1 40%">B-Roll</button>
         <button class="btn-secondary" onclick="askAi('grammar')" data-i18n="ai_grammar" style="flex:1 1 40%">Fix Grammar</button>
       </div>
-      <textarea id="ai-output" class="settings-textarea" style="flex:1; min-height:100px; resize:none" data-i18n-ph="ai_ph" placeholder="Generated insights will appear here..." readonly></textarea>
+      <textarea id="ai-output" class="settings-textarea" style="flex:1; min-height:100px; resize:vertical" data-i18n-ph="ai_ph" placeholder="Generated insights will appear here..." readonly></textarea>
     </div>
+    </div> <!-- /work-left -->
 
+    <div class="work-right">
     <!-- Segments list -->
     <div class="segments-wrap" id="segments-wrap">
       <div class="empty-state">
@@ -223,6 +225,7 @@
         <span class="ic" data-icon="send"></span><span data-i18n="act_send">Send to Premiere</span>
       </button>
     </div>
+    </div> <!-- /work-right -->
 
   </div><!-- /panel-tx-work -->
 

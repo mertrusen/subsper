@@ -198,6 +198,11 @@ body { display: flex; flex-direction: column; }
 .tab, .sub-tab, .btn-secondary, .btn-load-srt, .btn-playpause, .style-chip, .seg-btn, .icon-btn, select, .toggle-track { transition: background .18s var(--ease), color .18s var(--ease), border-color .18s var(--ease), box-shadow .18s var(--ease); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 
+/* ── Work Layout (2-Column Desktop) ──────────────────────────────── */
+#panel-tx-work { flex-direction: column; }
+.work-left { display: flex; flex-direction: column; flex-shrink: 0; }
+.work-right { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+
 /* ── Status bar ──────────────────────────────────────────────────── */
 .status-bar {
   padding: 7px 14px; font-size: 11.5px; min-height: 28px;
@@ -494,12 +499,14 @@ mark.find-hit { background: var(--yellow); color: #1a1206; border-radius: 3px; p
 
 /* ── Full-screen / wide-window ───────────────────────────────────── */
 @media (min-width: 920px) {
-  .tabs, .sub-tabs { max-width: 760px; margin-left: auto; margin-right: auto; }
-  .panel { max-width: 760px; margin-left: auto; margin-right: auto; width: 100%; }
+  .tabs, .sub-tabs, .panel { max-width: 100%; margin-left: auto; margin-right: auto; padding: 0 10px; }
   #media-preview { max-height: 300px !important; }
+  #panel-tx-work { flex-direction: row; gap: 14px; }
+  .work-left { flex: 0 0 460px; overflow-y: auto; height: 100%; padding-bottom: 20px; }
+  .work-right { flex: 1; border-left: 1px solid var(--border); padding-left: 6px; }
 }
 @media (min-width: 1400px) {
-  .tabs, .sub-tabs, .panel { max-width: 920px; }
+  .work-left { flex: 0 0 520px; }
 }
 
 /* ── Tooltip ─────────────────────────────────────────────────────── */

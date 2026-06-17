@@ -33,15 +33,19 @@ jobs:
           if-no-files-found: error
 
   macos:
-    runs-on: macos-13   # Intel runner → darwin-x64 binaries
+    runs-on: macos-15   # Apple Silicon runner (fast) cross-compiling to darwin-x64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: brew install cmake || true
       - run: npm install
+        env:
+          npm_config_arch: x64
       - name: Build bundled engine (whisper.cpp + ffmpeg)
         run: node scripts/fetch-binaries.mjs
+        env:
+          FORCE_MAC_X64: "1"
       - run: npm run dist:mac
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"

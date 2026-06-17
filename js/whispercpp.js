@@ -15,6 +15,28 @@ const path = require("path");
 const os   = require("os");
 const https = require("https");
 
+// ── Debug logging ───────────────────────────────────────────────────────────
+// Every step is logged with a timestamp; kept in a ring buffer, optionally
+// mirrored to a sink (UI) and a file. recentLog() is appended to error messages
+// so we can see EXACTLY where/why something failed instead of guessing.
+let _logSink = null, _logFile = null;
+const _logBuf = [];
+function setLogger(opts) {
+    opts = opts || {};
+    _logSink = opts.sink || null;
+    _logFile = opts.file || null;
+    if (_logFile) { try { fs.mkdirSync(path.dirname(_logFile), { recursive: true }); } catch (e) {} }
+}
+function dbg(msg) {
+    const line = new Date().toISOString().slice(11, 23) + "  " + msg;
+    _logBuf.push(line);
+    if (_logBuf.length > 800) _logBuf.shift();
+    if (_logSink) { try { _logSink(line); } catch (e) {} }
+    if (_logFile) { try { fs.appendFileSync(_logFile, line + "\n"); } catch (e) {} }
+}
+function recentLog(n) { return _logBuf.slice(-(n || 25)).join("\n"); }
+function logPath() { return _logFile; }
+
 // ── Platform / binary resolution ──────────────────────────────────────────
 function platKey() {
     const p = process.platform, a = process.arch;
@@ -102,21 +124,30 @@ function ensureModel(modelKey, onProgress) {
     const tmp = dest + ".part";
     const MAX = 8;
 
+    dbg("ensureModel: " + modelKey + " → " + file + " (" + url + ")");
+    dbg("  dest=" + dest);
     return new Promise((resolve, reject) => {
         let attempt = 0;
         const tryOnce = () => {
             attempt++;
+            const have = safeExists(tmp) ? (fs.statSync(tmp).size || 0) : 0;
+            dbg("download attempt " + attempt + "/" + MAX + (have ? " (resume from " + (have / 1048576 | 0) + " MB)" : ""));
             _downloadResume(url, tmp, onProgress)
-                .then(() => { try { fs.renameSync(tmp, dest); } catch (e) {} resolve(dest); })
+                .then(() => {
+                    const sz = safeExists(tmp) ? fs.statSync(tmp).size : 0;
+                    dbg("download complete: " + (sz / 1048576 | 0) + " MB; renaming → model");
+                    try { fs.renameSync(tmp, dest); } catch (e) { dbg("rename ERROR: " + e.message); }
+                    resolve(dest);
+                })
                 .catch(err => {
                     const msg = (err && err.message) || String(err);
+                    dbg("download attempt " + attempt + " FAILED: " + msg);
                     if (attempt < MAX && RETRIABLE.test(msg)) {
                         if (onProgress) onProgress(0, 0, 0, "reconnecting " + attempt);
                         setTimeout(tryOnce, 1500 * attempt);   // backoff; keeps the .part to resume
                     } else {
                         try { fs.unlinkSync(tmp); } catch (e) {}
-                        reject(new Error("Model download failed (" + msg +
-                            "). Check your internet connection and press Transcribe again."));
+                        reject(new Error("Model download failed after " + attempt + " attempt(s): " + msg));
                     }
                 });
         };
@@ -133,9 +164,12 @@ function _downloadResume(url, dest, onProgress) {
             if (redirects > 8) return reject(new Error("Too many redirects"));
             const headers = { "User-Agent": "Subsper/1.0", "Accept-Encoding": "identity" };
             if (startByte > 0) headers["Range"] = "bytes=" + startByte + "-";
+            const host = (() => { try { return new URL(u).host; } catch (e) { return "?"; } })();
+            dbg("GET " + host + (startByte ? " (Range from " + (startByte / 1048576 | 0) + " MB)" : ""));
 
             const req = https.get(u, { headers }, res => {
                 const code = res.statusCode;
+                dbg("  ← HTTP " + code + (res.headers.location ? " → " + (() => { try { return new URL(res.headers.location, u).host; } catch (e) { return res.headers.location; } })() : ""));
                 if (code >= 300 && code < 400 && res.headers.location) {
                     res.resume();
                     const next = res.headers.location.startsWith("http")
@@ -144,24 +178,29 @@ function _downloadResume(url, dest, onProgress) {
                     return doReq(next, redirects + 1);
                 }
                 if (code === 416) { res.resume(); return resolve(dest); }   // already complete
-                if (code !== 200 && code !== 206) { res.resume(); return reject(new Error("HTTP " + code)); }
+                if (code !== 200 && code !== 206) { res.resume(); return reject(new Error("HTTP " + code + " from " + host)); }
 
                 const resuming = code === 206;                  // server honored Range
                 const out = fs.createWriteStream(dest, { flags: resuming ? "a" : "w" });
                 let got = resuming ? startByte : 0;
                 const remaining = parseInt(res.headers["content-length"] || "0", 10);
                 const total = resuming ? startByte + remaining : remaining;
+                dbg("  streaming " + (total / 1048576 | 0) + " MB from " + host + (resuming ? " (resumed)" : ""));
                 let settled = false;
-                const fail = (e) => { if (settled) return; settled = true; try { out.destroy(); } catch (x) {} reject(e); };
-
+                const fail = (e) => {
+                    if (settled) return; settled = true;
+                    dbg("  STREAM ERROR @ " + (got / 1048576 | 0) + "/" + (total / 1048576 | 0) + " MB: " + (e.code || "") + " " + e.message);
+                    try { out.destroy(); } catch (x) {} reject(e);
+                };
                 res.on("data", c => { got += c.length; if (onProgress && total) onProgress(got / total, got, total); });
                 res.on("error", fail);
+                res.on("aborted", () => fail(new Error("response aborted (ECONNRESET)")));
                 out.on("error", fail);
                 out.on("finish", () => { if (settled) return; settled = true; out.close(() => resolve(dest)); });
                 res.pipe(out);
             });
-            req.on("error", reject);
-            req.setTimeout(60000, () => req.destroy(new Error("Download timed out")));
+            req.on("error", e => { dbg("  REQUEST ERROR: " + (e.code || "") + " " + e.message); reject(e); });
+            req.setTimeout(60000, () => { dbg("  TIMEOUT (no data 60s)"); req.destroy(new Error("Download timed out")); });
         };
         doReq(url, 0);
     });
@@ -298,6 +337,7 @@ function _ffMixClips(appDir, parts, outWav, totalDur, spawnOpts) {
  * → writes a single 16 kHz mono WAV to outWav. */
 async function extractClipsToWav(appDir, clipsData, outWav, spawnOpts) {
     const clips = (clipsData.clips || []).map(c => ({ ...c, path: normalizePath(c.path) }));
+    dbg("extractClipsToWav: " + clips.length + " clip(s) via ffmpeg " + ffmpegBin(appDir));
     if (!clips.length) throw new Error("No clips to extract.");
     const missing = clips.find(c => !safeExists(c.path));
     if (missing) throw new Error("Source media file not found on disk:\n" + missing.path +
@@ -344,23 +384,30 @@ function transcribeWav(opts) {
         if (lang) { args.push("--language", lang); }
         else      { args.push("--language", "auto"); }
 
-        const wc = cp.spawn(whisperBin(appDir), args, opts.spawnOpts || {});
+        const bin = whisperBin(appDir);
+        dbg("whisper-cli: " + bin);
+        dbg("  model=" + mdl + " | wav=" + wav + " | lang=" + (lang || "auto"));
+        if (!safeExists(bin)) return reject(new Error("Engine binary not found: " + bin));
+        if (!safeExists(wav)) return reject(new Error("Audio file missing: " + wav));
+        const wc = cp.spawn(bin, args, opts.spawnOpts || {});
         let err = "";
         wc.stdout.on("data", d => { if (opts.onLog) opts.onLog(d.toString()); });
         wc.stderr.on("data", d => {
             const s = d.toString(); err += s;
             if (opts.onLog) opts.onLog(s);
         });
-        wc.on("error", e => reject(new Error("whisper.cpp could not run: " + e.message)));
+        wc.on("error", e => { dbg("whisper-cli spawn ERROR: " + e.message); reject(new Error("whisper.cpp could not run: " + e.message)); });
         wc.on("close", code => {
             const outJson = outBase + ".json";
+            dbg("whisper-cli exit " + code + (safeExists(outJson) ? " (json produced)" : " (no json)"));
             if (code !== 0 && !safeExists(outJson)) {
-                return reject(new Error("whisper.cpp failed (" + code + "): " + err.slice(-500)));
+                return reject(new Error("whisper.cpp failed (exit " + code + "): " + err.slice(-500)));
             }
             try {
                 const json = JSON.parse(fs.readFileSync(outJson, "utf8"));
                 const parsed = parseWhisperJson(json);
                 parsed.engine = "whisper.cpp";
+                dbg("parsed " + parsed.segments.length + " segment(s), lang=" + parsed.language);
                 try { fs.unlinkSync(outJson); } catch (e) {}
                 resolve(parsed);
             } catch (e) {
@@ -375,4 +422,5 @@ module.exports = {
     modelsDir, modelPath, modelExists, ensureModel, GGML_FILES,
     parseWhisperJson, toWav16k, transcribeWav, dtwPreset,
     normalizePath, extractClipsToWav,
+    setLogger, recentLog, logPath, dbg,
 };

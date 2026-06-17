@@ -15,6 +15,16 @@
   let WCPP = null;
   try { WCPP = require(pathD.join(window.__APP_DIR__, "js", "whispercpp.js")); }
   catch (e) { console.error("[Desktop] whispercpp module load failed:", e); }
+  if (WCPP) {
+    try {
+      const logFile = pathD.join(pathD.dirname(WCPP.modelsDir()), "subsper.log");
+      WCPP.setLogger({ file: logFile, sink: l => console.log("[engine]", l) });
+      WCPP.dbg("=== Subsper desktop start " + new Date().toISOString() +
+               " | " + process.platform + "/" + process.arch + " ===");
+      WCPP.dbg("whisper=" + WCPP.whisperBin(window.__APP_DIR__) + " | ffmpeg=" + WCPP.ffmpegBin(window.__APP_DIR__));
+      window.__SUBSPER_LOG__ = logFile;
+    } catch (e) { console.error(e); }
+  }
 
   // ── Desktop state ─────────────────────────────────────────────────────────
   let mediaPath = null;       // currently loaded video/audio file
@@ -98,7 +108,12 @@
       try { fsD.unlinkSync(wav); } catch (e) {}
       return { success: true, segments: r.segments, text: r.text, language: r.language, engine: "whisper.cpp", notes: [] };
     } catch (e) {
-      return { success: false, error: (e && e.message) || String(e) };
+      const log = WCPP ? WCPP.recentLog(22) : "";
+      const lp  = WCPP && WCPP.logPath() ? WCPP.logPath() : "";
+      let msg = (e && e.message) || String(e);
+      if (lp)  msg += "\n\nFull log: " + lp;
+      if (log) msg += "\n\n— last steps —\n" + log;
+      return { success: false, error: msg };
     }
   }
 

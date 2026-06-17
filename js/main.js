@@ -632,7 +632,13 @@ function scriptsDir() { return path.join(extDir(), "scripts"); }
 let _WCPP;
 function wcpp() {
     if (_WCPP === undefined) {
-        try { _WCPP = _req(path.join(extDir(), "js", "whispercpp.js")); }
+        try {
+            _WCPP = _req(path.join(extDir(), "js", "whispercpp.js"));
+            try {
+                _WCPP.setLogger({ file: path.join(path.dirname(_WCPP.modelsDir()), "subsper.log") });
+                _WCPP.dbg("=== Subsper extension start " + new Date().toISOString() + " | " + process.platform + " ===");
+            } catch (e) {}
+        }
         catch (e) { console.error("[Subsper] whispercpp load failed:", e); _WCPP = null; }
     }
     return _WCPP;
@@ -1923,7 +1929,13 @@ async function startTranscription() {
                 });
                 txRes = { success: true, segments: r.segments, text: r.text, language: r.language, engine: "whisper.cpp", notes: [] };
             } catch (e) {
-                txRes = { success: false, error: (e && e.message) || String(e) };
+                let msg = (e && e.message) || String(e);
+                try {
+                    const lp = W.logPath && W.logPath(); const lg = W.recentLog && W.recentLog(22);
+                    if (lp) msg += "\n\nFull log: " + lp;
+                    if (lg) msg += "\n\n— last steps —\n" + lg;
+                } catch (_) {}
+                txRes = { success: false, error: msg };
             }
         } else {
             setStatus(`Extracting audio… (${seqInfo.duration.toFixed(1)}s — ${scopeNote})`, "info");

@@ -26,6 +26,7 @@ jobs:
           Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/1.3.296.0/windows/VulkanSDK-1.3.296.0-Installer.exe" -OutFile "VulkanSDK.exe"
           .\VulkanSDK.exe --accept-licenses --default-answer --confirm-command install
           echo "VULKAN_SDK=C:\VulkanSDK\1.3.296.0" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "CMAKE_PREFIX_PATH=C:\VulkanSDK\1.3.296.0" | Out-File -FilePath $env:GITHUB_ENV -Append
           echo "C:\VulkanSDK\1.3.296.0\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append
       - run: npm install
       # Cache the compiled whisper-cli + ffmpeg so it's built ONCE, not every

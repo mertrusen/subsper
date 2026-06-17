@@ -179,6 +179,7 @@ const I18N = {
     setup_optional: "✓ Subsper's built-in engine works out of the box — no setup needed. Everything below is OPTIONAL — install Python + a Pro engine only if you want speaker labels, auto-punctuation, or an alternative engine.",
     nm_builtin: "Subsper Built-in engine", ds_builtin_ok: "✓ Ready — bundled whisper.cpp + ffmpeg, no setup", ds_builtin_dl: "Bundled — the model downloads on first transcription",
     py_optional: "Not detected — that's fine. Install Python only for optional Pro features (speaker labels, etc.).",
+    opt_alt_note: "Optional alternative engine — the Built-in engine already covers this. No need to install.",
     btn_recheck: "Re-check", btn_reload: "Reload Extension",
     // tooltips
     tip_tab_transcribe: "Auto-generate and edit subtitles from your video",
@@ -333,6 +334,7 @@ const I18N = {
     setup_optional: "✓ Subsper'in yerleşik motoru kutudan çıktığı gibi çalışır — kurulum gerekmez. Aşağıdaki her şey OPSİYONELDİR — yalnızca konuşmacı etiketleri, otomatik noktalama veya alternatif motor istiyorsan Python + bir Pro motor kur.",
     nm_builtin: "Subsper Yerleşik motor", ds_builtin_ok: "✓ Hazır — gömülü whisper.cpp + ffmpeg, kurulum yok", ds_builtin_dl: "Gömülü — model ilk transcribe'da iner",
     py_optional: "Algılanmadı — sorun değil. Python'ı yalnızca opsiyonel Pro özellikler (konuşmacı etiketleri vb.) için kur.",
+    opt_alt_note: "Opsiyonel alternatif motor — Yerleşik motor bunu zaten karşılıyor. Kurmana gerek yok.",
     btn_recheck: "Yeniden Tara", btn_reload: "Eklentiyi Yenile",
     tip_tab_transcribe: "Videodan otomatik altyazı oluştur ve düzenle",
     tip_tab_silence: "Sessiz boşlukları bul, işaretle veya kes",
@@ -2661,15 +2663,13 @@ function builtinEngineReady() {
 }
 
 function renderChecks(data) {
-    const keys = [
-        { key: "python"     },
-        { key: "ffmpeg"     },
-        { key: "whisper"    },   // openai-whisper — the reliable baseline engine
-        { key: "whisperx"   },   // optional, advanced
-        { key: "mlx_whisper"},
-        { key: "punctuation"},
-    ];
-    // Built-in engine row first — this is what 99% of users use; needs no setup.
+    // CORE = built-in prerequisites + the one meaningful Pro engine (WhisperX,
+    // for speaker labels). EXTRA = redundant alternative engines the Built-in
+    // already covers — shown muted, WITHOUT install buttons, so nobody clicks a
+    // confusing/optional install they don't need.
+    const CORE  = ["python", "ffmpeg", "whisperx"];
+    const EXTRA = ["whisper", "mlx_whisper", "punctuation"];
+
     const bi = builtinEngineReady();
     let html = `<div class="check-item">
       <div class="check-icon check-${bi ? "ok" : "warn"}">${icon(bi ? "check" : "alert")}</div>
@@ -2678,27 +2678,34 @@ function renderChecks(data) {
         <div class="check-detail ${bi ? "ok" : "warn"}">${bi ? t("ds_builtin_ok") : t("ds_builtin_dl")}</div>
       </div>
     </div>`;
-    for (const { key } of keys) {
-        const c = data[key]; if (!c) continue;
+
+    const row = (key, allowFix) => {
+        const c = data[key]; if (!c) return "";
         const st = c.status;             // ok | warn | missing | na
         const ok = st === "ok";
         const opt = c.optional;
         let ico, cls;
         if (st === "ok")        { ico = icon("check"); cls = "ok"; }
         else if (st === "warn") { ico = icon("alert"); cls = "warn"; }
+        else if (!allowFix)     { ico = icon("close"); cls = "opt"; }   // extras: always muted
         else if (st === "na")   { ico = icon("close"); cls = "opt"; }
         else if (opt)           { ico = icon("close"); cls = "opt"; }
         else                    { ico = icon("close"); cls = "bad"; }
-        const showFix = (st === "missing" || (!ok && !opt && st !== "na")) && c.fix_cmd;
-        html += `<div class="check-item">
+        const showFix = allowFix && (st === "missing" || (!ok && !opt && st !== "na")) && c.fix_cmd;
+        // For an extra that's not installed, replace the noisy detail with a calm note.
+        const detail = (!ok && !allowFix) ? t("opt_alt_note") : (c.detail || "");
+        return `<div class="check-item">
           <div class="check-icon check-${cls}">${ico}</div>
           <div class="check-body">
             <div class="check-name">${c.label}</div>
-            <div class="check-detail ${cls}">${c.detail || ""}</div>
+            <div class="check-detail ${cls}">${detail}</div>
             ${showFix ? renderFixRow(key, c) : ""}
           </div>
         </div>`;
-    }
+    };
+
+    html += CORE.map(k => row(k, true)).join("");
+    html += EXTRA.map(k => row(k, false)).join("");
     $("checks-list").innerHTML = `<div class="glist">${html}</div>`;
 }
 

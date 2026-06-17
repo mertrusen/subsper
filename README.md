@@ -20,9 +20,13 @@ bundled inside the app. The only one-time step is a model download on first use.
 3. Open a video → **Transcribe**. On the **first** run it downloads the speech
    model once (cached in `%APPDATA%\Subsper\models`); after that it's instant & offline.
 
-### macOS (Apple Silicon)
-Download `Subsper-x.x.x-mac.dmg` from **Releases**, drag to Applications, open it
-(first launch: right-click → Open to bypass Gatekeeper), pick a video → **Transcribe**.
+### macOS (Apple Silicon & Intel)
+Download `Subsper-x.x.x-mac.dmg` from **Releases**, drag to Applications, open it.
+
+> **⚠️ "App is damaged and can't be opened" error?**
+> macOS Gatekeeper shows this for unsigned apps. To fix it, open Terminal and run:
+> `xattr -cr /Applications/Subsper.app`
+> Then you can open the app normally.
 
 > **Optional — Pro engine:** for speaker labels (diarization) install Python +
 > WhisperX and pick it in Settings. Everyone else needs nothing.

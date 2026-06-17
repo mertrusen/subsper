@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20 }
+        with: { node-version: 22 }
       # cmake + MSVC are preinstalled on windows-latest.
       - run: npm install
       - name: Build bundled engine (whisper.cpp + ffmpeg)
@@ -33,11 +33,11 @@ jobs:
           if-no-files-found: error
 
   macos:
-    runs-on: macos-14   # Apple Silicon runner → darwin-arm64 binaries
+    runs-on: macos-15   # Apple Silicon runner → darwin-arm64 binaries
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20 }
+        with: { node-version: 22 }
       - run: brew install cmake || true
       - run: npm install
       - name: Build bundled engine (whisper.cpp + ffmpeg)

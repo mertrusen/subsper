@@ -51,6 +51,7 @@ const DEFAULT_SETTINGS = {
     // ── Edit automation ──
     zoomAmount:      8,           // % push-in per clip
     zoomStyle:       "alternate", // alternate | in
+    threads:         0,           // whisper.cpp threads (0 = auto: use all CPU cores)
 };
 
 // Built-in filler words (Turkish + English). Phrases first so they match before single words.
@@ -667,7 +668,7 @@ function runPython(scriptName, args, onStderr) {
         const py     = findPython();
         const script = path.join(scriptsDir(), scriptName);
         const proc   = spawn(py, [script, ...args], { env: spawnEnv() });
-        const STDERR_CAP = 8000;
+        const STDERR_CAP = 32000;
         let stdout = "", stderr = "";
         // setEncoding("utf8") decodes correctly even when a multi-byte char is
         // split across chunks (raw .toString() per chunk can corrupt them).
@@ -2775,10 +2776,9 @@ function initTooltips() {
 (function init() {
     loadHostJSX();
 
-    applyTheme();
     applyLanguage();
     applyIcons();
-    applyTheme();   // refresh theme-btn icon now that icon() output is in place
+    applyTheme();   // apply after icons so theme-btn icon renders correctly
     renderSegments();
     initTooltips();
     const lseg = $("lang-seg");

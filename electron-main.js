@@ -22,6 +22,14 @@ function createWindow() {
   });
 
   win.loadFile(path.join(__dirname, "index.html"));
+
+  // Content Security Policy — prevents XSS by blocking external scripts
+  win.webContents.session.webRequest.onHeadersReceived((details, cb) => {
+    cb({ responseHeaders: {
+      ...details.responseHeaders,
+      "Content-Security-Policy": ["default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:; media-src 'self' file: blob:; connect-src 'self' https:"]
+    }});
+  });
   win.setMenuBarVisibility(false);
   // win.webContents.openDevTools();
 }
@@ -62,7 +70,7 @@ ipcMain.handle("dialog:saveFile", async (_e, opts) => {
 });
 
 // Reveal a file in Finder/Explorer
-ipcMain.handle("shell:showItem", (_e, p) => { try { shell.showItemInFolder(p); } catch (e) {} return true; });
+ipcMain.handle("shell:showItem", (_e, p) => { try { shell.showItemInFolder(p); } catch (e) { console.error("showItem error:", e); } return true; });
 
 app.whenReady().then(createWindow);
 

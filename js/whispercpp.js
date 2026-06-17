@@ -27,13 +27,25 @@ function setLogger(opts) {
     _logFile = opts.file || null;
     if (_logFile) { try { fs.mkdirSync(path.dirname(_logFile), { recursive: true }); } catch (e) {} }
 }
+let _logQueue = [];
+let _flushTimer = null;
+function _flushLog() {
+    if (!_logFile || !_logQueue.length) return;
+    const batch = _logQueue.join('');
+    _logQueue = [];
+    try { fs.appendFile(_logFile, batch, () => {}); } catch (e) {}
+}
 function dbg(msg) {
     const line = new Date().toISOString().slice(11, 23) + "  " + msg;
     _logBuf.push(line);
     if (_logBuf.length > 800) _logBuf.shift();
     if (_logSink) { try { _logSink(line); } catch (e) {} }
-    if (_logFile) { try { fs.appendFileSync(_logFile, line + "\n"); } catch (e) {} }
+    if (_logFile) {
+        _logQueue.push(line + "\n");
+        if (!_flushTimer) _flushTimer = setTimeout(() => { _flushTimer = null; _flushLog(); }, 200);
+    }
 }
+function flushLog() { _flushLog(); }
 function recentLog(n) { return _logBuf.slice(-(n || 25)).join("\n"); }
 function logPath() { return _logFile; }
 
@@ -89,6 +101,15 @@ const GGML_FILES = {
     base:       "ggml-base.bin",
     tiny:       "ggml-tiny.bin",
 };
+const GGML_MIN_SIZES = {
+    turbo:      1500000000,
+    "large-v3": 3000000000,
+    large:      3000000000,
+    medium:     1400000000,
+    small:      450000000,
+    base:       130000000,
+    tiny:       70000000,
+};
 const HF_BASE = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
 
 function modelsDir() {
@@ -109,6 +130,47 @@ function modelPath(modelKey) {
 }
 
 function modelExists(modelKey) { return safeExists(modelPath(modelKey)); }
+
+function verifyModel(filepath, modelKey) {
+    if (!safeExists(filepath)) return "File does not exist";
+    const stat = fs.statSync(filepath);
+    const minSize = GGML_MIN_SIZES[modelKey] || 50000000;
+    if (stat.size < minSize) return `File too small (${(stat.size/1048576|0)} MB, expected at least ${(minSize/1048576|0)} MB) — download may be incomplete`;
+    // Check GGML magic bytes
+    try {
+        const fd = fs.openSync(filepath, 'r');
+        const buf = Buffer.alloc(4);
+        fs.readSync(fd, buf, 0, 4, 0);
+        fs.closeSync(fd);
+        const magic = buf.toString('ascii');
+        // GGML format magic values: 'GGML', 'GGMF', 'GGJT', 'GGUF' and ggml binary magic 0x67676d6c
+        if (!/^(GGML|GGMF|GGJT|GGUF|ggml)/.test(magic) && buf.readUInt32LE(0) !== 0x67676d6c && buf.readUInt32LE(0) !== 0x46554747) {
+            return "Invalid model file format (corrupt download?)";
+        }
+    } catch (e) { return "Could not verify model: " + e.message; }
+    return null; // valid
+}
+
+function cleanupStaleDownloads() {
+    const dir = modelsDir();
+    if (!safeExists(dir)) return;
+    try {
+        const files = fs.readdirSync(dir);
+        for (const f of files) {
+            if (f.endsWith('.part')) {
+                const fp = path.join(dir, f);
+                try {
+                    const stat = fs.statSync(fp);
+                    // Delete .part files older than 1 hour (stale downloads)
+                    if (Date.now() - stat.mtimeMs > 3600000) {
+                        dbg('cleanup: removing stale ' + f);
+                        fs.unlinkSync(fp);
+                    }
+                } catch (e) {}
+            }
+        }
+    } catch (e) {}
+}
 
 const RETRIABLE = /ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|socket hang up|timed out|network|EPIPE|ECONNREFUSED|aborted/i;
 
@@ -135,7 +197,15 @@ function ensureModel(modelKey, onProgress) {
             _downloadResume(url, tmp, onProgress)
                 .then(() => {
                     const sz = safeExists(tmp) ? fs.statSync(tmp).size : 0;
-                    dbg("download complete: " + (sz / 1048576 | 0) + " MB; renaming → model");
+                    dbg("download complete: " + (sz / 1048576 | 0) + " MB; verifying…");
+                    const verr = verifyModel(tmp, modelKey);
+                    if (verr) {
+                        dbg("model verification FAILED: " + verr);
+                        try { fs.unlinkSync(tmp); } catch (e) {}
+                        reject(new Error("Model verification failed: " + verr));
+                        return;
+                    }
+                    dbg("model verified OK; renaming → model");
                     try { fs.renameSync(tmp, dest); } catch (e) { dbg("rename ERROR: " + e.message); }
                     resolve(dest);
                 })
@@ -271,11 +341,15 @@ function dtwPreset(modelKey) {
 }
 
 // ── ffmpeg: any media → 16 kHz mono PCM WAV (what whisper.cpp wants) ─────────
-function toWav16k(appDir, inputPath, outWav, spawnOpts) {
+function toWav16k(appDir, inputPath, outWav, spawnOpts, signal) {
     return new Promise((resolve, reject) => {
         const args = ["-y", "-i", inputPath, "-ar", "16000", "-ac", "1",
                       "-c:a", "pcm_s16le", "-vn", outWav];
         const ff = cp.spawn(ffmpegBin(appDir), args, spawnOpts || {});
+        if (signal) {
+            if (signal.aborted) { ff.kill(); return reject(new Error("Cancelled")); }
+            signal.addEventListener('abort', () => { ff.kill(); }, { once: true });
+        }
         let err = "";
         ff.stderr.on("data", d => { err += d.toString(); });
         ff.on("error", e => reject(new Error("ffmpeg could not run: " + e.message)));
@@ -377,7 +451,7 @@ function transcribeWav(opts) {
             "-f", wav,
             "-ojf", "-of", outBase,
             "--dtw", dtwPreset(opts.modelKey || "turbo"),
-            "-t", String(opts.threads || Math.max(2, Math.min(8, os.cpus().length))),
+            "-t", String(opts.threads || Math.max(2, os.cpus().length)),
             "-pp",          // print progress to stderr
         ];
         const lang = opts.language && opts.language !== "auto" ? opts.language : null;
@@ -390,6 +464,10 @@ function transcribeWav(opts) {
         if (!safeExists(bin)) return reject(new Error("Engine binary not found: " + bin));
         if (!safeExists(wav)) return reject(new Error("Audio file missing: " + wav));
         const wc = cp.spawn(bin, args, opts.spawnOpts || {});
+        if (opts.signal) {
+            if (opts.signal.aborted) { wc.kill(); return reject(new Error("Transcription cancelled")); }
+            opts.signal.addEventListener('abort', () => { dbg("abort signal received, killing whisper-cli"); wc.kill(); }, { once: true });
+        }
         let err = "";
         wc.stdout.on("data", d => { if (opts.onLog) opts.onLog(d.toString()); });
         wc.stderr.on("data", d => {
@@ -423,4 +501,5 @@ module.exports = {
     parseWhisperJson, toWav16k, transcribeWav, dtwPreset,
     normalizePath, extractClipsToWav,
     setLogger, recentLog, logPath, dbg,
+    flushLog, cleanupStaleDownloads, verifyModel,
 };

@@ -25,9 +25,13 @@
       window.__SUBSPER_LOG__ = logFile;
     } catch (e) { console.error(e); }
   }
+  if (WCPP && WCPP.cleanupStaleDownloads) {
+    try { WCPP.cleanupStaleDownloads(); } catch (e) {}
+  }
 
   // ── Desktop state ─────────────────────────────────────────────────────────
   let mediaPath = null;       // currently loaded video/audio file
+  let _transcribeAbort = null;   // AbortController for cancelling transcription
   let mediaEl   = null;       // <video> used for preview + playback
 
   const MEDIA_EXTS = ["mp4","mov","m4v","mkv","webm","avi","mp3","wav","m4a","aac","flac","ogg","wmv"];
@@ -79,7 +83,7 @@
       const f = e.dataTransfer.files[0];
       const ext = (f.name.split(".").pop() || "").toLowerCase();
       if (MEDIA_EXTS.includes(ext)) loadMedia(f.path);
-      else if (ext === "srt") { try { _loadSRTData(fsD.readFileSync(f.path, "utf8"), f.name); } catch (er) {} }
+      else if (ext === "srt") { try { _loadSRTData(fsD.readFileSync(f.path, "utf8"), f.name); } catch (er) { console.warn("SRT import error:", er); } }
       else showToast("Unsupported file type: ." + ext, "error");
     });
   }
@@ -88,7 +92,7 @@
   // Bundled engine path: download model (once) → ffmpeg to 16 kHz WAV → whisper.cpp.
   // Returns the same shape as runPython("transcribe.py") so the rest of the flow
   // is identical. No Python needed.
-  async function transcribeViaCpp(inputPath, modelKey, language) {
+  async function transcribeViaCpp(inputPath, modelKey, language, signal) {
     try {
       if (!WCPP.modelExists(modelKey)) {
         setStatus(`Downloading ${modelKey} model… (one-time)`, "info");
@@ -98,11 +102,12 @@
       }
       setStatus("Preparing audio…", "info");
       const wav = pathD.join(osD.tmpdir(), `subsper_${Date.now()}.wav`);
-      await WCPP.toWav16k(extDir(), inputPath, wav);
+      await WCPP.toWav16k(extDir(), inputPath, wav, {}, signal);
 
       setStatus("Transcribing (Subsper engine)…", "info");
       const r = await WCPP.transcribeWav({
-        appDir: extDir(), wavPath: wav, modelKey, language,
+        appDir: extDir(), wavPath: wav, modelKey, language, signal,
+        threads: settings.threads || 0,
         onLog: s => { const m = /progress\s*=\s*(\d+)\s*%/i.exec(s); if (m) setStatus(`Transcribing… ${m[1]}%`, "info"); },
       });
       try { fsD.unlinkSync(wav); } catch (e) {}
@@ -121,6 +126,7 @@
     if (isRunning) return;
     if (!mediaPath) { showToast("Open a video/audio file first", "info", 2500); pickMedia(); return; }
     isRunning = true;
+    _transcribeAbort = new AbortController();
     const transcribeBtn = document.getElementById("transcribe-btn");
     const sendBtn = document.getElementById("send-btn");
     if (transcribeBtn) transcribeBtn.disabled = true;
@@ -143,7 +149,7 @@
 
       let txRes;
       if (useCpp) {
-        txRes = await transcribeViaCpp(mediaPath, model, language);
+        txRes = await transcribeViaCpp(mediaPath, model, language, _transcribeAbort.signal);
       } else {
         const engLabel = { whisperx:"WhisperX", mlx:"mlx-whisper", openai:"openai-whisper", auto:"Whisper" }[settings.engine] || "Whisper";
         setStatus(`Transcribing with ${engLabel}… (first run may download the model)`, "info");
@@ -201,9 +207,18 @@
       handleError(e && e.message ? e.message : String(e));
     } finally {
       isRunning = false;
+      _transcribeAbort = null;
       showProgress(false);
       if (transcribeBtn) transcribeBtn.disabled = false;
       if (sendBtn) sendBtn.disabled = segments.length === 0;
+    }
+  };
+
+  // Cancel a running transcription
+  window.cancelTranscription = function () {
+    if (_transcribeAbort) {
+      _transcribeAbort.abort();
+      showToast("Cancelling transcription…", "info", 2000);
     }
   };
 
@@ -211,7 +226,7 @@
   playPause = async function () {
     const btn = document.getElementById("playpause-btn");
     if (!mediaEl || !mediaPath) { showToast("Open a file first", "info", 2000); return; }
-    if (mediaEl.paused) { await mediaEl.play().catch(()=>{}); }
+    if (mediaEl.paused) { await mediaEl.play().catch(e => console.warn("Play error:", e)); }
     else mediaEl.pause();
     if (btn) {
       const playing = !mediaEl.paused;
@@ -226,7 +241,7 @@
     selectSegment(idx);
     if (mediaEl && mediaPath) {
       mediaEl.currentTime = seg.seqStart;
-      await mediaEl.play().catch(()=>{});
+      await mediaEl.play().catch(e => console.warn("Seek play error:", e));
       const btn = document.getElementById("playpause-btn");
       if (btn) { btn.innerHTML = "⏸&nbsp; Pause"; btn.classList.add("playing"); }
     }
@@ -479,6 +494,6 @@
       if (!ind) return;
       if (!data || !data._ready) { ind.className = "setup-indicator warn"; if (badge) badge.style.display = "inline-flex"; }
       else { ind.className = "setup-indicator ok"; if (badge) badge.style.display = "none"; }
-    }).catch(() => {});
-  } catch (e) {}
+    }).catch(e => console.warn("Setup check error:", e));
+  } catch (e) { console.warn("Setup check error:", e); }
 })();

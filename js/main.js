@@ -146,6 +146,8 @@ const I18N = {
     lbl_dict: "Custom dictionary", hint_dict: "Fixes names, brands & mis-hearings. Format: wrong=right (whole word, case-insensitive).",
     lbl_punct_filter: "Allowed Punctuation", hint_punct_filter: "Only these punctuation marks will be kept. Delete all to remove all punctuation.",
     lbl_prompt_words: "Context words (AI prompt)", hint_prompt_words: "Difficult words/names that the AI might mis-hear. These are sent as a prompt to improve accuracy. Comma-separated.",
+    sync_title: "Sync with Correct Text", sync_ph: "Paste the fully corrected text here. This will replace words in subtitles while keeping the timing intact.",
+    sync_hint: "Word alignment algorithm will modify the current segments.", tip_sync: "Sync with correct text", btn_sync: "Sync",
     nm_filler: "Filler words", ds_filler: "Include the built-in list (ee, ıı, şey, um, uh…)",
     lbl_extrafiller: "Extra fillers to remove",
     nm_prof: "Profanity filter", ds_prof: "How to handle matched words",
@@ -291,6 +293,8 @@ const I18N = {
     lbl_dict: "Özel sözlük", hint_dict: "İsim/marka/yanlış duymaları düzeltir. Format: yanlış=doğru (tam kelime, büyük-küçük fark etmez).",
     lbl_punct_filter: "İzin Verilen Noktalama", hint_punct_filter: "Sadece bu işaretler korunur (örn. sadece soru işareti için '?' yazın). Hepsini silerseniz tüm noktalamalar kalkar.",
     lbl_prompt_words: "Bağlam kelimeleri (AI prompt)", hint_prompt_words: "Yapay zekanın yanlış duyabileceği zor kelimeler/isimler. Doğruluğu artırmak için prompt olarak gönderilir. Virgülle ayırın.",
+    sync_title: "Doğru Metin ile Eşleştir", sync_ph: "Tamamen düzeltilmiş doğru metni buraya yapıştırın. Zamanlamaları bozmadan altyazıdaki kelimeleri değiştirecektir.",
+    sync_hint: "Kelime eşleştirme algoritması mevcut segmentleri düzenler.", tip_sync: "Doğru metin ile eşleştir", btn_sync: "Eşleştir",
     nm_filler: "Dolgu kelimeler", ds_filler: "Yerleşik listeyi kullan (ee, ıı, şey, um, uh…)",
     lbl_extrafiller: "Kaldırılacak ekstra dolgular",
     nm_prof: "Küfür filtresi", ds_prof: "Eşleşen kelimeler nasıl gizlensin",
@@ -1562,14 +1566,108 @@ function buildFindRegex() {
 function toggleFindReplace() {
     const p = $("find-panel");
     const show = p.style.display === "none" || !p.style.display;
-    p.style.display = show ? "block" : "none";
-    if (show) { $("find-input").focus(); $("find-input").select(); updateFindCount(); }
-    else { clearFindHighlight(); }
+    if (show) {
+        closeSyncPanel();
+        p.style.display = "flex";
+        $("find-input").focus();
+        $("find-input").select();
+        updateFindCount();
+    } else {
+        closeFindReplace();
+    }
 }
 
 function closeFindReplace() {
     $("find-panel").style.display = "none";
     clearFindHighlight();
+}
+
+function toggleSyncPanel() {
+    const sp = $("sync-panel");
+    const show = sp.style.display === "none" || !sp.style.display;
+    if (show) {
+        closeFindReplace();
+        sp.style.display = "flex";
+        $("sync-input").focus();
+    } else {
+        closeSyncPanel();
+    }
+}
+
+function closeSyncPanel() {
+    if ($("sync-panel")) $("sync-panel").style.display = "none";
+}
+
+function doSyncText() {
+    if (segments.length === 0) return;
+    const correctText = $("sync-input").value.trim();
+    if (!correctText) return;
+    
+    setStatus("Syncing text with original timing...", "info");
+    
+    let Diff;
+    try {
+        Diff = require("diff");
+    } catch (e) {
+        showError("Missing dependency", "Please run 'npm install diff' in the app directory.");
+        return;
+    }
+
+    const currentWords = [];
+    const wordSegments = [];
+    segments.forEach((seg, i) => {
+        const words = (seg.text || "").split(/\s+/).filter(Boolean);
+        words.forEach(w => {
+            currentWords.push(w);
+            wordSegments.push(i);
+        });
+    });
+
+    const correctWords = correctText.split(/\s+/).filter(Boolean);
+    const changes = Diff.diffArrays(currentWords, correctWords, { ignoreCase: true });
+
+    const newSegText = new Array(segments.length).fill("");
+    let oldIndex = 0;
+    let lastValidSeg = 0;
+
+    for (let i = 0; i < changes.length; i++) {
+        const change = changes[i];
+        if (change.removed) {
+            if (i + 1 < changes.length && changes[i+1].added) {
+                const addChange = changes[i+1];
+                const targetSeg = oldIndex < wordSegments.length ? wordSegments[oldIndex] : lastValidSeg;
+                for (const w of addChange.value) newSegText[targetSeg] += w + " ";
+                i++;
+            }
+            oldIndex += change.count;
+        } else if (change.added) {
+            const targetSeg = lastValidSeg;
+            for (const w of change.value) newSegText[targetSeg] += w + " ";
+        } else {
+            for (const w of change.value) {
+                const targetSeg = wordSegments[oldIndex];
+                newSegText[targetSeg] += w + " ";
+                lastValidSeg = targetSeg;
+                oldIndex++;
+            }
+        }
+    }
+
+    let changedCount = 0;
+    segments.forEach((s, i) => {
+        const nt = newSegText[i].trim();
+        if (s.text !== nt) {
+            s.text = nt;
+            changedCount++;
+        }
+    });
+
+    renderSegments();
+    if (selectedIndex >= 0) selectSegment(selectedIndex);
+    
+    if ($("sync-status")) $("sync-status").textContent = `Matched! ${changedCount} segment(s) updated.`;
+    setStatus(`Text synced. ${changedCount} segment(s) modified.`, "success");
+    showToast(`Text synchronized! (${changedCount} modified)`, "success");
 }
 
 function clearFindHighlight() {

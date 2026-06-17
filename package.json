@@ -71,5 +71,8 @@
       "writeUpdateInfo": false
     },
     "icon": "build/icon.png"
+  },
+  "dependencies": {
+    "diff": "^9.0.0"
   }
 }

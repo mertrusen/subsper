@@ -155,6 +155,19 @@
       </div>
     </div>
 
+    <!-- Sync Correct Text -->
+    <div class="find-panel" id="sync-panel" style="display:none; flex-direction:column; gap:8px">
+      <div style="display:flex; justify-content:space-between; align-items:center">
+        <span style="font-size:12px; font-weight:600; color:var(--text)" data-i18n="sync_title">Sync with Correct Text</span>
+        <button class="btn-secondary" onclick="closeSyncPanel()" data-i18n="btn_close">Close</button>
+      </div>
+      <textarea id="sync-input" class="settings-textarea" rows="6" data-i18n-ph="sync_ph" placeholder="Paste the fully corrected text here. This will replace words in subtitles while keeping the timing intact."></textarea>
+      <div style="display:flex; justify-content:space-between; align-items:center">
+        <span class="setting-hint" data-i18n="sync_hint" id="sync-status">Word alignment algorithm will modify the current segments.</span>
+        <button class="btn-send" onclick="doSyncText()" data-i18n="btn_sync">Sync</button>
+      </div>
+    </div>
+
     <!-- Segments list -->
     <div class="segments-wrap" id="segments-wrap">
       <div class="empty-state">
@@ -168,6 +181,7 @@
     <div class="actions-bar" id="actions-bar" style="display:none">
       <span class="seg-count" id="seg-count" data-i18n-tip="tip_segcount"></span>
       <button class="btn-secondary" onclick="toggleFindReplace()" data-i18n-tip="tip_find"><span class="ic" data-icon="search"></span></button>
+      <button class="btn-secondary" onclick="toggleSyncPanel()" data-i18n-tip="tip_sync"><span class="ic" data-icon="refresh"></span></button>
       <div class="export-wrap">
         <button class="btn-secondary" onclick="toggleCleanMenu()" data-i18n-tip="tip_clean"><span class="ic" data-icon="sparkles"></span></button>
         <div class="export-menu" id="clean-menu" style="display:none">

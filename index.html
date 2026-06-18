@@ -130,25 +130,25 @@
     </div>
 
     <!-- Find & Replace -->
-    <div class="find-panel" id="find-panel" style="display:none">
-      <div class="find-row">
-        <input type="text" id="find-input" data-i18n-ph="find_ph" placeholder="Find…" oninput="updateFindCount()"
-               onkeydown="if(event.key==='Enter'){event.shiftKey?findPrev():findNext();}">
-        <label class="find-opt" data-i18n-tip="tip_case">
-          <input type="checkbox" id="find-case" onchange="updateFindCount()"> Aa
-        </label>
-        <button class="btn-secondary find-nav" onclick="findPrev()" data-i18n-tip="tip_findprev">▲</button>
-        <button class="btn-secondary find-nav" onclick="findNext()" data-i18n-tip="tip_findnext">▼</button>
-      </div>
-      <div class="find-actions" style="margin-bottom:6px">
-        <span class="find-count" id="find-count">—</span>
+    <div class="find-panel" id="find-panel" style="display:none; flex-direction:column; gap:6px;">
+      <div style="display:flex; justify-content:space-between; gap:6px; flex-wrap:wrap;">
+        <div class="find-row" style="flex:1;">
+          <input type="text" id="find-input" placeholder="Find…" oninput="updateFindCount()"
+                 onkeydown="if(event.key==='Enter'){event.shiftKey?findPrev():findNext();}">
+          <label class="find-opt" data-i18n-tip="tip_case">
+            <input type="checkbox" id="find-case" onchange="updateFindCount()"> Aa
+          </label>
+          <button class="btn-secondary find-nav" onclick="findPrev()" data-i18n-tip="tip_findprev">▲</button>
+          <button class="btn-secondary find-nav" onclick="findNext()" data-i18n-tip="tip_findnext">▼</button>
+          <span class="find-count" id="find-count" style="margin-left: 6px">—</span>
+        </div>
         <button class="btn-secondary" onclick="closeFindReplace()" data-i18n="btn_close">Close</button>
       </div>
       <div class="find-row">
-        <input type="text" id="replace-input" data-i18n-ph="replace_ph" placeholder="Replace with… (optional)"
+        <input type="text" id="replace-input" placeholder="Replace with… (optional)"
                data-i18n-tip="tip_replaceinput"
                onkeydown="if(event.key==='Enter')doReplaceAll()">
-        <button class="btn-send" id="replace-btn" onclick="doReplaceAll()" data-i18n-tip="tip_replaceall" data-i18n="btn_replaceall">Replace All</button>
+        <button class="btn-send" id="replace-btn" onclick="doReplaceAll()">Replace All</button>
       </div>
     </div>
 
@@ -166,7 +166,7 @@
     </div>
 
     <!-- AI Panel -->
-    <div class="find-panel" id="ai-panel" style="display:none; flex-direction:column; gap:8px; overflow-y:auto">
+    <div class="find-panel" id="ai-panel" style="display:none; flex-direction:column; gap:8px; overflow-y:auto; flex: 1; min-height: 200px;">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
         <span style="font-size:12px; font-weight:600; color:var(--text)" data-i18n="lbl_ai_tools">AI Studio</span>
         <div style="display:flex; gap: 6px; flex: 1; justify-content: flex-end;">
@@ -184,12 +184,12 @@
         </div>
       </div>
       <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px">
-        <button class="btn-secondary" onclick="askAi('summary')" data-i18n="ai_summary" style="flex:1 1 30%">Summary</button>
-        <button class="btn-secondary" onclick="askAi('shorts')" data-i18n="ai_shorts" style="flex:1 1 30%">Shorts</button>
-        <button class="btn-secondary" onclick="askAi('broll')" data-i18n="ai_broll" style="flex:1 1 30%">B-Roll</button>
+        <button class="btn-secondary" onclick="askAi('summary')" style="flex:1 1 30%">Summary & Title</button>
+        <button class="btn-secondary" onclick="askAi('shorts')" style="flex:1 1 30%">Extract Shorts</button>
+        <button class="btn-secondary" onclick="askAi('broll')" style="flex:1 1 30%">B-Roll Ideas</button>
         <button class="btn-secondary" onclick="askAi('tags')" style="flex:1 1 30%">Tags / SEO</button>
         <button class="btn-secondary" onclick="askAi('translate_en')" style="flex:1 1 30%">Translate EN</button>
-        <button class="btn-secondary" onclick="askAi('grammar')" data-i18n="ai_grammar" style="flex:1 1 30%">Fix Grammar</button>
+        <button class="btn-secondary" onclick="askAi('grammar')" style="flex:1 1 30%">Fix Grammar</button>
       </div>
       <textarea id="ai-output" class="settings-textarea" style="flex:1; min-height:100px; resize:vertical" data-i18n-ph="ai_ph" placeholder="Generated insights will appear here..." readonly></textarea>
       <button class="btn-send" id="ai-apply-btn" onclick="applyAiToSubtitles()" style="display:none; margin-top: 4px;">

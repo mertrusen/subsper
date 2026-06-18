@@ -1771,11 +1771,23 @@ async function askAi(type) {
 }
 
 function applyAiToSubtitles() {
-    const text = $("ai-output").value;
+    let text = $("ai-output").value;
     if (!text || text.includes("Error:") || text.includes("Thinking...")) return;
+    
+    // Clean up AI output: remove timecode anchors like [00:39] or **[00:00:10]** 
+    text = text.replace(/\[?\d{1,2}:\d{2}(:\d{2})?(\.\d{1,3})?\]?/g, function(match) {
+        // Only strip if it's bracketed OR looks exactly like a timecode at the start/end
+        if (match.includes("[") || match.includes("]")) return " ";
+        return match; 
+    });
+    // Also remove bracketed timecodes explicitly just in case
+    text = text.replace(/\[\d{1,2}:\d{2}\]/g, " ");
+    
+    // Remove markdown formatting that interferes with word diffing
+    text = text.replace(/(\*\*|\_\_|\*|\_)/g, "");
+
     $("sync-input").value = text;
     doSyncText();
-    showToast("AI response applied to subtitles!", "success");
 }
 
 function doSyncText() {

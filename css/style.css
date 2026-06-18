@@ -503,7 +503,7 @@ mark.find-hit { background: var(--yellow); color: #1a1206; border-radius: 3px; p
   .panel { overflow: hidden; }
   #media-preview { max-height: 300px !important; }
   #panel-tx-work { flex-direction: row; gap: 14px; }
-  .work-left { flex: 0 0 460px; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; height: 100%; padding-bottom: 20px; }
+  .work-left { flex: 0 0 460px; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding-bottom: 20px; }
   .work-right { flex: 1; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--border); padding-left: 6px; overflow: hidden; }
   .segments-wrap { flex: 1; overflow-y: auto; }
 }

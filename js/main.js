@@ -930,8 +930,15 @@ function initSettingsUI() {
     set("set-prof-mode", settings.profanityMode);
 
     // AI & API
+    set("set-ai-provider", settings.aiProvider || "gemini");
     set("set-gemini-key", settings.geminiApiKey || "");
+    set("set-openai-key", settings.openaiApiKey || "");
+    set("set-anthropic-key", settings.anthropicApiKey || "");
+    set("set-custom-url", settings.customApiUrl || "");
+    set("set-custom-key", settings.customApiKey || "");
     set("set-gemini-model", settings.geminiModel || "gemini-3.5-flash");
+    set("ai-panel-model", settings.geminiModel || "gemini-3.5-flash");
+    if (typeof updateAiProviderUI === "function") updateAiProviderUI(settings.aiProvider || "gemini");
 
     chk("set-karaoke", settings.karaoke);
     const kHi = $("set-karaoke-hi"); if (kHi) kHi.value = "#" + (settings.karaokeHi || "FFE000");
@@ -1634,12 +1641,29 @@ function fmtMMSS(sec) {
     return `[${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}]`;
 }
 
+function updateAiProviderUI(provider) {
+    const ids = ["gemini", "openai", "anthropic", "custom"];
+    ids.forEach(id => {
+        const el = $("api-key-" + id);
+        if (el) el.style.display = (id === provider) ? "block" : "none";
+    });
+}
+
 async function askAi(type) {
-    const key = settings.geminiApiKey || "";
-    if (!key) {
-        showError("Missing API Key", "Please enter your Gemini API Key in the Settings panel under 'AI & API'.");
+    const provider = settings.aiProvider || "gemini";
+    
+    // Retrieve correct API key based on provider
+    let key = "";
+    if (provider === "gemini") key = settings.geminiApiKey || "";
+    else if (provider === "openai") key = settings.openaiApiKey || "";
+    else if (provider === "anthropic") key = settings.anthropicApiKey || "";
+    else if (provider === "custom") key = settings.customApiKey || "";
+
+    if (!key && provider !== "custom") {
+        showError("Missing API Key", `Please enter your ${provider.toUpperCase()} API Key in the Settings panel under 'AI & API'.`);
         return;
     }
+    
     if (segments.length === 0) {
         showToast("No transcription available to analyze.", "error");
         return;
@@ -1652,42 +1676,106 @@ async function askAi(type) {
         transcript += `${fmtMMSS(seg.start)} ${seg.text}\n`;
     });
     
+    const STRICT_RULE = "IMPORTANT: Return ONLY the raw requested data. Do not include conversational filler, introductions, or conclusions like 'Here is your analysis' or 'Great topic'.";
+    
     let prompt = "";
     if (type === "summary") {
-        prompt = "Analyze the following video transcript. Provide 3 catchy, SEO-friendly YouTube titles and a well-written description summary (2-3 paragraphs).\n\nTranscript:\n" + transcript;
+        prompt = `Analyze the following video transcript. Provide 3 catchy, SEO-friendly YouTube titles and a well-written description summary (2-3 paragraphs).\n\n${STRICT_RULE}\n\nTranscript:\n${transcript}`;
     } else if (type === "shorts") {
-        prompt = "Analyze the following video transcript and identify the top 3 most engaging 30-60 second segments that would make viral YouTube Shorts. For each short, provide the start/end timecodes, a catchy title, and a brief explanation of why it would go viral.\n\nTranscript:\n" + transcript;
+        prompt = `Analyze the following video transcript and identify the top 3 most engaging 30-60 second segments that would make viral YouTube Shorts. For each short, provide the start/end timecodes, a catchy title, and a brief explanation.\n\n${STRICT_RULE}\n\nTranscript:\n${transcript}`;
     } else if (type === "broll") {
-        prompt = "Analyze the following video transcript. Suggest 5-10 strategic B-roll (stock footage) inserts to make the video more engaging. Provide the exact timecode for each insert and describe the visual clearly.\n\nTranscript:\n" + transcript;
+        prompt = `Analyze the following video transcript. Suggest 5-10 strategic B-roll (stock footage) inserts to make the video more engaging. Provide the exact timecode for each insert and describe the visual clearly.\n\n${STRICT_RULE}\n\nTranscript:\n${transcript}`;
+    } else if (type === "tags") {
+        prompt = `Generate a comma-separated list of 15-20 highly searched YouTube tags and 3-5 relevant hashtags (#) for this video based on the transcript.\n\n${STRICT_RULE}\n\nTranscript:\n${transcript}`;
+    } else if (type === "translate_en") {
+        prompt = `Translate the following video transcript into English. You MUST preserve the exact timecodes exactly as they appear. Return ONLY the translated transcript.\n\n${STRICT_RULE}\n\nTranscript:\n${transcript}`;
     } else if (type === "grammar") {
-        prompt = "Analyze the following video transcript. Fix all spelling, punctuation, and grammatical errors without changing the timecodes. Return ONLY the fully corrected transcript with the exact same timecodes. Do not include any introductory or concluding text.\n\nTranscript:\n" + transcript;
+        prompt = `Analyze the following video transcript. Fix all spelling, punctuation, and grammatical errors without changing the timecodes. Return ONLY the fully corrected transcript with the exact same timecodes.\n\n${STRICT_RULE}\n\nTranscript:\n${transcript}`;
     }
     
     const outBox = $("ai-output");
+    const applyBtn = $("ai-apply-btn");
+    if (applyBtn) applyBtn.style.display = "none";
+    
     outBox.value = "Thinking...";
+    const model = settings.geminiModel || "gemini-3.5-flash";
+    const systemPrompt = "You are an expert video editor and YouTube strategist. Respond clearly using Markdown formatting. If the transcript is in Turkish, respond in Turkish unless asked to translate. If English, respond in English.";
     
     try {
-        const model = settings.geminiModel || "gemini-3.5-flash";
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                systemInstruction: { parts: [{ text: "You are an expert video editor and YouTube strategist. Respond clearly using Markdown formatting. If the transcript is in Turkish, respond in Turkish. If English, respond in English." }] }
-            })
-        });
+        let text = "";
         
-        const data = await res.json();
-        if (!res.ok) {
-            throw new Error(data.error?.message || "API Error");
+        if (provider === "gemini") {
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] }
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error?.message || "API Error");
+            text = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response generated.";
+        } 
+        else if (provider === "anthropic") {
+            const res = await fetch("https://api.anthropic.com/v1/messages", {
+                method: "POST",
+                headers: { 
+                    "Content-Type": "application/json", 
+                    "x-api-key": key, 
+                    "anthropic-version": "2023-06-01",
+                    "anthropic-dangerously-allow-browser": "true" 
+                },
+                body: JSON.stringify({
+                    model: model || "claude-3-5-sonnet-20240620",
+                    max_tokens: 4096,
+                    system: systemPrompt,
+                    messages: [{ role: "user", content: prompt }]
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error?.message || "API Error");
+            text = data.content?.[0]?.text || "No response generated.";
+        }
+        else {
+            // OpenAI or Custom OpenAI-compatible
+            const url = provider === "custom" && settings.customApiUrl ? settings.customApiUrl + "/chat/completions" : "https://api.openai.com/v1/chat/completions";
+            const res = await fetch(url, {
+                method: "POST",
+                headers: { 
+                    "Content-Type": "application/json", 
+                    "Authorization": `Bearer ${key}`
+                },
+                body: JSON.stringify({
+                    model: model || "gpt-4o",
+                    messages: [
+                        { role: "system", content: systemPrompt },
+                        { role: "user", content: prompt }
+                    ]
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error?.message || "API Error");
+            text = data.choices?.[0]?.message?.content || "No response generated.";
         }
         
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response generated.";
         outBox.value = text;
+        
+        if (type === "grammar" || type === "translate_en") {
+            if (applyBtn) applyBtn.style.display = "inline-flex";
+        }
     } catch (e) {
-        console.error("Gemini Error:", e);
+        console.error("AI Error:", e);
         outBox.value = "Error: " + e.message;
     }
+}
+
+function applyAiToSubtitles() {
+    const text = $("ai-output").value;
+    if (!text || text.includes("Error:") || text.includes("Thinking...")) return;
+    $("sync-input").value = text;
+    doSyncText();
+    showToast("AI response applied to subtitles!", "success");
 }
 
 function doSyncText() {

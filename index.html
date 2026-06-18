@@ -172,7 +172,7 @@
         <span style="font-size:12px; font-weight:600; color:var(--text)" data-i18n="lbl_ai_tools">AI Studio</span>
         <div style="display:flex; gap: 6px; flex: 1; justify-content: flex-end;">
           <select id="ai-panel-model" class="settings-textarea" style="height:24px; font-size:11.5px; padding:0 6px; max-width:140px; flex:1; margin-bottom:0;"
-                 onchange="if(this.value==='_custom'){ const m = prompt('Enter custom model name:'); if(m){ const opt=document.createElement('option'); opt.value=m; opt.innerText=m; opt.selected=true; this.appendChild(opt); onSettingChange('geminiModel', m); } else { this.value='gemini-3.5-flash'; } } else { onSettingChange('geminiModel', this.value); } if(document.getElementById('set-gemini-model')) { const s = document.getElementById('set-gemini-model'); if(!Array.from(s.options).some(o=>o.value===this.value)){ const o2=document.createElement('option'); o2.value=this.value; o2.innerText=this.value; s.appendChild(o2); } s.value = this.value; }">
+                 onchange="if(this.value==='_custom'){ this.style.display='none'; document.getElementById('ai-panel-custom-input').style.display='inline-block'; document.getElementById('ai-panel-custom-input').focus(); } else { onSettingChange('geminiModel', this.value); if(document.getElementById('set-gemini-model')) { document.getElementById('set-gemini-model').value = this.value; } }">
             <option value="gemini-3.5-flash">gemini-3.5-flash</option>
             <option value="gemini-3.1-pro">gemini-3.1-pro</option>
             <option value="gpt-4o">gpt-4o</option>
@@ -181,6 +181,9 @@
             <option value="llama-3.1-70b-versatile">llama-3.1-70b</option>
             <option value="_custom">Type custom...</option>
           </select>
+          <input type="text" id="ai-panel-custom-input" class="settings-textarea" style="display:none; height:24px; font-size:11.5px; padding:0 6px; max-width:140px; flex:1; margin-bottom:0;" placeholder="Custom model..."
+                 onblur="if(this.value.trim()){ const m=this.value.trim(); const s=document.getElementById('ai-panel-model'); const opt=document.createElement('option'); opt.value=m; opt.innerText=m; opt.selected=true; s.appendChild(opt); onSettingChange('geminiModel', m); if(document.getElementById('set-gemini-model')){ const s2=document.getElementById('set-gemini-model'); const o2=document.createElement('option'); o2.value=m; o2.innerText=m; s2.appendChild(o2); s2.value=m; } } this.style.display='none'; document.getElementById('ai-panel-model').style.display='inline-block'; this.value='';"
+                 onkeydown="if(event.key==='Enter') this.blur();">
           <button class="btn-secondary" onclick="closeAiPanel()" data-i18n="btn_close">Close</button>
         </div>
       </div>
@@ -464,7 +467,7 @@
           
           <div class="setting-slider-header" style="margin-top:12px"><span>Default Model</span></div>
           <select id="set-gemini-model" class="settings-textarea" style="height:32px; font-size:14px; padding:0 8px; width:100%"
-                 onchange="if(this.value==='_custom'){ const m = prompt('Enter custom model name:'); if(m){ const opt=document.createElement('option'); opt.value=m; opt.innerText=m; opt.selected=true; this.appendChild(opt); onSettingChange('geminiModel', m); } else { this.value='gemini-3.5-flash'; } } else { onSettingChange('geminiModel', this.value); } if(document.getElementById('ai-panel-model')) { const a = document.getElementById('ai-panel-model'); if(!Array.from(a.options).some(o=>o.value===this.value)){ const o2=document.createElement('option'); o2.value=this.value; o2.innerText=this.value; a.appendChild(o2); } a.value = this.value; }">
+                 onchange="if(this.value==='_custom'){ this.style.display='none'; document.getElementById('set-gemini-custom-input').style.display='block'; document.getElementById('set-gemini-custom-input').focus(); } else { onSettingChange('geminiModel', this.value); if(document.getElementById('ai-panel-model')) { document.getElementById('ai-panel-model').value = this.value; } }">
             <option value="gemini-3.5-flash">gemini-3.5-flash</option>
             <option value="gemini-3.1-pro">gemini-3.1-pro</option>
             <option value="gpt-4o">gpt-4o</option>
@@ -473,6 +476,9 @@
             <option value="llama-3.1-70b-versatile">llama-3.1-70b</option>
             <option value="_custom">Type custom...</option>
           </select>
+          <input type="text" id="set-gemini-custom-input" class="settings-textarea" style="display:none; height:32px; font-size:14px; padding:0 8px; width:100%;" placeholder="Custom model..."
+                 onblur="if(this.value.trim()){ const m=this.value.trim(); const s=document.getElementById('set-gemini-model'); const opt=document.createElement('option'); opt.value=m; opt.innerText=m; opt.selected=true; s.appendChild(opt); onSettingChange('geminiModel', m); if(document.getElementById('ai-panel-model')){ const a=document.getElementById('ai-panel-model'); const o2=document.createElement('option'); o2.value=m; o2.innerText=m; a.appendChild(o2); a.value=m; } } this.style.display='none'; document.getElementById('set-gemini-model').style.display='block'; this.value='';"
+                 onkeydown="if(event.key==='Enter') this.blur();">
         </div>
       </div>
 

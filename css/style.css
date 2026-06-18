@@ -499,7 +499,9 @@ mark.find-hit { background: var(--yellow); color: #1a1206; border-radius: 3px; p
 
 /* ── Full-screen / wide-window ───────────────────────────────────── */
 @media (min-width: 920px) {
-  .tabs, .sub-tabs, .panel { max-width: 100%; margin-left: auto; margin-right: auto; padding: 0 10px; }
+  .panel { max-width: 100%; margin-left: auto; margin-right: auto; padding: 0 10px; }
+  .tabs { width: max-content; align-self: center; }
+  .sub-tabs { width: max-content; align-self: center; }
   .panel { overflow: hidden; }
   #media-preview { max-height: 300px !important; }
   #panel-tx-work { flex-direction: row; gap: 14px; }

@@ -193,7 +193,7 @@ body { display: flex; flex-direction: column; }
 .icon-btn .svg-ic { width: 15px; height: 15px; }
 
 /* ── Panel ───────────────────────────────────────────────────────── */
-.panel { display: flex; flex-direction: column; flex: 1; overflow-y: auto; overflow-x: hidden; background: transparent; animation: panelIn .26s var(--ease); }
+.panel { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; background: transparent; animation: panelIn .26s var(--ease); }
 @keyframes panelIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .tab, .sub-tab, .btn-secondary, .btn-load-srt, .btn-playpause, .style-chip, .seg-btn, .icon-btn, select, .toggle-track { transition: background .18s var(--ease), color .18s var(--ease), border-color .18s var(--ease), box-shadow .18s var(--ease); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
@@ -503,8 +503,8 @@ mark.find-hit { background: var(--yellow); color: #1a1206; border-radius: 3px; p
   .panel { overflow: hidden; }
   #media-preview { max-height: 300px !important; }
   #panel-tx-work { flex-direction: row; gap: 14px; }
-  .work-left { flex: 0 0 460px; overflow-y: auto; height: 100%; padding-bottom: 20px; }
-  .work-right { flex: 1; border-left: 1px solid var(--border); padding-left: 6px; overflow: hidden; }
+  .work-left { flex: 0 0 460px; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; height: 100%; padding-bottom: 20px; }
+  .work-right { flex: 1; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--border); padding-left: 6px; overflow: hidden; }
   .segments-wrap { flex: 1; overflow-y: auto; }
 }
 @media (min-width: 1400px) {

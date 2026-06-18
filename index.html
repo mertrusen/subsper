@@ -81,15 +81,12 @@
     <div class="progress-wrap"><div class="progress-bar" id="progress-bar"></div></div>
 
     <div class="controls">
-      <button class="btn-transcribe" id="transcribe-btn" onclick="startTranscription()" data-i18n-tip="tip_transcribe">
-        <span class="ico ic" data-icon="mic"></span><span data-i18n="btn_transcribe">Transcribe In/Out Selection</span>
-      </button>
-      <div class="transport-row">
-        <button class="btn-load-srt" onclick="importSRTFile()" style="margin-top:0" data-i18n-tip="tip_loadsrt">
-          <span class="ic" data-icon="folder"></span><span data-i18n="btn_loadsrt">Load SRT</span>
+      <div style="display:flex; gap:8px; margin-bottom: 8px;">
+        <button class="btn-transcribe" id="transcribe-btn" onclick="startTranscription()" style="flex:2; margin-bottom:0; font-size:13px; padding:10px" data-i18n-tip="tip_transcribe">
+          <span class="ico ic" data-icon="mic"></span><span data-i18n="btn_transcribe">Transcribe File</span>
         </button>
-        <button class="btn-playpause" id="playpause-btn" onclick="playPause()" data-i18n-tip="tip_play">
-          <span class="ic" data-icon="play"></span><span data-i18n="btn_play">Play</span>
+        <button class="btn-load-srt" onclick="importSRTFile()" style="flex:1; margin-top:0; font-size:13px; padding:10px" data-i18n-tip="tip_loadsrt">
+          <span class="ic" data-icon="folder"></span><span data-i18n="btn_loadsrt">Load SRT</span>
         </button>
       </div>
       <input type="file" id="srt-file-input" accept=".srt" style="display:none">
@@ -173,9 +170,16 @@
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
         <span style="font-size:12px; font-weight:600; color:var(--text)" data-i18n="lbl_ai_tools">AI Studio</span>
         <div style="display:flex; gap: 6px; flex: 1; justify-content: flex-end;">
-          <input type="text" id="ai-panel-model" list="gemini-models" class="settings-textarea" style="height:24px; font-size:11.5px; padding:0 6px; max-width:140px; flex:1;"
-                 onchange="onSettingChange('geminiModel', this.value); if(document.getElementById('set-gemini-model')) document.getElementById('set-gemini-model').value = this.value;"
-                 placeholder="Model...">
+          <select id="ai-panel-model" class="settings-textarea" style="height:24px; font-size:11.5px; padding:0 6px; max-width:140px; flex:1; margin-bottom:0;"
+                 onchange="if(this.value==='_custom'){ const m = prompt('Enter custom model name:'); if(m){ const opt=document.createElement('option'); opt.value=m; opt.innerText=m; opt.selected=true; this.appendChild(opt); onSettingChange('geminiModel', m); } else { this.value='gemini-3.5-flash'; } } else { onSettingChange('geminiModel', this.value); } if(document.getElementById('set-gemini-model')) { const s = document.getElementById('set-gemini-model'); if(!Array.from(s.options).some(o=>o.value===this.value)){ const o2=document.createElement('option'); o2.value=this.value; o2.innerText=this.value; s.appendChild(o2); } s.value = this.value; }">
+            <option value="gemini-3.5-flash">gemini-3.5-flash</option>
+            <option value="gemini-3.1-pro">gemini-3.1-pro</option>
+            <option value="gpt-4o">gpt-4o</option>
+            <option value="gpt-4o-mini">gpt-4o-mini</option>
+            <option value="claude-3-5-sonnet-20240620">claude-3.5-sonnet</option>
+            <option value="llama-3.1-70b-versatile">llama-3.1-70b</option>
+            <option value="_custom">Type custom...</option>
+          </select>
           <button class="btn-secondary" onclick="closeAiPanel()" data-i18n="btn_close">Close</button>
         </div>
       </div>
@@ -437,7 +441,6 @@
             <div class="setting-slider-header"><span>Gemini API Key</span></div>
             <input type="password" id="set-gemini-key" class="settings-textarea" style="height:32px; font-size:14px; padding:0 8px"
                    oninput="onSettingChange('geminiApiKey', this.value)">
-            <div class="setting-hint">Get a free key from Google AI Studio.</div>
           </div>
           <div id="api-key-openai" style="display:none;">
             <div class="setting-slider-header"><span>OpenAI API Key</span></div>
@@ -459,16 +462,16 @@
           </div>
           
           <div class="setting-slider-header" style="margin-top:12px"><span>Default Model</span></div>
-          <input type="text" id="set-gemini-model" list="gemini-models" class="settings-textarea" style="height:32px; font-size:14px; padding:0 8px; width:100%"
-                 onchange="onSettingChange('geminiModel', this.value); if(document.getElementById('ai-panel-model')) document.getElementById('ai-panel-model').value = this.value;" oninput="onSettingChange('geminiModel', this.value)">
-          <datalist id="gemini-models">
-            <option value="gemini-3.5-flash">
-            <option value="gemini-3.1-pro">
-            <option value="gpt-4o">
-            <option value="gpt-4o-mini">
-            <option value="claude-3-5-sonnet-20240620">
-            <option value="llama-3.1-70b-versatile">
-          </datalist>
+          <select id="set-gemini-model" class="settings-textarea" style="height:32px; font-size:14px; padding:0 8px; width:100%"
+                 onchange="if(this.value==='_custom'){ const m = prompt('Enter custom model name:'); if(m){ const opt=document.createElement('option'); opt.value=m; opt.innerText=m; opt.selected=true; this.appendChild(opt); onSettingChange('geminiModel', m); } else { this.value='gemini-3.5-flash'; } } else { onSettingChange('geminiModel', this.value); } if(document.getElementById('ai-panel-model')) { const a = document.getElementById('ai-panel-model'); if(!Array.from(a.options).some(o=>o.value===this.value)){ const o2=document.createElement('option'); o2.value=this.value; o2.innerText=this.value; a.appendChild(o2); } a.value = this.value; }">
+            <option value="gemini-3.5-flash">gemini-3.5-flash</option>
+            <option value="gemini-3.1-pro">gemini-3.1-pro</option>
+            <option value="gpt-4o">gpt-4o</option>
+            <option value="gpt-4o-mini">gpt-4o-mini</option>
+            <option value="claude-3-5-sonnet-20240620">claude-3.5-sonnet</option>
+            <option value="llama-3.1-70b-versatile">llama-3.1-70b</option>
+            <option value="_custom">Type custom...</option>
+          </select>
         </div>
       </div>
 

@@ -499,18 +499,22 @@ mark.find-hit { background: var(--yellow); color: #1a1206; border-radius: 3px; p
 
 /* ── Full-screen / wide-window ───────────────────────────────────── */
 @media (min-width: 920px) {
-  .panel { max-width: 100%; margin-left: auto; margin-right: auto; padding: 0 10px; }
-  .tabs { width: max-content; align-self: center; }
-  .sub-tabs { width: max-content; align-self: center; }
-  .panel { overflow: hidden; height: 100%; }
+  /* Cap content width + center it so big screens don't sprawl edge-to-edge,
+     and the centered tabs line up with the centered work area. */
+  .tabs, .sub-tabs { width: max-content; align-self: center; }
+  .panel { overflow: hidden; height: 100%; max-width: 1180px; width: 100%; align-self: center; padding: 0 16px; }
   #media-preview { max-height: 300px !important; }
-  #panel-tx-work { flex-direction: row; gap: 14px; height: 100%; }
-  .work-left { flex: 0 0 460px; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding-bottom: 20px; height: 100%; }
-  .work-right { flex: 1; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--border); padding-left: 6px; overflow: hidden; height: 100%; }
+  #panel-tx-work { flex-direction: row; gap: 16px; height: 100%; }
+  .work-left  { flex: 0 0 440px; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding-bottom: 16px; height: 100%; }
+  .work-right { flex: 1; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--border); padding-left: 10px; overflow: hidden; height: 100%; }
   .segments-wrap { flex: 1; overflow-y: auto; }
+  /* AI / Find / Sync panels fill the remaining left-column height (kill the void). */
+  #ai-panel  { flex: 1 1 auto; min-height: 0; }
+  #ai-output { flex: 1 1 auto; min-height: 120px; }
 }
 @media (min-width: 1400px) {
-  .work-left { flex: 0 0 520px; }
+  .panel { max-width: 1320px; }
+  .work-left { flex: 0 0 500px; }
 }
 
 /* ── Tooltip ─────────────────────────────────────────────────────── */

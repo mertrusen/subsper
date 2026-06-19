@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "ui-preview", "runtimeExecutable": "python3", "runtimeArgs": ["-m", "http.server", "8099", "--directory", "/tmp/sp_prev"], "port": 8099 }
+  ]
+}

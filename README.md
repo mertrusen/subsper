@@ -34,8 +34,10 @@ bundled inside the app. The only one-time step is a model download on first use.
 3. Open a video → **Transcribe**. On the **first** run it downloads the speech
    model once (cached in `%APPDATA%\Subsper\models`); after that it's instant & offline.
 
-### macOS (Apple Silicon & Intel)
-Download `Subsper-x.x.x-mac.dmg` from **Releases**, drag to Applications, open it.
+### macOS (Apple Silicon — M1/M2/M3/M4)
+Download `Subsper-x.x.x-mac-arm64.dmg` from **Releases**, drag to Applications, open it.
+(Intel Macs are not supported since v1.8.0 — the last Intel build is
+[v1.7.1](../../releases/tag/v1.7.1).)
 
 > **⚠️ "App is damaged and can't be opened" error?**
 > macOS Gatekeeper shows this for unsigned apps. To fix it, open Terminal and run:

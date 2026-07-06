@@ -44,7 +44,12 @@ const DEFAULT_SETTINGS = {
     profanityList:   "",          // extra profanity words
     profanityMode:   "remove",    // remove | asterisk
     // ── AI & API ──
+    aiProvider:      "gemini",    // gemini | openai | anthropic | custom
     geminiApiKey:    "",          // Google Gemini API Key
+    openaiApiKey:    "",
+    anthropicApiKey: "",
+    customApiUrl:    "",          // OpenAI-compatible base URL (e.g. Groq)
+    customApiKey:    "",
     geminiModel:     "gemini-3.5-flash", // Default Gemini model
     // ── Audio enhancement ──
     audioDenoise:    true,

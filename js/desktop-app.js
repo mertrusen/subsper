@@ -108,6 +108,8 @@
       const r = await WCPP.transcribeWav({
         appDir: extDir(), wavPath: wav, modelKey, language, signal,
         threads: settings.threads || 0,
+        forceCpu: settings.hwAccel === "cpu",
+        initialPrompt: settings.promptWords || "",
         onLog: s => { const m = /progress\s*=\s*(\d+)\s*%/i.exec(s); if (m) setStatus(`Transcribing… ${m[1]}%`, "info"); },
       });
       try { fsD.unlinkSync(wav); } catch (e) {}
@@ -288,9 +290,14 @@
       const res = await ipcRenderer.invoke("dialog:saveFile",
         { defaultName: baseName() + "_enhanced.wav", ext: "wav" });
       if (!res || !res.filePath) { setStatus("Cancelled", "info"); return; }
-      const enh = await runPython("enhance_audio.py",
-        [mediaPath, res.filePath, settings.audioDenoise ? "1":"0", settings.audioNormalize ? "1":"0"]);
-      if (!enh.success) { handleError(enh.error || "Enhancement failed."); return; }
+      if (WCPP) {
+        await WCPP.enhanceMedia(extDir(), mediaPath, res.filePath,
+          settings.audioDenoise, settings.audioNormalize, {});
+      } else {
+        const enh = await runPython("enhance_audio.py",
+          [mediaPath, res.filePath, settings.audioDenoise ? "1":"0", settings.audioNormalize ? "1":"0"]);
+        if (!enh.success) { handleError(enh.error || "Enhancement failed."); return; }
+      }
       setStatus(`✓ Enhanced audio saved → ${res.filePath}`, "success");
       showToast("Enhanced audio saved", "success");
     } catch (e) { handleError(e.message); }
@@ -305,11 +312,17 @@
     setSilenceStatus("Detecting silences…", "info");
     showSilenceProgress(true);
     try {
-      // 1) Detect silence ranges on the source file
-      const det = await runPython("detect_silence.py",
-        [mediaPath, String(settings.silenceThreshold), String(settings.silenceMinDur)]);
-      if (!det.success) { setSilenceStatus(det.error || "Detection failed", "error"); return; }
-      const silences = det.silences || [];
+      // 1) Detect silence ranges on the source file (bundled ffmpeg; Python fallback)
+      let silences;
+      if (WCPP) {
+        silences = await WCPP.detectSilence(extDir(), mediaPath,
+          settings.silenceThreshold, settings.silenceMinDur, {});
+      } else {
+        const det = await runPython("detect_silence.py",
+          [mediaPath, String(settings.silenceThreshold), String(settings.silenceMinDur)]);
+        if (!det.success) { setSilenceStatus(det.error || "Detection failed", "error"); return; }
+        silences = det.silences || [];
+      }
       if (!silences.length) { setSilenceStatus("No silences found.", "warning"); showToast("No silences found", "info"); return; }
 
       // 2) Total duration from the media element (fallback: last silence end + 1)
@@ -344,9 +357,13 @@
       if (!res || !res.filePath) { setSilenceStatus("Cancelled", "info"); return; }
 
       setSilenceStatus(`Cutting ${cuts.length} gap(s)…`, "info");
-      const cut = await runPython("cut_media.py",
-        [mediaPath, res.filePath, JSON.stringify(kept)]);
-      if (!cut.success) { setSilenceStatus(cut.error || "Cut failed", "error"); showToast("Cut failed", "error", 5000); return; }
+      if (WCPP) {
+        await WCPP.cutMedia(extDir(), mediaPath, res.filePath, kept, { video: !isAudio });
+      } else {
+        const cut = await runPython("cut_media.py",
+          [mediaPath, res.filePath, JSON.stringify(kept)]);
+        if (!cut.success) { setSilenceStatus(cut.error || "Cut failed", "error"); showToast("Cut failed", "error", 5000); return; }
+      }
       setSilenceStatus(`✓ Trimmed file saved → ${res.filePath}`, "success");
       showToast("Silences cut — trimmed file saved", "success", 5000);
     } catch (e) {
@@ -520,8 +537,10 @@
       const ind = document.getElementById("setup-indicator");
       const badge = document.getElementById("setup-badge");
       if (!ind) return;
-      if (!data || !data._ready) { ind.className = "setup-indicator warn"; if (badge) badge.style.display = "inline-flex"; }
-      else { ind.className = "setup-indicator ok"; if (badge) badge.style.display = "none"; }
+      // The bundled engine (whisper.cpp + ffmpeg) needs no Python — so a missing
+      // Python is NOT an error. Always show "ok"; Python is only for optional Pro.
+      ind.className = "setup-indicator ok";
+      if (badge) badge.style.display = "none";
     }).catch(e => console.warn("Setup check error:", e));
   } catch (e) { console.warn("Setup check error:", e); }
 })();

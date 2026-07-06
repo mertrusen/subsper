@@ -22,7 +22,43 @@ function decodePath(p) {
     return p;
 }
 
-// Returns sequence info + clip paths for the In/Out range
+// Read an In/Out point in seconds. Prefers the Time-object API (…AsTime, which
+// exposes .ticks/.seconds) and falls back to the string API. Returns NaN if unset.
+function readPointSecs(seq, which) {
+    try {
+        var tm = (which === "in") ? seq.getInPointAsTime() : seq.getOutPointAsTime();
+        if (tm) {
+            if (tm.ticks != null && tm.ticks !== "") { var tk = ticksToSeconds(tm.ticks); if (!isNaN(tk)) return tk; }
+            if (typeof tm.seconds === "number") return tm.seconds;
+        }
+    } catch (e) {}
+    try {
+        var s = (which === "in") ? seq.getInPoint() : seq.getOutPoint();
+        var f = parseFloat(s);
+        if (!isNaN(f)) return f;
+    } catch (e2) {}
+    return NaN;
+}
+
+// Largest clip end (seconds) across all video + audio tracks = the real end of
+// timeline CONTENT, ignoring trailing empty space.
+function seqContentEnd(seq) {
+    var end = 0;
+    function scan(tracks) {
+        for (var t = 0; t < tracks.numTracks; t++) {
+            var trk = tracks[t];
+            for (var c = 0; c < trk.clips.numItems; c++) {
+                try { var e = ticksToSeconds(trk.clips[c].end.ticks); if (e > end) end = e; } catch (eC) {}
+            }
+        }
+    }
+    try { scan(seq.videoTracks); } catch (eV) {}
+    try { scan(seq.audioTracks); } catch (eA) {}
+    return end;
+}
+
+// Returns sequence info + clip paths. Uses the In/Out range if set; otherwise
+// falls back to the WHOLE timeline (no "set In/Out" nag) — the requested behaviour.
 function getSequenceInfo() {
     try {
         var seq = app.project.activeSequence;
@@ -30,18 +66,27 @@ function getSequenceInfo() {
             return JSON.stringify({ success: false, error: "No active sequence. Open a sequence in the timeline." });
         }
 
-        var inPoint  = seq.getInPoint();
-        var outPoint = seq.getOutPoint();
-
-        if (!inPoint || !outPoint || inPoint === "" || outPoint === "") {
-            return JSON.stringify({ success: false, error: "Please set In (I) and Out (O) points on the timeline first." });
+        var contentEnd = seqContentEnd(seq);
+        if (contentEnd <= 0) {
+            return JSON.stringify({ success: false, error: "The timeline is empty. Add a clip, then try again." });
         }
 
-        // getInPoint()/getOutPoint() return seconds directly (not ticks) in Premiere Pro 2022+
-        var inTimeSecs  = parseFloat(inPoint);
-        var outTimeSecs = parseFloat(outPoint);
+        var inTimeSecs  = readPointSecs(seq, "in");
+        var outTimeSecs = readPointSecs(seq, "out");
+        var wholeSequence = false;
 
+        // No usable In/Out → transcribe the whole timeline (0 → content end).
         if (isNaN(inTimeSecs) || isNaN(outTimeSecs) || outTimeSecs <= inTimeSecs) {
+            inTimeSecs = 0; outTimeSecs = contentEnd; wholeSequence = true;
+        }
+        if (inTimeSecs < 0) inTimeSecs = 0;
+        // Cap Out at real content end (an unset Out can report the full sequence
+        // duration incl. trailing gap, or a huge number).
+        if (outTimeSecs > contentEnd + 0.001) outTimeSecs = contentEnd;
+        // If In≈0 and Out≈content end, it's effectively the whole timeline.
+        if (inTimeSecs <= 0.01 && outTimeSecs >= contentEnd - 0.05) wholeSequence = true;
+
+        if (outTimeSecs <= inTimeSecs) {
             return JSON.stringify({ success: false, error: "Invalid In/Out points. Out must be after In." });
         }
 
@@ -121,12 +166,13 @@ function getSequenceInfo() {
         var finalClips = videoClips.length > 0 ? videoClips : uniqueClips;
 
         return JSON.stringify({
-            success:      true,
-            sequenceName: seq.name,
-            inTime:       inTimeSecs,
-            outTime:      outTimeSecs,
-            duration:     duration,
-            clips:        finalClips
+            success:       true,
+            sequenceName:  seq.name,
+            inTime:        inTimeSecs,
+            outTime:       outTimeSecs,
+            duration:      duration,
+            wholeSequence: wholeSequence,
+            clips:         finalClips
         });
 
     } catch (e) {
@@ -575,6 +621,19 @@ function importSRTToProject(srtContent) {
             var home = $.getenv("HOME") || "/Users/" + $.getenv("USER");
             tmpPath = home + "/Desktop/" + filename;
         }
+
+        // Clean up previous whisper_*.srt files in the same folder so they don't
+        // pile up on the user's Desktop / project folder every time we send.
+        try {
+            var newName = new File(tmpPath).name;
+            var folder  = new File(tmpPath).parent;
+            if (folder && folder.exists) {
+                var stale = folder.getFiles(function (fl) {
+                    return (fl instanceof File) && fl.name !== newName && /^whisper_\d+\.srt$/.test(fl.name);
+                });
+                for (var st = 0; st < stale.length; st++) { try { stale[st].remove(); } catch (eRm) {} }
+            }
+        } catch (eClean) {}
 
         // ExtendScript on macOS defaults to CR-only (\r) line endings.
         // Premiere's SRT importer requires CRLF (\r\n) — set lineFeed explicitly.

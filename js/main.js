@@ -53,6 +53,7 @@ const DEFAULT_SETTINGS = {
     zoomAmount:      8,           // % push-in per clip
     zoomStyle:       "in",        // in (smooth slow push-in, YouTuber-style) | alternate
     threads:         0,           // whisper.cpp threads (0 = auto: use all CPU cores)
+    hwAccel:         "auto",      // auto = use GPU (Windows Vulkan) if available | cpu = force CPU
 };
 
 // Built-in filler words (Turkish + English). Phrases first so they match before single words.
@@ -144,6 +145,11 @@ const I18N = {
     opt_eng_cpp: "Subsper Built-in — no setup needed ★", opt_eng_whisperx: "Pro: WhisperX — speaker labels (needs Python)",
     opt_eng_mlx: "Pro: mlx-whisper — Apple Silicon (needs Python)", opt_eng_openai: "Pro: openai-whisper (needs Python)",
     pro_unavailable: "Pro engines need Python + WhisperX (optional). Built-in is selected.",
+    nm_threads: "CPU Threads", ds_threads: "Threads for the built-in engine. 0 = use all cores.",
+    tip_threads: "How many CPU threads the built-in engine uses. Auto (0) uses all cores — fastest.",
+    nm_hwaccel: "Hardware Acceleration", ds_hwaccel: "GPU is faster on Windows (Vulkan). Switch to CPU only if the GPU causes errors.",
+    opt_hw_auto: "Auto — use GPU if available (recommended) ★", opt_hw_cpu: "CPU only — most compatible",
+    tip_hwaccel: "Auto uses the GPU on Windows (Vulkan) for speed. Pick CPU only if transcription errors or crashes.",
     nm_diar: "Speaker Labels (Pro)", ds_diar: "Tags who is speaking. Needs the WhisperX Pro engine + a free HuggingFace token.",
     nm_autocleanup: "Auto clean-up", ds_autocleanup: "Apply dictionary & remove fillers when transcription finishes",
     lbl_dict: "Custom dictionary", hint_dict: "Fixes names, brands & mis-hearings. Format: wrong=right (whole word, case-insensitive).",
@@ -296,6 +302,11 @@ const I18N = {
     opt_eng_cpp: "Subsper Yerleşik — kurulum gerekmez ★", opt_eng_whisperx: "Pro: WhisperX — konuşmacı etiketi (Python gerekir)",
     opt_eng_mlx: "Pro: mlx-whisper — Apple Silicon (Python gerekir)", opt_eng_openai: "Pro: openai-whisper (Python gerekir)",
     pro_unavailable: "Pro motorlar Python + WhisperX ister (opsiyonel). Yerleşik motor seçildi.",
+    nm_threads: "CPU Çekirdeği", ds_threads: "Yerleşik motor için iş parçacığı sayısı. 0 = tüm çekirdekleri kullan.",
+    tip_threads: "Yerleşik motorun kaç CPU çekirdeği kullanacağı. Auto (0) hepsini kullanır — en hızlısı.",
+    nm_hwaccel: "Donanım Hızlandırma", ds_hwaccel: "GPU Windows'ta daha hızlı (Vulkan). Sadece GPU hata verirse CPU'ya geç.",
+    opt_hw_auto: "Otomatik — varsa GPU kullan (önerilen) ★", opt_hw_cpu: "Sadece CPU — en uyumlu",
+    tip_hwaccel: "Otomatik, hız için Windows'ta GPU'yu (Vulkan) kullanır. Transkript hata verir/çökerse Sadece CPU seç.",
     nm_diar: "Konuşmacı Etiketleri (Pro)", ds_diar: "Kim konuşuyor etiketler. WhisperX Pro motoru + ücretsiz HuggingFace token gerekir.",
     nm_autocleanup: "Otomatik temizlik", ds_autocleanup: "İş bitince sözlüğü uygular ve dolgu kelimeleri siler",
     lbl_dict: "Özel sözlük", hint_dict: "İsim/marka/yanlış duymaları düzeltir. Format: yanlış=doğru (tam kelime, büyük-küçük fark etmez).",
@@ -829,6 +840,22 @@ function copyText(txt) {
     }
 }
 
+// Reveal a file in Finder / Explorer / file manager — cross-platform. The old
+// code used macOS-only `open -R`, which throws (unhandled) on Windows/Linux.
+function revealInFolder(p) {
+    if (!p) return;
+    try {
+        let cmd, args;
+        if (process.platform === "win32")      { cmd = "explorer"; args = ["/select,", p]; }
+        else if (process.platform === "darwin") { cmd = "open";     args = ["-R", p]; }
+        else                                     { cmd = "xdg-open"; args = [path.dirname(p)]; }
+        const child = spawn(cmd, args);
+        // explorer.exe returns exit code 1 even on success — ignore. Just swallow
+        // spawn errors so a missing file-manager never crashes the panel.
+        child.on("error", () => {});
+    } catch (e) {}
+}
+
 // ── Two-level navigation ──────────────────────────────────────────────────
 // Main tabs with work/settings sub-tabs (prefixes), plus the prefix-less Setup.
 const MAIN_TABS = ["transcribe", "edit", "audio", "setup"];
@@ -919,6 +946,7 @@ function initSettingsUI() {
     // Threads
     set("set-threads", settings.threads);
     txt("threads-val", settings.threads == 0 ? "Auto" : settings.threads);
+    set("set-hwaccel", settings.hwAccel || "auto");
 
     // Transcript clean-up
     set("set-punct-allowed", settings.punctAllowed !== undefined ? settings.punctAllowed : ".,?!:;\"'()[]{}-");
@@ -1183,6 +1211,32 @@ function splitByText(seg, text, opt, maxChars) {
 }
 
 // ── Silence detection ─────────────────────────────────────────────────────
+// Extract the In/Out (or whole-timeline) audio to a WAV. Prefers the bundled
+// engine (no Python); falls back to extract_audio.py only if the engine is absent.
+async function extractTimelineWav(seqInfo) {
+    const tmp = path.join(os.tmpdir(), `subsper_sil_${Date.now()}.wav`);
+    const W = wcpp();
+    if (W) {
+        await W.extractClipsToWav(extDir(),
+            { clips: seqInfo.clips, duration: seqInfo.duration }, tmp, { env: spawnEnv() });
+        return tmp;
+    }
+    const clipsArg = JSON.stringify({ clips: seqInfo.clips, duration: seqInfo.duration });
+    const ex = await runPython("extract_audio.py", [clipsArg, tmp]);
+    if (!ex.success) throw new Error(ex.error || "Audio extraction failed.");
+    return tmp;
+}
+// Detect silent gaps on a WAV. Prefers bundled ffmpeg; falls back to Python.
+async function detectSilencesOnWav(wav) {
+    const W = wcpp();
+    if (W) return await W.detectSilence(extDir(), wav,
+        settings.silenceThreshold, settings.silenceMinDur, { env: spawnEnv() });
+    const res = await runPython("detect_silence.py",
+        [wav, String(settings.silenceThreshold), String(settings.silenceMinDur)]);
+    if (!res.success) throw new Error(res.error || "Silence detection failed.");
+    return res.silences || [];
+}
+
 async function detectSilences() {
     const btn = $("silence-btn");
     if (btn) { btn.disabled = true; }
@@ -1203,28 +1257,10 @@ async function detectSilences() {
         }
 
         setSilenceStatus(`Analyzing ${seqInfo.duration.toFixed(1)}s for silences…`, "info");
-        const tmpAudio = path.join(os.tmpdir(), `silence_${Date.now()}.wav`);
-        const clipsArg = JSON.stringify({ clips: seqInfo.clips, duration: seqInfo.duration });
-
-        const ex = await runPython("extract_audio.py", [clipsArg, tmpAudio]);
-        if (!ex.success) {
-            setSilenceStatus(ex.error || "Audio extraction failed.", "error");
-            showToast("Audio extraction failed", "error");
-            return;
-        }
-
-        const res = await runPython("detect_silence.py",
-            [tmpAudio, String(settings.silenceThreshold), String(settings.silenceMinDur)]);
-
+        const tmpAudio = await extractTimelineWav(seqInfo);
+        const silences = await detectSilencesOnWav(tmpAudio);
         try { if (fs.existsSync(tmpAudio)) fs.unlinkSync(tmpAudio); } catch {}
 
-        if (!res.success) {
-            setSilenceStatus(res.error || "Silence detection failed.", "error");
-            showToast("Silence detection failed", "error");
-            return;
-        }
-
-        const silences = res.silences || [];
         if (silences.length === 0) {
             setSilenceStatus("No silences found. Try raising the threshold (e.g. -25 dB).", "warning");
             showToast("No silences found", "info");
@@ -1264,17 +1300,11 @@ async function findSilenceRanges() {
     if (!seqInfo.success) throw new Error(seqInfo.error || "Error reading timeline");
     if (!seqInfo.clips || seqInfo.clips.length === 0) throw new Error("No audio clips on the timeline. Add a clip first.");
 
-    const tmpAudio = path.join(os.tmpdir(), `silence_${Date.now()}.wav`);
-    const clipsArg = JSON.stringify({ clips: seqInfo.clips, duration: seqInfo.duration });
-    const ex = await runPython("extract_audio.py", [clipsArg, tmpAudio]);
-    if (!ex.success) throw new Error(ex.error || "Audio extraction failed.");
-
-    const res = await runPython("detect_silence.py",
-        [tmpAudio, String(settings.silenceThreshold), String(settings.silenceMinDur)]);
+    const tmpAudio = await extractTimelineWav(seqInfo);
+    const silences = await detectSilencesOnWav(tmpAudio);
     try { if (fs.existsSync(tmpAudio)) fs.unlinkSync(tmpAudio); } catch {}
-    if (!res.success) throw new Error(res.error || "Silence detection failed.");
 
-    const ranges = (res.silences || []).map(s => ({
+    const ranges = silences.map(s => ({
         start: seqInfo.inTime + s.start,
         end:   seqInfo.inTime + s.end,
         dur:   s.dur,
@@ -1357,20 +1387,28 @@ async function enhanceAudio() {
         }
 
         setAudioStatus(`Extracting ${seqInfo.duration.toFixed(1)}s of audio…`, "info");
-        const tmpRaw = path.join(os.tmpdir(), `enh_raw_${Date.now()}.wav`);
-        const clipsArg = JSON.stringify({ clips: seqInfo.clips, duration: seqInfo.duration });
-        const ex = await runPython("extract_audio.py", [clipsArg, tmpRaw]);
-        if (!ex.success) { setAudioStatus(ex.error || "Audio extraction failed.", "error"); return; }
+        const tmpRaw = await extractTimelineWav(seqInfo);
 
         const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
         const outWav = path.join(os.homedir(), "Desktop", `enhanced_audio_${stamp}.wav`);
 
         setAudioStatus("Enhancing audio (denoise + loudness normalize)…", "info");
-        const enh = await runPython("enhance_audio.py",
-            [tmpRaw, outWav, settings.audioDenoise ? "1" : "0", settings.audioNormalize ? "1" : "0"]);
+        const W = wcpp();
+        try {
+            if (W) {
+                await W.enhanceMedia(extDir(), tmpRaw, outWav,
+                    settings.audioDenoise, settings.audioNormalize, { env: spawnEnv() });
+            } else {
+                const enh = await runPython("enhance_audio.py",
+                    [tmpRaw, outWav, settings.audioDenoise ? "1" : "0", settings.audioNormalize ? "1" : "0"]);
+                if (!enh.success) throw new Error(enh.error || "Audio enhancement failed.");
+            }
+        } catch (enhErr) {
+            try { if (fs.existsSync(tmpRaw)) fs.unlinkSync(tmpRaw); } catch {}
+            setAudioStatus(enhErr.message || "Audio enhancement failed.", "error");
+            return;
+        }
         try { if (fs.existsSync(tmpRaw)) fs.unlinkSync(tmpRaw); } catch {}
-
-        if (!enh.success) { setAudioStatus(enh.error || "Audio enhancement failed.", "error"); return; }
 
         const imp = await evalScript(`importAudioToProject('${outWav.replace(/'/g, "\\'")}')`);
         if (imp && imp.success) {
@@ -1379,7 +1417,7 @@ async function enhanceAudio() {
         } else {
             setAudioStatus(`✓ Enhanced audio saved → ${outWav}`, "success");
             showToast("Enhanced WAV saved to Desktop", "success");
-            try { spawn("open", ["-R", outWav]); } catch (e) {}
+            revealInFolder(outWav);
         }
     } catch (e) {
         setAudioStatus(e.message, "error");
@@ -1655,6 +1693,27 @@ function updateAiProviderUI(provider) {
     });
 }
 
+// Sensible current default model per provider (July 2026). Used when the saved
+// model doesn't belong to the selected provider (e.g. an OpenAI provider still
+// carrying a "gemini-…" model would 404).
+const DEFAULT_MODELS = {
+    gemini:    "gemini-3.5-flash",
+    openai:    "gpt-4o",
+    anthropic: "claude-sonnet-4-5",
+    custom:    "",
+};
+function modelForProvider(provider, chosen) {
+    chosen = (chosen || "").trim();
+    if (provider === "custom") return chosen;   // user types their own
+    const looks = {
+        gemini:    /^gemini/i,
+        openai:    /^(gpt|o\d|text-|chatgpt)/i,
+        anthropic: /^claude/i,
+    }[provider];
+    if (looks && looks.test(chosen)) return chosen;
+    return DEFAULT_MODELS[provider] || chosen;
+}
+
 async function askAi(type) {
     const provider = settings.aiProvider || "gemini";
     
@@ -1708,7 +1767,7 @@ async function askAi(type) {
     if (applyBtn) applyBtn.style.display = "none";
     
     outBox.value = "Thinking...";
-    const model = settings.geminiModel || "gemini-3.5-flash";
+    const model = modelForProvider(provider, settings.geminiModel);
     const systemPrompt = "You are an expert video editor and YouTube strategist. Respond clearly using Markdown formatting. If the transcript is in Turkish, respond in Turkish unless asked to translate. If English, respond in English.";
     
     try {
@@ -1737,7 +1796,7 @@ async function askAi(type) {
                     "anthropic-dangerously-allow-browser": "true" 
                 },
                 body: JSON.stringify({
-                    model: model || "claude-3-5-sonnet-20240620",
+                    model: model || "claude-sonnet-4-5",
                     max_tokens: 4096,
                     system: systemPrompt,
                     messages: [{ role: "user", content: prompt }]
@@ -2128,10 +2187,7 @@ function showSRTSaved(srtPath) {
     if (!panel) return;
     $("srt-saved-path").textContent = srtPath;
     panel.style.display = "block";
-    $("srt-saved-reveal").onclick = () => {
-        const { spawn } = _req("child_process");
-        spawn("open", ["-R", srtPath]);
-    };
+    $("srt-saved-reveal").onclick = () => revealInFolder(srtPath);
 }
 
 function hideSRTSaved() {
@@ -2296,6 +2352,8 @@ async function startTranscription() {
                 const r = await W.transcribeWav({
                     appDir: extDir(), wavPath: tmpAudio, modelKey: model, language,
                     initialPrompt: settings.promptWords || "",
+                    threads: settings.threads || 0,
+                    forceCpu: settings.hwAccel === "cpu",
                     spawnOpts: { env: spawnEnv() },
                     onLog: s => { const m = /progress\s*=\s*(\d+)\s*%/i.exec(s); if (m) setStatus(`Transcribing… ${m[1]}%`, "info"); },
                 });
@@ -2447,7 +2505,7 @@ function renderSegments() {
             ${speakerHtml}
             <div class="seg-actions">
               <button class="seg-btn"     onclick="editSegment(${idx})"   data-tip="${escHtml(t("tip_edit"))}">${icon("pencil")}</button>
-              <button class="seg-btn"     onclick="splitSegment(${idx})"  data-tip="${escHtml(t("tip_split"))}">${icon("scissors")}</button>
+              <button class="seg-btn"     onclick="splitSegmentHalf(${idx})"  data-tip="${escHtml(t("tip_split"))}">${icon("scissors")}</button>
               <button class="seg-btn del" onclick="deleteSegment(${idx})" data-tip="${escHtml(t("tip_del"))}">${icon("close")}</button>
             </div>
           </div>`;
@@ -2531,7 +2589,11 @@ function editSegment(idx) {
     ta.closest(".segment")?.classList.add("editing");
 }
 
-function splitSegment(idx) {
+// UI action: split ONE segment in half (bound to the scissors button). NOTE the
+// distinct name — an earlier `splitSegment(idx)` here shadowed the formatter's
+// splitSegment(seg,opt,maxChars), silently breaking all auto-format (max chars /
+// lines / CPS / duration) because applySmartSplit called this with wrong args.
+function splitSegmentHalf(idx) {
     const seg = segments[idx];
     const mid = (seg.start + seg.end) / 2;
     const seqM= (seg.seqStart + seg.seqEnd) / 2;
@@ -2735,7 +2797,7 @@ function exportAs(fmt) {
         fs.writeFileSync(outPath, content, "utf8");
         setStatus(`Exported ${fmt.toUpperCase()} → ${outPath}`, "success");
         showToast(`Saved ${fmt.toUpperCase()} file`, "success");
-        try { spawn("open", ["-R", outPath]); } catch (e) {}
+        revealInFolder(outPath);
     } catch (e) {
         showToast(`Export failed: ${e.message}`, "error", 5000);
     }
@@ -2743,7 +2805,7 @@ function exportAs(fmt) {
 
 async function sendToPremiere() {
     if (segments.length === 0) return;
-    if (settings.sendMode === "graphics") { await sendStyledGraphics(); return; }
+    if (settings.sendMode === "graphics" && typeof sendStyledGraphics === "function") { await sendStyledGraphics(); return; }
     sendBtn.disabled = true;
     setStatus("Sending captions to Premiere…", "info");
     showProgress(true);
@@ -2811,43 +2873,6 @@ function applyEngineAvailability() {
         const anyPro = avail.whisperx || avail.mlx || avail.openai;
         if (anyPro) { note.style.display = "none"; }
         else { note.textContent = t("pro_unavailable"); note.style.display = "block"; }
-    }
-}
-
-async function installPackage(pkg, key) {
-    const btn = $(`btn-install-${key}`);
-    if (btn) { btn.textContent = "Installing…"; btn.disabled = true; btn.classList.add("installing"); }
-
-    const py  = findPython();
-    let res = await runCmd(py, ["-m", "pip", "install", "--user", pkg]);
-    
-    // First verification
-    let check = await runCmd(py, [path.join(extDir(), "scripts", "check_setup.py")]);
-    let parsed = {};
-    try { parsed = JSON.parse(check.out); } catch(e) {}
-
-    // If pip succeeded but import still fails (e.g. wrong architecture cached, or corrupt), force reinstall
-    if (res.code === 0 && parsed[key] && parsed[key].status !== "ok") {
-        if (btn) { btn.textContent = "Fixing Corrupted Files…"; }
-        res = await runCmd(py, ["-m", "pip", "install", "--user", "--force-reinstall", "--no-cache-dir", pkg]);
-        check = await runCmd(py, [path.join(extDir(), "scripts", "check_setup.py")]);
-        try { parsed = JSON.parse(check.out); } catch(e) {}
-    }
-
-    if (res.code === 0 && parsed[key] && parsed[key].status === "ok") {
-        if (btn) {
-            btn.textContent = "Installed";
-            btn.classList.remove("installing");
-            btn.classList.add("installed");
-        }
-        await runDiagnostics();
-    } else {
-        if (btn) {
-            btn.textContent = "Install Failed";
-            btn.disabled = false;
-            btn.classList.remove("installing");
-        }
-        alert("Failed to install " + pkg + ".\n\n" + res.err + "\n\nImport check output:\n" + check.out);
     }
 }
 

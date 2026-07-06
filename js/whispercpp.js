@@ -492,6 +492,11 @@ function transcribeWav(opts) {
         if (lang) { args.push("--language", lang); }
         else      { args.push("--language", "auto"); }
 
+        // Context words / initial prompt (proper nouns, brand names) — improves
+        // accuracy on hard terms. Was silently ignored before (setting had no effect).
+        const prompt = (opts.initialPrompt || "").replace(/\s+/g, " ").trim();
+        if (prompt) { args.push("--prompt", prompt.slice(0, 900)); }
+
         let bin = whisperBin(appDir);
         let gpuBin = null;
         if (process.platform === "win32" && !opts.forceCpu) {
@@ -563,11 +568,100 @@ function transcribeWav(opts) {
     });
 }
 
+// ── Python-free audio tools (bundled ffmpeg) ────────────────────────────────
+// detect silences · enhance (denoise+normalize) · cut/keep ranges. These replace
+// the Python scripts so the zero-setup engine covers Silence + Audio tabs too.
+
+function _runFfmpeg(appDir, args, spawnOpts, onErrTail) {
+    return new Promise((resolve, reject) => {
+        const ff = cp.spawn(ffmpegBin(appDir), args, spawnOpts || {});
+        let err = "";
+        ff.stderr.on("data", d => { err += d.toString(); if (err.length > 200000) err = err.slice(-100000); });
+        ff.on("error", e => reject(new Error("ffmpeg could not run: " + e.message)));
+        ff.on("close", code => {
+            if (onErrTail) onErrTail(err);
+            code === 0 ? resolve(err) : reject(new Error("ffmpeg failed (" + code + "): " + err.slice(-400)));
+        });
+    });
+}
+
+/* Detect silent gaps with ffmpeg's silencedetect filter (no Python).
+ * → Promise<[{start,end,dur}]> in seconds. */
+async function detectSilence(appDir, inputPath, thresholdDb, minDur, spawnOpts) {
+    const db  = parseFloat(thresholdDb); const d = Math.max(0.05, parseFloat(minDur) || 0.6);
+    const thr = isNaN(db) ? -30 : db;
+    const args = ["-hide_banner", "-i", normalizePath(inputPath),
+                  "-af", "silencedetect=noise=" + thr + "dB:d=" + d, "-f", "null", "-"];
+    dbg("detectSilence: thr=" + thr + "dB minDur=" + d + " on " + inputPath);
+    const err = await _runFfmpeg(appDir, args, spawnOpts);
+    const ranges = [];
+    let curStart = null;
+    const lines = err.split(/\r?\n/);
+    for (const ln of lines) {
+        let m = ln.match(/silence_start:\s*(-?[\d.]+)/);
+        if (m) { curStart = parseFloat(m[1]); continue; }
+        m = ln.match(/silence_end:\s*(-?[\d.]+)/);
+        if (m && curStart != null) {
+            const end = parseFloat(m[1]);
+            if (end > curStart) ranges.push({ start: Math.max(0, curStart), end, dur: end - curStart });
+            curStart = null;
+        }
+    }
+    dbg("detectSilence: " + ranges.length + " gap(s)");
+    return ranges;
+}
+
+/* Enhance audio: high-pass + FFT denoise (optional) and EBU R128 loudness
+ * normalize to −16 LUFS (optional). Writes a 16-bit WAV. */
+async function enhanceMedia(appDir, inputPath, outPath, denoise, normalize, spawnOpts) {
+    const chain = [];
+    if (denoise)   { chain.push("highpass=f=80", "afftdn=nf=-25"); }
+    if (normalize) { chain.push("loudnorm=I=-16:TP=-1.5:LRA=11"); }
+    if (!chain.length) chain.push("anull");
+    const args = ["-y", "-i", normalizePath(inputPath), "-af", chain.join(","),
+                  "-c:a", "pcm_s16le", "-ar", "48000", "-vn", outPath];
+    dbg("enhanceMedia: denoise=" + !!denoise + " normalize=" + !!normalize);
+    await _runFfmpeg(appDir, args, spawnOpts);
+    return outPath;
+}
+
+/* Cut a media file to only the KEEP ranges (complement of silences), trimming +
+ * concatenating with ffmpeg. keep = [[startSec,endSec], …]. opts.video=false for
+ * audio-only inputs. Re-encodes. */
+async function cutMedia(appDir, inputPath, outPath, keep, opts) {
+    opts = opts || {};
+    const hasVideo = opts.video !== false;
+    if (!keep || !keep.length) throw new Error("No ranges to keep.");
+    const parts = [], ins = [];
+    keep.forEach((r, i) => {
+        const a = r[0], b = r[1];
+        if (hasVideo) {
+            parts.push("[0:v]trim=start=" + a + ":end=" + b + ",setpts=PTS-STARTPTS[v" + i + "]");
+            parts.push("[0:a]atrim=start=" + a + ":end=" + b + ",asetpts=PTS-STARTPTS[a" + i + "]");
+            ins.push("[v" + i + "][a" + i + "]");
+        } else {
+            parts.push("[0:a]atrim=start=" + a + ":end=" + b + ",asetpts=PTS-STARTPTS[a" + i + "]");
+            ins.push("[a" + i + "]");
+        }
+    });
+    const n = keep.length;
+    const concat = hasVideo
+        ? ins.join("") + "concat=n=" + n + ":v=1:a=1[outv][outa]"
+        : ins.join("") + "concat=n=" + n + ":v=0:a=1[outa]";
+    const args = ["-y", "-i", normalizePath(inputPath), "-filter_complex", parts.join(";") + ";" + concat];
+    if (hasVideo) args.push("-map", "[outv]");
+    args.push("-map", "[outa]", outPath);
+    dbg("cutMedia: " + n + " keep-range(s), video=" + hasVideo);
+    await _runFfmpeg(appDir, args, opts.spawnOpts || {});
+    return outPath;
+}
+
 module.exports = {
     platKey, whisperBin, ffmpegBin, resolveBin,
     modelsDir, modelPath, modelExists, ensureModel, GGML_FILES,
     parseWhisperJson, toWav16k, transcribeWav, dtwPreset,
     normalizePath, extractClipsToWav,
+    detectSilence, enhanceMedia, cutMedia,
     setLogger, recentLog, logPath, dbg,
     flushLog, cleanupStaleDownloads, verifyModel,
 };

@@ -54,6 +54,8 @@ const DEFAULT_SETTINGS = {
     zoomStyle:       "in",        // in (smooth slow push-in, YouTuber-style) | alternate
     threads:         0,           // whisper.cpp threads (0 = auto: use all CPU cores)
     hwAccel:         "auto",      // auto = use GPU (Windows Vulkan) if available | cpu = force CPU
+    whisperModel:    "turbo",     // persisted Whisper model choice
+    spokenLang:      "auto",      // persisted spoken-language choice
 };
 
 // Built-in filler words (Turkish + English). Phrases first so they match before single words.
@@ -956,8 +958,14 @@ function initSettingsUI() {
     chk("set-autocleanup", settings.autoCleanup);
     chk("set-filleron", settings.fillerOn);
     set("set-fillers", settings.fillerWords);
-    set("set-prof-list", settings.profanityList);
-    set("set-prof-mode", settings.profanityMode);
+    // NOTE: HTML ids are set-profanity / set-profmode (a set-prof-list /
+    // set-prof-mode mismatch here meant these never restored on reopen).
+    set("set-profanity", settings.profanityList);
+    set("set-profmode", settings.profanityMode);
+
+    // Model & Language now live in Settings and persist across sessions.
+    set("model-select", settings.whisperModel || "turbo");
+    set("lang-select",  settings.spokenLang   || "auto");
 
     // AI & API
     set("set-ai-provider", settings.aiProvider || "gemini");
@@ -3127,6 +3135,11 @@ function initTooltips() {
 
 (function init() {
     loadHostJSX();
+
+    // Restore persisted model & spoken language BEFORE any transcription —
+    // startTranscription reads these selects directly from the DOM.
+    const _ms = $("model-select"); if (_ms) _ms.value = settings.whisperModel || "turbo";
+    const _ls = $("lang-select");  if (_ls) _ls.value = settings.spokenLang   || "auto";
 
     applyLanguage();
     applyIcons();

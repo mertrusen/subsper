@@ -14,7 +14,7 @@
       <div class="brand-text">
         <span class="brand-title">Sub<span>sper</span></span>
         <span class="brand-tagline" data-i18n="tagline">AI Subtitles</span>
-        <span class="brand-version" style="font-size: 10px; color: var(--text3); margin-left: 6px; font-weight: 500;">v1.7.1</span>
+        <span class="brand-version" style="font-size: 10px; color: var(--text3); margin-left: 6px; font-weight: 500;">v1.8.1</span>
       </div>
     </div>
     <div class="header-right">
@@ -264,36 +264,11 @@
   <div id="panel-tx-settings" class="panel" style="display:none">
     <div class="setup-scroll">
 
-      <div class="setup-section-title" data-i18n="sec_interface">Interface</div>
-      <div class="setting-item">
-        <div class="setting-row">
-          <div class="setting-info">
-            <div class="setting-name" data-i18n="lbl_uilang">Language</div>
-            <div class="setting-desc">English · Türkçe</div>
-          </div>
-          <select id="set-uilang" style="max-width:120px" onchange="setLanguage(this.value)" data-i18n-tip="tip_uilang">
-            <option value="en">English</option>
-            <option value="tr">Türkçe</option>
-          </select>
-        </div>
-        <div class="setting-row" style="margin-top:12px">
-          <div class="setting-info">
-            <div class="setting-name" data-i18n="lbl_theme">Appearance</div>
-          </div>
-          <select id="set-theme" style="max-width:120px" onchange="setTheme(this.value)" data-i18n-tip="tip_theme">
-            <option value="dark"  data-i18n="theme_dark">Dark</option>
-            <option value="light" data-i18n="theme_light">Light</option>
-            <option value="auto"  data-i18n="theme_auto">Auto</option>
-          </select>
-        </div>
-      </div>
-
-
-      <div class="setup-section-title" style="margin-top:16px" data-i18n="sec_modellang">Model &amp; Language</div>
+      <div class="setup-section-title" data-i18n="sec_modellang">Model &amp; Language</div>
       <div class="setting-item">
         <div class="setting-row">
           <div class="setting-info"><div class="setting-name" data-i18n="lbl_model">Model</div></div>
-          <select id="model-select" style="max-width:210px" data-i18n-tip="tip_model">
+          <select id="model-select" style="max-width:210px" onchange="onSettingChange('whisperModel', this.value)" data-i18n-tip="tip_model">
             <option value="turbo" selected>turbo — fast &amp; accurate ★</option>
             <option value="large">large-v3 — best accuracy</option>
             <option value="medium">medium</option>
@@ -303,7 +278,7 @@
         </div>
         <div class="setting-row" style="margin-top:10px">
           <div class="setting-info"><div class="setting-name" data-i18n="lbl_language">Language</div></div>
-          <select id="lang-select" style="max-width:210px" data-i18n-tip="tip_lang">
+          <select id="lang-select" style="max-width:210px" onchange="onSettingChange('spokenLang', this.value)" data-i18n-tip="tip_lang">
             <option value="auto" selected data-i18n="opt_auto">Auto detect</option>
             <option value="tr">Turkish</option>
             <option value="en">English</option>
@@ -372,6 +347,138 @@
             <option value="auto" data-i18n="opt_hw_auto">Auto — use GPU if available (recommended) ★</option>
             <option value="cpu" data-i18n="opt_hw_cpu">CPU only — most compatible</option>
           </select>
+        </div>
+      </div>
+
+      <div class="setup-section-title" style="margin-top:16px" data-i18n="sec_quality">Subtitle Quality</div>
+      <div class="setting-item">
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-name" data-i18n="nm_autoformat">Auto-format subtitles</div>
+            <div class="setting-desc" data-i18n="ds_autoformat">Split long / over-fast subtitles to broadcast standards</div>
+          </div>
+          <label class="toggle" data-i18n-tip="tip_autoformat">
+            <input type="checkbox" id="set-autosplit" onchange="onSettingChange('autoSplit', this.checked)">
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="setting-sub" id="autosplit-sub" style="display:none">
+          <div class="setting-slider-header"><span data-i18n="lbl_cpl">Max characters per line</span><span class="setting-value" id="cpl-val">42</span></div>
+          <input type="range" class="setting-slider" id="set-cpl" min="20" max="60" step="1" value="42" data-i18n-tip="tip_cpl"
+                 oninput="onSettingChange('maxCharsPerLine', +this.value); $('cpl-val').textContent = this.value">
+
+          <div class="setting-slider-header" style="margin-top:10px"><span data-i18n="lbl_lines">Max lines</span><span class="setting-value" id="lines-val">2</span></div>
+          <input type="range" class="setting-slider" id="set-lines" min="1" max="3" step="1" value="2" data-i18n-tip="tip_lines2"
+                 oninput="onSettingChange('maxLines', +this.value); $('lines-val').textContent = this.value">
+
+          <div class="setting-slider-header" style="margin-top:10px"><span data-i18n="lbl_cps">Max reading speed (chars/sec)</span><span class="setting-value" id="cps-val">17</span></div>
+          <input type="range" class="setting-slider" id="set-cps" min="10" max="30" step="1" value="17" data-i18n-tip="tip_cps"
+                 oninput="onSettingChange('maxCps', +this.value); $('cps-val').textContent = this.value">
+
+          <div class="setting-slider-header" style="margin-top:10px"><span data-i18n="lbl_maxdur">Max subtitle duration</span><span class="setting-value" id="maxdur-val">7.0s</span></div>
+          <input type="range" class="setting-slider" id="set-maxdur" min="2" max="10" step="0.5" value="7" data-i18n-tip="tip_maxdur"
+                 oninput="onSettingChange('maxDur', +this.value); $('maxdur-val').textContent = (+this.value).toFixed(1)+'s'">
+          <div class="setting-hint" data-i18n="hint_split">Subtitles longer than this (or too fast to read) are split at word boundaries.</div>
+        </div>
+      </div>
+
+      <div class="setup-section-title" style="margin-top:16px" data-i18n="sec_timing">Subtitle Timing</div>
+      <div class="setting-item">
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-name" data-i18n="nm_continuous">Continuous subtitles</div>
+            <div class="setting-desc" data-i18n="ds_continuous">Extend each subtitle to the next, filling short gaps</div>
+          </div>
+          <label class="toggle" data-i18n-tip="tip_continuous">
+            <input type="checkbox" id="set-gap-fill" onchange="onGapFillChange()">
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="setting-sub" id="gap-fill-sub" style="display:none">
+          <div class="setting-slider-header">
+            <span data-i18n="lbl_maxgap">Max gap to fill</span>
+            <span class="setting-value" id="gap-fill-val">2.0s</span>
+          </div>
+          <input type="range" class="setting-slider" id="set-gap-max"
+                 min="0.1" max="5.0" step="0.1" value="2.0" data-i18n-tip="tip_maxgap"
+                 oninput="onGapMaxChange(this.value)">
+          <div class="setting-hint" data-i18n="hint_gap">Gaps larger than this stay separate.</div>
+        </div>
+      </div><div class="setup-section-title" style="margin-top:16px"><span data-i18n="sec_style">Subtitle Style</span> <span class="muted">(.ass)</span></div>
+      <div class="setting-item">
+        <div class="style-preview" id="style-preview" data-i18n-tip="tip_stylepreview">
+          <span id="style-preview-text">Örnek altyazı</span>
+        </div>
+        <div class="style-chips" id="style-chips" data-i18n-tip="tip_stylechips"></div>
+
+        <!-- Custom style editor -->
+        <div id="custom-style-form" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid var(--border)">
+          <div class="custom-row">
+            <div class="custom-field">
+              <label class="custom-label" data-i18n="lbl_textcolor">Text color</label>
+              <input type="color" id="cust-primary" value="#FFFFFF"
+                     oninput="updateCustomStyle('primary', this.value.slice(1).toUpperCase())">
+            </div>
+            <div class="custom-field">
+              <label class="custom-label" data-i18n="lbl_outlinecolor">Outline color</label>
+              <input type="color" id="cust-outline" value="#000000"
+                     oninput="updateCustomStyle('outline', this.value.slice(1).toUpperCase())">
+            </div>
+          </div>
+          <div class="setting-slider-header" style="margin-top:10px">
+            <span data-i18n="lbl_size">Size</span><span class="setting-value" id="cust-size-val">54</span>
+          </div>
+          <input type="range" class="setting-slider" id="cust-size" min="24" max="100" step="2" value="54"
+                 oninput="updateCustomStyle('size', +this.value); $('cust-size-val').textContent = this.value">
+
+          <div class="setting-slider-header" style="margin-top:8px">
+            <span data-i18n="lbl_outlinew">Outline width</span><span class="setting-value" id="cust-ow-val">3</span>
+          </div>
+          <input type="range" class="setting-slider" id="cust-ow" min="0" max="8" step="1" value="3"
+                 oninput="updateCustomStyle('outlineW', +this.value); $('cust-ow-val').textContent = this.value">
+
+          <div class="custom-row" style="margin-top:10px; align-items:center; gap:14px">
+            <label class="find-opt" style="gap:5px">
+              <input type="checkbox" id="cust-bold" onchange="updateCustomStyle('bold', this.checked)">
+              <span style="color:var(--text2);font-size:11px" data-i18n="lbl_bold">Bold</span>
+            </label>
+            <label class="find-opt" style="gap:5px">
+              <input type="checkbox" id="cust-box" onchange="updateCustomStyle('box', this.checked)">
+              <span style="color:var(--text2);font-size:11px" data-i18n="lbl_box">Box bg</span>
+            </label>
+            <select id="cust-align" style="flex:1" onchange="updateCustomStyle('align', +this.value)">
+              <option value="2" data-i18n="opt_bottom">Bottom</option>
+              <option value="8" data-i18n="opt_top">Top</option>
+              <option value="5" data-i18n="opt_center">Center</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="setting-hint" style="margin-top:8px" data-i18n="hint_style">Applies to .ass exports. SRT / Premiere captions carry no styling.</div>
+      </div>
+
+      <div class="setup-section-title" style="margin-top:16px"><span data-i18n="sec_karaoke">Karaoke</span> <span class="muted">(Instagram / TikTok)</span></div>
+      <div class="setting-item">
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-name" data-i18n="nm_karaoke">Word-by-word highlight</div>
+            <div class="setting-desc" data-i18n="ds_karaoke">Each word lights up as spoken. Exports as karaoke .ass (needs word timing).</div>
+          </div>
+          <label class="toggle" data-i18n-tip="tip_karaoke">
+            <input type="checkbox" id="set-karaoke" onchange="onKaraokeToggle(this.checked)">
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="setting-sub" id="karaoke-sub" style="display:none">
+          <div class="karaoke-preview" id="karaoke-preview"></div>
+          <div class="custom-row" style="margin-top:10px; align-items:center">
+            <div class="custom-field" style="max-width:140px">
+              <label class="custom-label" data-i18n="lbl_hicolor">Highlight colour</label>
+              <input type="color" id="set-karaoke-hi" value="#FFE000" data-i18n-tip="tip_hicolor"
+                     oninput="onKaraokeColor(this.value)">
+            </div>
+          </div>
+          <div class="setting-hint" style="margin-top:8px" data-i18n="hint_karaoke">Open the .ass in CapCut, VLC or Premiere. Spoken words switch to the highlight colour.</div>
         </div>
       </div>
 
@@ -506,139 +613,32 @@
         </div>
       </div>
 
-      <div class="setup-section-title" style="margin-top:16px" data-i18n="sec_quality">Subtitle Quality</div>
+      <div class="setup-section-title" style="margin-top:16px" data-i18n="sec_interface">Interface</div>
       <div class="setting-item">
         <div class="setting-row">
           <div class="setting-info">
-            <div class="setting-name" data-i18n="nm_autoformat">Auto-format subtitles</div>
-            <div class="setting-desc" data-i18n="ds_autoformat">Split long / over-fast subtitles to broadcast standards</div>
+            <div class="setting-name" data-i18n="lbl_uilang">Language</div>
+            <div class="setting-desc">English · Türkçe</div>
           </div>
-          <label class="toggle" data-i18n-tip="tip_autoformat">
-            <input type="checkbox" id="set-autosplit" onchange="onSettingChange('autoSplit', this.checked)">
-            <span class="toggle-track"></span>
-          </label>
+          <select id="set-uilang" style="max-width:120px" onchange="setLanguage(this.value)" data-i18n-tip="tip_uilang">
+            <option value="en">English</option>
+            <option value="tr">Türkçe</option>
+          </select>
         </div>
-        <div class="setting-sub" id="autosplit-sub" style="display:none">
-          <div class="setting-slider-header"><span data-i18n="lbl_cpl">Max characters per line</span><span class="setting-value" id="cpl-val">42</span></div>
-          <input type="range" class="setting-slider" id="set-cpl" min="20" max="60" step="1" value="42" data-i18n-tip="tip_cpl"
-                 oninput="onSettingChange('maxCharsPerLine', +this.value); $('cpl-val').textContent = this.value">
-
-          <div class="setting-slider-header" style="margin-top:10px"><span data-i18n="lbl_lines">Max lines</span><span class="setting-value" id="lines-val">2</span></div>
-          <input type="range" class="setting-slider" id="set-lines" min="1" max="3" step="1" value="2" data-i18n-tip="tip_lines2"
-                 oninput="onSettingChange('maxLines', +this.value); $('lines-val').textContent = this.value">
-
-          <div class="setting-slider-header" style="margin-top:10px"><span data-i18n="lbl_cps">Max reading speed (chars/sec)</span><span class="setting-value" id="cps-val">17</span></div>
-          <input type="range" class="setting-slider" id="set-cps" min="10" max="30" step="1" value="17" data-i18n-tip="tip_cps"
-                 oninput="onSettingChange('maxCps', +this.value); $('cps-val').textContent = this.value">
-
-          <div class="setting-slider-header" style="margin-top:10px"><span data-i18n="lbl_maxdur">Max subtitle duration</span><span class="setting-value" id="maxdur-val">7.0s</span></div>
-          <input type="range" class="setting-slider" id="set-maxdur" min="2" max="10" step="0.5" value="7" data-i18n-tip="tip_maxdur"
-                 oninput="onSettingChange('maxDur', +this.value); $('maxdur-val').textContent = (+this.value).toFixed(1)+'s'">
-          <div class="setting-hint" data-i18n="hint_split">Subtitles longer than this (or too fast to read) are split at word boundaries.</div>
-        </div>
-      </div>
-
-      <div class="setup-section-title" style="margin-top:16px"><span data-i18n="sec_style">Subtitle Style</span> <span class="muted">(.ass)</span></div>
-      <div class="setting-item">
-        <div class="style-preview" id="style-preview" data-i18n-tip="tip_stylepreview">
-          <span id="style-preview-text">Örnek altyazı</span>
-        </div>
-        <div class="style-chips" id="style-chips" data-i18n-tip="tip_stylechips"></div>
-
-        <!-- Custom style editor -->
-        <div id="custom-style-form" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid var(--border)">
-          <div class="custom-row">
-            <div class="custom-field">
-              <label class="custom-label" data-i18n="lbl_textcolor">Text color</label>
-              <input type="color" id="cust-primary" value="#FFFFFF"
-                     oninput="updateCustomStyle('primary', this.value.slice(1).toUpperCase())">
-            </div>
-            <div class="custom-field">
-              <label class="custom-label" data-i18n="lbl_outlinecolor">Outline color</label>
-              <input type="color" id="cust-outline" value="#000000"
-                     oninput="updateCustomStyle('outline', this.value.slice(1).toUpperCase())">
-            </div>
-          </div>
-          <div class="setting-slider-header" style="margin-top:10px">
-            <span data-i18n="lbl_size">Size</span><span class="setting-value" id="cust-size-val">54</span>
-          </div>
-          <input type="range" class="setting-slider" id="cust-size" min="24" max="100" step="2" value="54"
-                 oninput="updateCustomStyle('size', +this.value); $('cust-size-val').textContent = this.value">
-
-          <div class="setting-slider-header" style="margin-top:8px">
-            <span data-i18n="lbl_outlinew">Outline width</span><span class="setting-value" id="cust-ow-val">3</span>
-          </div>
-          <input type="range" class="setting-slider" id="cust-ow" min="0" max="8" step="1" value="3"
-                 oninput="updateCustomStyle('outlineW', +this.value); $('cust-ow-val').textContent = this.value">
-
-          <div class="custom-row" style="margin-top:10px; align-items:center; gap:14px">
-            <label class="find-opt" style="gap:5px">
-              <input type="checkbox" id="cust-bold" onchange="updateCustomStyle('bold', this.checked)">
-              <span style="color:var(--text2);font-size:11px" data-i18n="lbl_bold">Bold</span>
-            </label>
-            <label class="find-opt" style="gap:5px">
-              <input type="checkbox" id="cust-box" onchange="updateCustomStyle('box', this.checked)">
-              <span style="color:var(--text2);font-size:11px" data-i18n="lbl_box">Box bg</span>
-            </label>
-            <select id="cust-align" style="flex:1" onchange="updateCustomStyle('align', +this.value)">
-              <option value="2" data-i18n="opt_bottom">Bottom</option>
-              <option value="8" data-i18n="opt_top">Top</option>
-              <option value="5" data-i18n="opt_center">Center</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="setting-hint" style="margin-top:8px" data-i18n="hint_style">Applies to .ass exports. SRT / Premiere captions carry no styling.</div>
-      </div>
-
-      <div class="setup-section-title" style="margin-top:16px"><span data-i18n="sec_karaoke">Karaoke</span> <span class="muted">(Instagram / TikTok)</span></div>
-      <div class="setting-item">
-        <div class="setting-row">
+        <div class="setting-row" style="margin-top:12px">
           <div class="setting-info">
-            <div class="setting-name" data-i18n="nm_karaoke">Word-by-word highlight</div>
-            <div class="setting-desc" data-i18n="ds_karaoke">Each word lights up as spoken. Exports as karaoke .ass (needs word timing).</div>
+            <div class="setting-name" data-i18n="lbl_theme">Appearance</div>
           </div>
-          <label class="toggle" data-i18n-tip="tip_karaoke">
-            <input type="checkbox" id="set-karaoke" onchange="onKaraokeToggle(this.checked)">
-            <span class="toggle-track"></span>
-          </label>
-        </div>
-        <div class="setting-sub" id="karaoke-sub" style="display:none">
-          <div class="karaoke-preview" id="karaoke-preview"></div>
-          <div class="custom-row" style="margin-top:10px; align-items:center">
-            <div class="custom-field" style="max-width:140px">
-              <label class="custom-label" data-i18n="lbl_hicolor">Highlight colour</label>
-              <input type="color" id="set-karaoke-hi" value="#FFE000" data-i18n-tip="tip_hicolor"
-                     oninput="onKaraokeColor(this.value)">
-            </div>
-          </div>
-          <div class="setting-hint" style="margin-top:8px" data-i18n="hint_karaoke">Open the .ass in CapCut, VLC or Premiere. Spoken words switch to the highlight colour.</div>
+          <select id="set-theme" style="max-width:120px" onchange="setTheme(this.value)" data-i18n-tip="tip_theme">
+            <option value="dark"  data-i18n="theme_dark">Dark</option>
+            <option value="light" data-i18n="theme_light">Light</option>
+            <option value="auto"  data-i18n="theme_auto">Auto</option>
+          </select>
         </div>
       </div>
 
-      <div class="setup-section-title" style="margin-top:16px" data-i18n="sec_timing">Subtitle Timing</div>
-      <div class="setting-item">
-        <div class="setting-row">
-          <div class="setting-info">
-            <div class="setting-name" data-i18n="nm_continuous">Continuous subtitles</div>
-            <div class="setting-desc" data-i18n="ds_continuous">Extend each subtitle to the next, filling short gaps</div>
-          </div>
-          <label class="toggle" data-i18n-tip="tip_continuous">
-            <input type="checkbox" id="set-gap-fill" onchange="onGapFillChange()">
-            <span class="toggle-track"></span>
-          </label>
-        </div>
-        <div class="setting-sub" id="gap-fill-sub" style="display:none">
-          <div class="setting-slider-header">
-            <span data-i18n="lbl_maxgap">Max gap to fill</span>
-            <span class="setting-value" id="gap-fill-val">2.0s</span>
-          </div>
-          <input type="range" class="setting-slider" id="set-gap-max"
-                 min="0.1" max="5.0" step="0.1" value="2.0" data-i18n-tip="tip_maxgap"
-                 oninput="onGapMaxChange(this.value)">
-          <div class="setting-hint" data-i18n="hint_gap">Gaps larger than this stay separate.</div>
-        </div>
-      </div>
+
+      
 
     </div>
   </div><!-- /panel-tx-settings -->

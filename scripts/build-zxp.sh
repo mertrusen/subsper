@@ -19,27 +19,20 @@ CERT_PASS="subsper"
 
 mkdir -p "$OUT" "$TOOLS"
 
-# 1) Fetch ZXPSignCmd once (Adobe CEP-Resources repo)
+# 1) Fetch ZXPSignCmd once (Adobe CEP-Resources repo, 4.1.3 ships raw binaries)
 case "$(uname -s)" in
   Darwin) BIN="$TOOLS/ZXPSignCmd"
-          URL="https://github.com/Adobe-CEP/CEP-Resources/raw/master/ZXPSignCMD/4.1.2/macOS/ZXPSignCmd.dmg" ;;
+          URL="https://github.com/Adobe-CEP/CEP-Resources/raw/master/ZXPSignCMD/4.1.3/macOS/ZXPSignCmd" ;;
   *)      BIN="$TOOLS/ZXPSignCmd.exe"
-          URL="https://github.com/Adobe-CEP/CEP-Resources/raw/master/ZXPSignCMD/4.1.2/win64/ZXPSignCmd.exe" ;;
+          URL="https://github.com/Adobe-CEP/CEP-Resources/raw/master/ZXPSignCMD/4.1.3/x64/ZXPSignCmd.exe" ;;
 esac
 
 if [ ! -x "$BIN" ]; then
   echo "· downloading ZXPSignCmd…"
-  if [ "$(uname -s)" = "Darwin" ]; then
-    curl -fsSL "$URL" -o "$TOOLS/zxpsign.dmg"
-    MNT="$(hdiutil attach "$TOOLS/zxpsign.dmg" -nobrowse | tail -1 | awk '{print $NF}')"
-    cp "$MNT"/ZXPSignCmd* "$BIN"
-    hdiutil detach "$MNT" -quiet
-    chmod +x "$BIN"
-    rm -f "$TOOLS/zxpsign.dmg"
-  else
-    curl -fsSL "$URL" -o "$BIN"
-    chmod +x "$BIN"
-  fi
+  curl -fsSL "$URL" -o "$BIN"
+  chmod +x "$BIN"
+  # macOS quarantines downloaded binaries — clear it so CI can execute
+  xattr -d com.apple.quarantine "$BIN" 2>/dev/null || true
 fi
 
 # 2) Self-signed cert (created once, reused)

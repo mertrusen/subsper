@@ -96,11 +96,21 @@ npm start           # run from source
 ---
 
 ## Usage
-1. **Open Video / Audio File** (or drag-and-drop onto the window)
+1. **Open Video / Audio File** (or drag-and-drop onto the window — drop 2+ files for batch mode)
 2. Pick model + language → **Transcribe File**
-3. Edit segments (click a word to split, double-click to edit, 🧹 to clean up)
-4. **⬇ Export → SRT** → import into CapCut
-5. Bonus: **🔊 Audio → Enhance** and **✂️ Edit → Cut Silences** export cleaned/trimmed files
+3. Edit segments (click a word to split, double-click to edit, 🧹 to clean up,
+   **Cmd/Ctrl+Z** = undo, **Alt+←/→** = nudge timing, drag segment edges on the waveform)
+4. **⬇ Export** → SRT / VTT / ASS / word-by-word SRT / **burn-in MP4** — or save the
+   session as a **`.subsper` project** and continue later
+5. Bonus tools: **🔊 Audio → Enhance / Beep Profanity** · **✂️ Edit → Cut Silences /
+   Cut Filler Words** — each exports a processed copy of your file
+
+### Command line (headless)
+```bash
+npm run cli -- video.mp4                     # → video.srt next to the file
+npm run cli -- *.mp4 --model small --lang tr # batch, smaller model, forced language
+```
+Uses the same bundled engine — no Python, no UI. Great for automation.
 
 ## How it's built
 Same UI/logic as the Premiere extension. `desktop-shim.js` stubs the Premiere

@@ -437,7 +437,7 @@ const I18N = {
 };
 
 function t(key) {
-    const lang = settings.uiLang === "tr" ? "tr" : "en";
+    const lang = I18N[settings.uiLang] ? settings.uiLang : "en";
     return (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
 }
 
@@ -453,11 +453,11 @@ function applyLanguage() {
     document.querySelectorAll("[data-i18n-ph]").forEach(el => {
         el.setAttribute("placeholder", t(el.getAttribute("data-i18n-ph")));
     });
-    document.documentElement.lang = settings.uiLang === "tr" ? "tr" : "en";
+    document.documentElement.lang = I18N[settings.uiLang] ? settings.uiLang : "en";
 }
 
 function setLanguage(lang) {
-    settings.uiLang = (lang === "tr") ? "tr" : "en";
+    settings.uiLang = I18N[lang] ? lang : "en";
     saveSettings();
     applyLanguage();
     renderSegments();
@@ -2747,9 +2747,28 @@ function karaokeBody(seg) {
     return parts.join("").trim();
 }
 
+// Distinct text colours per speaker (diarization) — cycled in order of appearance.
+const SPEAKER_COLORS = ["FFFFFF", "7DD3FC", "FDE68A", "86EFAC", "F9A8D4", "FCA5A5", "C4B5FD", "FDBA74"];
+
 function segmentsToASS() {
     const preset   = getActivePreset();
     const karaoke  = !!settings.karaoke;
+    const segs = _exportSegs();
+
+    // Speaker styles: if diarization tagged speakers, each gets its own colour.
+    const speakers = [];
+    segs.forEach(s => { if (s.speaker && speakers.indexOf(s.speaker) === -1) speakers.push(s.speaker); });
+    let styleLines = buildASSStyle(preset, karaoke);
+    const styleFor = {};
+    if (speakers.length > 1 && !karaoke) {
+        styleLines = speakers.map((sp, i) => {
+            const name = "Spk" + (i + 1);
+            styleFor[sp] = name;
+            const p2 = { ...preset, primary: SPEAKER_COLORS[i % SPEAKER_COLORS.length] };
+            return buildASSStyle(p2, false).replace("Style: Default,", `Style: ${name},`);
+        }).join("\n") + "\n" + buildASSStyle(preset, karaoke);
+    }
+
     const header =
 `[Script Info]
 ScriptType: v4.00+
@@ -2760,15 +2779,16 @@ PlayResY: 1080
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-${buildASSStyle(preset, karaoke)}
+${styleLines}
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
-    const segs = _exportSegs();
     const lines = segs.map(seg => {
         const text = karaoke ? karaokeBody(seg) : _wrap(seg.text).replace(/\n/g, "\\N");
-        return `Dialogue: 0,${fmtASS(seg.seqStart)},${fmtASS(seg.seqEnd)},Default,,0,0,0,,${text}`;
+        const style = (seg.speaker && styleFor[seg.speaker]) || "Default";
+        const name  = seg.speaker ? seg.speaker.replace("SPEAKER_", "S") : "";
+        return `Dialogue: 0,${fmtASS(seg.seqStart)},${fmtASS(seg.seqEnd)},${style},${name},0,0,0,,${text}`;
     }).join("\n");
     return header + lines + "\n";
 }
@@ -3241,7 +3261,7 @@ function initTooltips() {
    files (and the extension↔desktop footer sync) stay untouched.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION = "1.9.1";
+const APP_VERSION = "1.10.0";
 const GH_REPO = "mertrusen/subsper";
 const IS_DESKTOP_APP = (typeof window !== "undefined" && window.IS_DESKTOP === true);
 
@@ -3687,3 +3707,397 @@ setTimeout(function initFeaturePack() {
         checkForUpdates();
     } catch (e) { console.error("[Subsper] feature pack init failed:", e); }
 }, 0);
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   v1.10 feature pack — project save/load, hooks/clips, profanity beep ranges,
+   MOGRT styled graphics, translation→Premiere, style favorites, notifications,
+   extra UI languages. Same rules: dynamic injection, defensive, shared.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+// ── Extra UI languages (core subset — anything missing falls back to English)
+Object.assign(I18N, {
+  es: {
+    tagline: "Subtítulos con IA", status_ready: "Listo — pulsa Transcribir",
+    tab_transcribe: "Subtítulos", tab_edit: "Edición", tab_audio: "Audio", tab_setup: "Ajustes",
+    sub_work_tx: "Editar", sub_settings: "Ajustes", sub_actions: "Herramientas",
+    lbl_model: "Modelo", lbl_language: "Idioma", opt_auto: "Detección automática",
+    btn_transcribe: "Transcribir", btn_loadsrt: "Cargar SRT", btn_play: "Reproducir", btn_pause: "Pausa",
+    empty_p: "Pulsa Transcribir para subtitular tu vídeo.",
+    empty_hint: "Clic en una palabra = dividir · doble clic = editar.",
+    act_clear: "Borrar", act_send: "Enviar a Premiere",
+    export_title: "Exportar como…", clean_title: "Limpiar…",
+    sec_engine: "Motor de transcripción", sec_cleanup: "Limpieza del texto",
+    sec_quality: "Calidad de subtítulos", sec_style: "Estilo", sec_interface: "Interfaz",
+    sec_modellang: "Modelo e idioma", sec_api: "IA y API", sec_timing: "Sincronización", sec_karaoke: "Karaoke",
+    lbl_uilang: "Idioma", lbl_theme: "Apariencia", theme_dark: "Oscuro", theme_light: "Claro", theme_auto: "Auto",
+    btn_replaceall: "Reemplazar todo", btn_cancel: "Cancelar", btn_close: "Cerrar",
+    nm_engine: "Motor", opt_eng_cpp: "Motor integrado — sin instalación ★",
+    nm_hwaccel: "Aceleración por hardware", nm_threads: "Núcleos de CPU",
+    nm_autoformat: "Autoformatear subtítulos", lbl_cpl: "Máx. caracteres por línea",
+  },
+  de: {
+    tagline: "KI-Untertitel", status_ready: "Bereit — klicke auf Transkribieren",
+    tab_transcribe: "Untertitel", tab_edit: "Schnitt", tab_audio: "Audio", tab_setup: "Setup",
+    sub_work_tx: "Bearbeiten", sub_settings: "Einstellungen", sub_actions: "Werkzeuge",
+    lbl_model: "Modell", lbl_language: "Sprache", opt_auto: "Automatisch erkennen",
+    btn_transcribe: "Transkribieren", btn_loadsrt: "SRT laden", btn_play: "Abspielen", btn_pause: "Pause",
+    empty_p: "Klicke auf Transkribieren, um dein Video zu untertiteln.",
+    empty_hint: "Klick auf ein Wort = teilen · Doppelklick = bearbeiten.",
+    act_clear: "Leeren", act_send: "An Premiere senden",
+    export_title: "Exportieren als…", clean_title: "Bereinigen…",
+    sec_engine: "Transkriptions-Engine", sec_cleanup: "Textbereinigung",
+    sec_quality: "Untertitel-Qualität", sec_style: "Stil", sec_interface: "Oberfläche",
+    sec_modellang: "Modell & Sprache", sec_api: "KI & API", sec_timing: "Timing", sec_karaoke: "Karaoke",
+    lbl_uilang: "Sprache", lbl_theme: "Erscheinungsbild", theme_dark: "Dunkel", theme_light: "Hell", theme_auto: "Auto",
+    btn_replaceall: "Alle ersetzen", btn_cancel: "Abbrechen", btn_close: "Schließen",
+    nm_engine: "Engine", opt_eng_cpp: "Integrierte Engine — keine Installation ★",
+    nm_hwaccel: "Hardware-Beschleunigung", nm_threads: "CPU-Threads",
+    nm_autoformat: "Untertitel autoformatieren", lbl_cpl: "Max. Zeichen pro Zeile",
+  },
+  pt: {
+    tagline: "Legendas com IA", status_ready: "Pronto — clique em Transcrever",
+    tab_transcribe: "Legendas", tab_edit: "Edição", tab_audio: "Áudio", tab_setup: "Config",
+    sub_work_tx: "Editar", sub_settings: "Configurações", sub_actions: "Ferramentas",
+    lbl_model: "Modelo", lbl_language: "Idioma", opt_auto: "Detecção automática",
+    btn_transcribe: "Transcrever", btn_loadsrt: "Carregar SRT", btn_play: "Reproduzir", btn_pause: "Pausar",
+    empty_p: "Clique em Transcrever para legendar seu vídeo.",
+    empty_hint: "Clique numa palavra = dividir · duplo clique = editar.",
+    act_clear: "Limpar", act_send: "Enviar ao Premiere",
+    export_title: "Exportar como…", clean_title: "Limpar…",
+    sec_engine: "Motor de transcrição", sec_cleanup: "Limpeza do texto",
+    sec_quality: "Qualidade das legendas", sec_style: "Estilo", sec_interface: "Interface",
+    sec_modellang: "Modelo e idioma", sec_api: "IA e API", sec_timing: "Sincronização", sec_karaoke: "Karaokê",
+    lbl_uilang: "Idioma", lbl_theme: "Aparência", theme_dark: "Escuro", theme_light: "Claro", theme_auto: "Auto",
+    btn_replaceall: "Substituir tudo", btn_cancel: "Cancelar", btn_close: "Fechar",
+    nm_engine: "Motor", opt_eng_cpp: "Motor integrado — sem instalação ★",
+    nm_hwaccel: "Aceleração de hardware", nm_threads: "Threads de CPU",
+    nm_autoformat: "Autoformatar legendas", lbl_cpl: "Máx. de caracteres por linha",
+  },
+});
+
+// ── Profanity ranges (word-timing based, for audio beeping) ────────────────
+function computeProfanityRanges() {
+    let list = BUILTIN_PROFANITY.slice();
+    (settings.profanityList || "").split(/[,\n]/).forEach(w => { w = w.trim(); if (w) list.push(w); });
+    const set = new Set(list.map(w => w.toLowerCase()));
+    const ranges = [];
+    for (const seg of segments) {
+        for (const w of (seg.words || [])) {
+            if (w.start == null || w.end == null) continue;
+            const clean = (w.word || "").toLowerCase().replace(/[.,!?;:"'()\[\]{}…*-]/g, "");
+            if (clean && set.has(clean)) {
+                const off = seg.seqStart - seg.start;
+                ranges.push({ start: Math.max(0, off + w.start - 0.03), end: off + w.end + 0.03 });
+            }
+        }
+    }
+    ranges.sort((a, b) => a.start - b.start);
+    const merged = [];
+    for (const r of ranges) {
+        const last = merged[merged.length - 1];
+        if (last && r.start <= last.end + 0.05) last.end = Math.max(last.end, r.end);
+        else merged.push({ ...r });
+    }
+    return merged;
+}
+
+// ── Project save / load (.subsper JSON) + crash-safe autosave ──────────────
+function _projectData() {
+    return {
+        app: "subsper", version: APP_VERSION, savedAt: new Date().toISOString(),
+        mediaPath: (typeof window !== "undefined" && window.__SUBSPER_MEDIA__) || null,
+        seqInTime, lastLanguage,
+        segments,
+        settings: { stylePreset: settings.stylePreset, customStyle: settings.customStyle,
+                    karaoke: settings.karaoke, karaokeHi: settings.karaokeHi },
+    };
+}
+function _loadProjectData(data) {
+    if (!data || data.app !== "subsper" || !Array.isArray(data.segments)) throw new Error("Not a Subsper project file.");
+    pushUndo();
+    segments = data.segments;
+    seqInTime = data.seqInTime || 0;
+    lastLanguage = data.lastLanguage || "";
+    if (data.settings) { Object.assign(settings, data.settings); saveSettings(); }
+    renderSegments(); updateSegCount();
+    actionsBar.style.display = segments.length ? "flex" : "none";
+    sendBtn.disabled = segments.length === 0;
+    setStatus(`Project loaded — ${segments.length} segment(s)`, "success");
+}
+function saveProject() {
+    if (!segments.length) { showToast("Nothing to save yet", "info", 2000); return; }
+    const json = JSON.stringify(_projectData(), null, 1);
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    const defName = `project_${stamp}.subsper`;
+    let outPath = null;
+    try {
+        if (window.cep && window.cep.fs && window.cep.fs.showSaveDialogEx) {
+            const res = window.cep.fs.showSaveDialogEx("Save Subsper project", "", ["subsper"], defName, "SUBSPER");
+            if (res && res.data) outPath = res.data;
+        }
+    } catch (e) {}
+    if (!outPath) outPath = path.join(os.homedir(), "Desktop", defName);
+    try {
+        fs.writeFileSync(outPath, json, "utf8");
+        setStatus(`Project saved → ${outPath}`, "success");
+        showToast("Project saved", "success");
+    } catch (e) { showToast("Save failed: " + e.message, "error"); }
+}
+function openProject() {
+    try {
+        if (window.cep && window.cep.fs && window.cep.fs.showOpenDialogEx) {
+            const res = window.cep.fs.showOpenDialogEx(false, false, "Open Subsper project", "", ["subsper"]);
+            const p = res && res.data && res.data[0];
+            if (p) { _loadProjectData(JSON.parse(fs.readFileSync(p, "utf8"))); return; }
+        }
+    } catch (e) { showToast("Open failed: " + e.message, "error"); return; }
+    // fallback: hidden input (desktop overrides with native dialog)
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = ".subsper,.json";
+    inp.onchange = () => {
+        const f = inp.files[0]; if (!f) return;
+        try { _loadProjectData(JSON.parse(fs.readFileSync(f.path, "utf8"))); }
+        catch (e) { showToast("Open failed: " + e.message, "error"); }
+    };
+    inp.click();
+}
+// Autosave every 20s → localStorage; offer restore on next start if unsaved work existed.
+setInterval(() => {
+    try {
+        if (segments && segments.length) localStorage.setItem("ws_autosave", JSON.stringify(_projectData()));
+    } catch (e) {}
+}, 20000);
+function maybeOfferRestore() {
+    try {
+        const raw = localStorage.getItem("ws_autosave");
+        if (!raw || (segments && segments.length)) return;
+        const data = JSON.parse(raw);
+        if (!data.segments || !data.segments.length) return;
+        const when = (data.savedAt || "").replace("T", " ").slice(0, 16);
+        const bar = document.createElement("div");
+        bar.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9997;display:flex;gap:10px;align-items:center;justify-content:center;padding:8px;background:var(--bg3,#222);border-bottom:1px solid var(--border2,#333);font-size:12px";
+        const isTr = settings.uiLang === "tr";
+        bar.innerHTML = `<span>${isTr ? "Kaydedilmemiş çalışma bulundu" : "Unsaved work found"} (${data.segments.length} seg · ${when})</span>
+          <button class="btn-secondary" id="rest-yes" style="padding:3px 12px">${isTr ? "Geri yükle" : "Restore"}</button>
+          <button class="btn-secondary" id="rest-no" style="padding:3px 12px">${isTr ? "Sil" : "Discard"}</button>`;
+        document.body.appendChild(bar);
+        $("rest-yes").onclick = () => { try { _loadProjectData(data); } catch (e) {} bar.remove(); };
+        $("rest-no").onclick = () => { localStorage.removeItem("ws_autosave"); bar.remove(); };
+    } catch (e) {}
+}
+
+// ── Style favorites (save current Custom style under a name) ───────────────
+function saveStyleFavorite() {
+    const name = prompt(settings.uiLang === "tr" ? "Favori stile isim ver:" : "Name this style favorite:");
+    if (!name) return;
+    const favs = settings.styleFavs || [];
+    favs.push({ name: name.slice(0, 24), style: { ...DEFAULT_CUSTOM_STYLE, ...(settings.customStyle || {}) } });
+    settings.styleFavs = favs.slice(-8);
+    saveSettings(); renderStyleFavs();
+    showToast("Style favorite saved", "success");
+}
+function applyStyleFavorite(i) {
+    const fav = (settings.styleFavs || [])[i];
+    if (!fav) return;
+    settings.customStyle = { ...fav.style };
+    settings.stylePreset = "custom";
+    saveSettings(); renderStyleChips(); updateStylePreview();
+}
+function deleteStyleFavorite(i) {
+    (settings.styleFavs || []).splice(i, 1);
+    saveSettings(); renderStyleFavs();
+}
+function renderStyleFavs() {
+    let row = $("style-favs-row");
+    const chips = $("style-chips");
+    if (!chips) return;
+    if (!row) {
+        row = document.createElement("div");
+        row.id = "style-favs-row";
+        row.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center";
+        chips.parentElement.insertBefore(row, chips.nextSibling);
+    }
+    const favs = settings.styleFavs || [];
+    row.innerHTML = favs.map((f, i) =>
+        `<button class="style-chip" onclick="applyStyleFavorite(${i})" oncontextmenu="deleteStyleFavorite(${i});return false" data-tip="Click = apply · right-click = delete">★ ${escHtml(f.name)}</button>`).join("") +
+        `<button class="style-chip" onclick="saveStyleFavorite()" data-tip="${settings.uiLang === "tr" ? "Mevcut Custom stili favorilere kaydet" : "Save the current Custom style as a favorite"}">＋ ${settings.uiLang === "tr" ? "Favori" : "Favorite"}</button>`;
+}
+
+// ── Hook / viral-clip finder (parses the AI Shorts output timecodes) ───────
+function parseAiClipRanges(text) {
+    const out = [];
+    const re = /(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(?:-|–|—|to|→)\s*(\d{1,2}):(\d{2})(?::(\d{2}))?/g;
+    let m;
+    while ((m = re.exec(text || "")) !== null) {
+        const s = m[3] != null ? (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) : (+m[1]) * 60 + (+m[2]);
+        const e = m[6] != null ? (+m[4]) * 3600 + (+m[5]) * 60 + (+m[6]) : (+m[4]) * 60 + (+m[5]);
+        if (e > s && e - s <= 600) out.push({ start: s, end: e });
+    }
+    // dedupe overlaps
+    const seen = [];
+    return out.filter(r => {
+        if (seen.some(x => Math.abs(x.start - r.start) < 1 && Math.abs(x.end - r.end) < 1)) return false;
+        seen.push(r); return true;
+    });
+}
+async function aiClipsAction() {
+    const ranges = parseAiClipRanges($("ai-output") ? $("ai-output").value : "");
+    if (!ranges.length) { showToast(settings.uiLang === "tr" ? "Önce 'Shorts Çıkar' çalıştır — çıktıda MM:SS-MM:SS aralıkları olmalı" : "Run 'Extract Shorts' first — output needs MM:SS-MM:SS ranges", "info", 4500); return; }
+    if (IS_DESKTOP_APP) {
+        if (window.exportAiClipsDesktop) window.exportAiClipsDesktop(ranges);
+        return;
+    }
+    // Extension: drop a marker at each hook so the editor can jump & cut
+    await loadHostJSX();
+    const marks = ranges.map((r, i) => ({ start: r.start, end: r.end, dur: +(r.end - r.start).toFixed(1) }));
+    const res = await evalScript(`addSilenceMarkers('${JSON.stringify(marks).replace(/'/g, "\\'")}')`);
+    if (res && res.success) showToast(`${res.added} hook marker(s) added to the timeline`, "success", 5000);
+    else showToast((res && res.error) || "Could not add markers", "error");
+}
+
+// ── Beep profanity (desktop executes; extension gets a clear pointer) ──────
+function beepProfanityAction() {
+    if (!segments.length) { showToast("Transcribe first — beeping needs word timings", "info", 3000); return; }
+    const ranges = computeProfanityRanges();
+    if (!ranges.length) { showToast(settings.uiLang === "tr" ? "Küfür bulunamadı (kelime zamanlı)" : "No profanity found (word-timed)", "info", 3000); return; }
+    showRangePreview(settings.uiLang === "tr" ? "Küfürleri biple" : "Beep profanity", ranges, (chosen) => {
+        if (IS_DESKTOP_APP && window.beepProfanityDesktop) window.beepProfanityDesktop(chosen);
+        else showToast(settings.uiLang === "tr" ? "Bip'li dosya çıkışı masaüstü uygulamasında — Premiere'de bu aralıklara marker koyuyorum" : "Beeped file export lives in the desktop app — adding markers here", "info", 5000),
+             (!IS_DESKTOP_APP && evalScript(`addSilenceMarkers('${JSON.stringify(chosen.map((r,i)=>({start:r.start,end:r.end,dur:+(r.end-r.start).toFixed(2)}))).replace(/'/g, "\\'")}')`));
+    });
+}
+
+// ── MOGRT styled graphics (Premiere) — real sendStyledGraphics ─────────────
+function pickMogrtTemplate() {
+    try {
+        if (window.cep && window.cep.fs && window.cep.fs.showOpenDialogEx) {
+            const res = window.cep.fs.showOpenDialogEx(false, false, "Pick a .mogrt template", "", ["mogrt"]);
+            const p = res && res.data && res.data[0];
+            if (p) { settings.mogrtPath = p; saveSettings(); showToast("MOGRT set: " + p.split(/[\\/]/).pop(), "success"); return; }
+        }
+    } catch (e) {}
+    showToast("Pick a .mogrt exported from Premiere/After Effects (Essential Graphics)", "info", 5000);
+}
+async function sendStyledGraphics() {
+    if (IS_DESKTOP_APP) { showToast("MOGRT send is Premiere-only", "info", 2500); return; }
+    if (!segments.length) return;
+    if (!settings.mogrtPath) { pickMogrtTemplate(); if (!settings.mogrtPath) return; }
+    setStatus("Placing styled graphics on the timeline…", "info");
+    showProgress(true);
+    await loadHostJSX();
+    const items = segments.map(s => ({ text: s.text, start: s.seqStart, end: s.seqEnd }));
+    const payload = JSON.stringify({ mogrtPath: settings.mogrtPath, items });
+    const r = await evalScript(`importTextGraphics('${payload.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')`);
+    showProgress(false);
+    if (r && r.success) {
+        setStatus(`✓ ${r.placed} styled graphic(s) placed on track V${(r.track || 0) + 1}`, "success");
+        showToast("Styled captions placed — fully editable in Essential Graphics", "success", 5000);
+    } else {
+        if (r && r.needTemplate) { settings.mogrtPath = ""; saveSettings(); }
+        setStatus((r && r.error) || "MOGRT placement failed", "error");
+        if (r && r.diag) console.log("[Subsper] mogrt diag:", r.diag);
+    }
+}
+
+// ── Translation → second Premiere caption track ────────────────────────────
+async function sendTranslationToPremiere() {
+    if (IS_DESKTOP_APP) { exportTranslationSRT(); return; }
+    const map = parseNumberedAi($("ai-output") ? $("ai-output").value : "");
+    if (!Object.keys(map).length) { showToast("Run Translate first", "info", 2500); return; }
+    const srt = segments.map((seg, i) =>
+        `${i + 1}\n${formatTime(seg.seqStart)} --> ${formatTime(seg.seqEnd)}\n${map[i] != null ? map[i] : seg.text}\n`).join("\n");
+    setStatus("Sending translated captions…", "info");
+    const escaped = srt.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\r?\n/g, "\\n");
+    const r = await evalScript(`importSRTToProject('${escaped}')`);
+    if (r && r.success) { setStatus("✓ Translated caption track added", "success"); showToast("Translation on the timeline", "success"); }
+    else handleError((r && r.error) || "Failed");
+}
+
+// ── v1.10 init ──────────────────────────────────────────────────────────────
+setTimeout(function initV110() {
+    try {
+        // Notification when a (long) transcription finishes in the background
+        try { if (typeof Notification !== "undefined" && Notification.permission === "default") Notification.requestPermission(); } catch (e) {}
+        const origStart = window.startTranscription;
+        if (typeof origStart === "function") {
+            window.startTranscription = async function () {
+                const t0 = Date.now();
+                const r = await origStart.apply(this, arguments);
+                try {
+                    if (Date.now() - t0 > 20000 && document.hidden && typeof Notification !== "undefined" && Notification.permission === "granted" && segments.length) {
+                        new Notification("Subsper", { body: (settings.uiLang === "tr" ? "Transkript hazır — " : "Transcript ready — ") + segments.length + " segment", silent: false });
+                    }
+                } catch (e) {}
+                return r;
+            };
+        }
+
+        // Language options: extend the Settings dropdown beyond EN/TR
+        const uiSel = $("set-uilang");
+        if (uiSel && !uiSel.querySelector('option[value="es"]')) {
+            [["es", "Español"], ["de", "Deutsch"], ["pt", "Português"]].forEach(([v, label]) => {
+                const o = document.createElement("option"); o.value = v; o.textContent = label; uiSel.appendChild(o);
+            });
+            uiSel.value = settings.uiLang;
+        }
+
+        // Project buttons (Save/Open) into the export menu
+        const em = $("export-menu");
+        if (em) {
+            const bSave = document.createElement("button");
+            bSave.textContent = settings.uiLang === "tr" ? "Projeyi kaydet (.subsper)" : "Save project (.subsper)";
+            bSave.onclick = () => { em.style.display = "none"; saveProject(); };
+            const bOpen = document.createElement("button");
+            bOpen.textContent = settings.uiLang === "tr" ? "Proje aç…" : "Open project…";
+            bOpen.onclick = () => { em.style.display = "none"; openProject(); };
+            em.appendChild(bSave); em.appendChild(bOpen);
+            // MOGRT send (Premiere only)
+            if (!IS_DESKTOP_APP) {
+                const bM = document.createElement("button");
+                bM.textContent = settings.uiLang === "tr" ? "Stilli grafik olarak gönder (MOGRT)" : "Send as styled graphics (MOGRT)";
+                bM.setAttribute("data-tip", "Places each subtitle as an editable Essential Graphics clip. Pick any .mogrt once.");
+                bM.onclick = () => { em.style.display = "none"; sendStyledGraphics(); };
+                em.appendChild(bM);
+            }
+        }
+
+        // AI panel: clips + translation-to-Premiere buttons
+        const aiBtnHost = $("ai-apply-btn") && $("ai-apply-btn").parentElement;
+        if (aiBtnHost) {
+            const bC = document.createElement("button");
+            bC.className = "btn-secondary";
+            bC.textContent = settings.uiLang === "tr" ? (IS_DESKTOP_APP ? "Klipleri dışa aktar" : "Hook marker'ları koy") : (IS_DESKTOP_APP ? "Export hook clips" : "Mark hooks on timeline");
+            bC.style.marginLeft = "6px";
+            bC.setAttribute("data-tip", "Parses MM:SS-MM:SS ranges from the Shorts output");
+            bC.onclick = aiClipsAction;
+            aiBtnHost.appendChild(bC);
+            if (!IS_DESKTOP_APP) {
+                const bT = document.createElement("button");
+                bT.className = "btn-secondary";
+                bT.textContent = settings.uiLang === "tr" ? "Çeviriyi Premiere'e gönder" : "Send translation to Premiere";
+                bT.style.marginLeft = "6px";
+                bT.onclick = sendTranslationToPremiere;
+                aiBtnHost.appendChild(bT);
+            }
+        }
+
+        // Style favorites row under the preset chips
+        renderStyleFavs();
+
+        // Beep-profanity tool card on the Audio tab (both; desktop executes)
+        const auPanel = document.querySelector("#panel-au-work .controls, #panel-au-work");
+        if (auPanel) {
+            const card = document.createElement("div");
+            card.className = "setting-item tool-card";
+            card.innerHTML = `
+              <div class="setting-row"><div class="setting-info">
+                <div class="setting-name">${settings.uiLang === "tr" ? "Küfürleri Biple" : "Beep Profanity"}</div>
+                <div class="setting-desc">${settings.uiLang === "tr" ? "Kelime zamanlarıyla küfür aralıklarını bulur; sesi susturup 1 kHz bip basar. Önce Transcribe." : "Finds profanity via word timings; mutes it and overlays a 1 kHz beep. Transcribe first."}</div>
+              </div></div>
+              <button class="btn-transcribe btn-compact" style="margin-top:8px" onclick="beepProfanityAction()">${settings.uiLang === "tr" ? "Biple" : "Beep it"}</button>`;
+            auPanel.appendChild(card);
+        }
+
+        maybeOfferRestore();
+    } catch (e) { console.error("[Subsper] v1.10 init failed:", e); }
+}, 10);

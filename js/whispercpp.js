@@ -656,12 +656,41 @@ async function cutMedia(appDir, inputPath, outPath, keep, opts) {
     return outPath;
 }
 
+/* Beep/mute profanity: mutes the original audio during `ranges` and overlays a
+ * 1 kHz beep there. ranges=[{start,end}] seconds. opts.video=false for audio
+ * files, opts.mode="mute" skips the beep tone. Video stream is stream-copied. */
+async function beepRanges(appDir, inputPath, outPath, ranges, opts) {
+    opts = opts || {};
+    if (!ranges || !ranges.length) throw new Error("No ranges to beep.");
+    const expr = ranges.map(r => `between(t,${r.start.toFixed(3)},${r.end.toFixed(3)})`).join("+");
+    const dur = Math.max.apply(null, ranges.map(r => r.end)) + 1;
+    const filters = [
+        `[0:a]volume='if(${expr},0,1)':eval=frame[main]`,
+    ];
+    let amixIn = "[main]";
+    if (opts.mode !== "mute") {
+        filters.push(`sine=f=1000:d=${dur.toFixed(2)}[bp0]`);
+        filters.push(`[bp0]volume='if(${expr},0.30,0)':eval=frame[bp]`);
+        amixIn = "[main][bp]";
+        filters.push(`${amixIn}amix=inputs=2:duration=first:normalize=0[outa]`);
+    } else {
+        filters.push(`[main]anull[outa]`);
+    }
+    const args = ["-y", "-i", normalizePath(inputPath), "-filter_complex", filters.join(";"),
+                  "-map", "[outa]"];
+    if (opts.video !== false) args.push("-map", "0:v?", "-c:v", "copy");
+    args.push(outPath);
+    dbg("beepRanges: " + ranges.length + " range(s), mode=" + (opts.mode || "beep"));
+    await _runFfmpeg(appDir, args, opts.spawnOpts || {});
+    return outPath;
+}
+
 module.exports = {
     platKey, whisperBin, ffmpegBin, resolveBin,
     modelsDir, modelPath, modelExists, ensureModel, GGML_FILES,
     parseWhisperJson, toWav16k, transcribeWav, dtwPreset,
     normalizePath, extractClipsToWav,
-    detectSilence, enhanceMedia, cutMedia,
+    detectSilence, enhanceMedia, cutMedia, beepRanges,
     setLogger, recentLog, logPath, dbg,
     flushLog, cleanupStaleDownloads, verifyModel,
 };

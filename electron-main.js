@@ -69,6 +69,17 @@ ipcMain.handle("dialog:openMediaMulti", async () => {
   return { filePaths: res.filePaths };
 });
 
+// Open a Subsper project file
+ipcMain.handle("dialog:openProject", async () => {
+  const res = await dialog.showOpenDialog(win, {
+    title: "Open Subsper project",
+    properties: ["openFile"],
+    filters: [{ name: "Subsper project", extensions: ["subsper", "json"] }],
+  });
+  if (res.canceled || !res.filePaths.length) return { filePath: null };
+  return { filePath: res.filePaths[0] };
+});
+
 // Save a file (subtitles / enhanced audio / trimmed media)
 ipcMain.handle("dialog:saveFile", async (_e, opts) => {
   opts = opts || {};
@@ -88,9 +99,10 @@ ipcMain.handle("shell:showItem", (_e, p) => { try { shell.showItemInFolder(p); }
 
 app.whenReady().then(() => {
   createWindow();
-  // Auto-update: Windows NSIS works unsigned; macOS requires code signing, so
-  // the in-app update banner (renderer) covers mac. Never crash on failure.
-  if (process.platform === "win32" && app.isPackaged) {
+  // Auto-update: Windows NSIS works unsigned. macOS needs a code-signed app —
+  // we still ATTEMPT it (works the day the app gets signed, harmless before:
+  // electron-updater just errors "code signature" and the in-app banner covers it).
+  if (app.isPackaged) {
     try {
       const { autoUpdater } = require("electron-updater");
       autoUpdater.autoDownload = true;

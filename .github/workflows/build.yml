@@ -79,6 +79,7 @@ jobs:
           path: |
             dist/*.dmg
             dist/*.zxp
+            dist/latest-mac.yml
           if-no-files-found: error
 
   release:
@@ -98,5 +99,6 @@ jobs:
             artifacts/win-installer/latest.yml
             artifacts/mac-installer/*.dmg
             artifacts/mac-installer/*.zxp
+            artifacts/mac-installer/latest-mac.yml
           generate_release_notes: true
           fail_on_unmatched_files: true

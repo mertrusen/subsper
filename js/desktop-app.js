@@ -788,4 +788,132 @@
       }
     } catch (e) { console.error("[Desktop] v1.9 UI injection failed:", e); }
   }, 30);
+
+  /* ── v1.10 desktop: beep · hook clips · native project open · waveform boxes ── */
+
+  // Beep profanity → exports a beeped copy (video stream copied, audio filtered)
+  window.beepProfanityDesktop = async function (ranges) {
+    if (!mediaPath || !WCPP) { showToast("Open a file first", "info", 2000); return; }
+    const inExt = (mediaPath.split(".").pop() || "mp4").toLowerCase();
+    const isAudio = ["mp3","wav","m4a","aac","flac","ogg"].includes(inExt);
+    const outExt = isAudio ? "wav" : "mp4";
+    const res = await ipcRenderer.invoke("dialog:saveFile",
+      { defaultName: baseName() + "_beeped." + outExt, ext: outExt });
+    if (!res || !res.filePath) return;
+    setStatus(`Beeping ${ranges.length} range(s)…`, "info"); showProgress(true);
+    try {
+      await WCPP.beepRanges(extDir(), mediaPath, res.filePath, ranges, { video: !isAudio });
+      setStatus(`✓ Beeped file → ${res.filePath}`, "success");
+      showToast("Beeped copy saved", "success", 5000);
+    } catch (e) { setStatus(e.message, "error"); showToast(e.message, "error", 6000); }
+    finally { showProgress(false); }
+  };
+
+  // Hook clips → exports each AI-suggested range as its own file
+  window.exportAiClipsDesktop = async function (ranges) {
+    if (!mediaPath || !WCPP) { showToast("Open a file first", "info", 2000); return; }
+    const dir = await ipcRenderer.invoke("dialog:saveFile",
+      { defaultName: baseName() + "_hook1.mp4", ext: "mp4" });
+    if (!dir || !dir.filePath) return;
+    const base = dir.filePath.replace(/(_hook\d+)?\.mp4$/i, "");
+    let ok = 0;
+    showProgress(true);
+    try {
+      for (let i = 0; i < ranges.length; i++) {
+        const r = ranges[i];
+        setStatus(`Exporting hook ${i + 1}/${ranges.length} (${(r.end - r.start).toFixed(0)}s)…`, "info");
+        try {
+          await WCPP.cutMedia(extDir(), mediaPath, `${base}_hook${i + 1}.mp4`, [[r.start, r.end]], { video: true });
+          ok++;
+        } catch (e) { console.warn("hook export failed:", e); }
+      }
+      setStatus(`✓ ${ok}/${ranges.length} hook clip(s) exported`, ok ? "success" : "error");
+      showToast(`${ok} hook clip(s) saved`, ok ? "success" : "error", 5000);
+    } finally { showProgress(false); }
+  };
+
+  // Native project open (replaces the cep/hidden-input fallback)
+  openProject = async function () {
+    const res = await ipcRenderer.invoke("dialog:openProject");
+    const p = res && res.filePath;
+    if (!p) return;
+    try { _loadProjectData(JSON.parse(fsD.readFileSync(p, "utf8"))); }
+    catch (e) { showToast("Open failed: " + e.message, "error"); }
+  };
+  // Native project save
+  saveProject = async function () {
+    if (!segments.length) { showToast("Nothing to save yet", "info", 2000); return; }
+    const res = await ipcRenderer.invoke("dialog:saveFile",
+      { defaultName: baseName() + ".subsper", ext: "subsper" });
+    if (!res || !res.filePath) return;
+    try {
+      window.__SUBSPER_MEDIA__ = mediaPath;
+      fsD.writeFileSync(res.filePath, JSON.stringify(_projectData(), null, 1), "utf8");
+      setStatus(`Project saved → ${res.filePath}`, "success");
+      showToast("Project saved", "success");
+    } catch (e) { showToast("Save failed: " + e.message, "error"); }
+  };
+
+  // Waveform segment boxes + edge-drag timing (visual editing on the strip)
+  function drawSegmentBoxes() {
+    const canvas = document.getElementById("waveform-canvas");
+    if (!canvas || !mediaEl || !isFinite(mediaEl.duration) || !mediaEl.duration) return;
+    let layer = document.getElementById("waveform-segs");
+    if (!layer) {
+      const host = canvas.parentElement;         // relative wrap made by playhead code
+      if (!host || getComputedStyle(host).position !== "relative") return;
+      layer = document.createElement("div");
+      layer.id = "waveform-segs";
+      layer.style.cssText = "position:absolute;inset:0;pointer-events:none";
+      host.appendChild(layer);
+    }
+    const D = mediaEl.duration;
+    layer.innerHTML = "";
+    segments.forEach((s, i) => {
+      const el = document.createElement("div");
+      const l = Math.max(0, s.seqStart / D * 100), w = Math.max(0.3, (s.seqEnd - s.seqStart) / D * 100);
+      el.style.cssText = `position:absolute;top:2px;bottom:2px;left:${l}%;width:${w}%;` +
+        `background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.55);border-radius:3px;pointer-events:auto;cursor:pointer`;
+      el.title = `#${i + 1} ${s.text.slice(0, 40)}`;
+      el.onclick = (ev) => { ev.stopPropagation(); seekToSegment(i); };
+      // edge drag handles
+      ["start", "end"].forEach(edge => {
+        const h = document.createElement("div");
+        h.style.cssText = `position:absolute;top:0;bottom:0;${edge === "start" ? "left" : "right"}:-3px;width:7px;cursor:ew-resize`;
+        h.onmousedown = (ev) => {
+          ev.preventDefault(); ev.stopPropagation();
+          pushUndo();
+          const move = (mv) => {
+            const rect = canvas.getBoundingClientRect();
+            const t = Math.max(0, Math.min(D, (mv.clientX - rect.left) / rect.width * D));
+            if (edge === "start" && t < s.seqEnd - 0.05) { s.seqStart = t; s.start = t - seqInTime; }
+            if (edge === "end"   && t > s.seqStart + 0.05) { s.seqEnd = t; s.end = t - seqInTime; }
+            const li = Math.max(0, s.seqStart / D * 100), wi = Math.max(0.3, (s.seqEnd - s.seqStart) / D * 100);
+            el.style.left = li + "%"; el.style.width = wi + "%";
+          };
+          const up = () => {
+            document.removeEventListener("mousemove", move);
+            document.removeEventListener("mouseup", up);
+            renderSegments(); selectSegment(i); drawSegmentBoxes();
+          };
+          document.addEventListener("mousemove", move);
+          document.addEventListener("mouseup", up);
+        };
+        el.appendChild(h);
+      });
+      layer.appendChild(el);
+    });
+  }
+  // redraw boxes whenever segments re-render (post-hoc wrap, cheap)
+  setTimeout(() => {
+    const origRender = window.renderSegments;
+    if (typeof origRender === "function") {
+      window.renderSegments = function () {
+        const r = origRender.apply(this, arguments);
+        try { drawSegmentBoxes(); } catch (e) {}
+        return r;
+      };
+    }
+    mediaEl && mediaEl.addEventListener("loadedmetadata", () => setTimeout(drawSegmentBoxes, 300));
+  }, 40);
 })();

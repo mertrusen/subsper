@@ -312,22 +312,27 @@ function _wsApplyZoomToClip(clip, amount, style, idx, diag) {
 
         try { scale.setTimeVarying(true); } catch (eTV) { if (idx === 0) diag.push("setTimeVarying: " + eTV.toString()); }
 
+        // Smooth ease-out: 5 keyframes along 1-(1-p)^2 so the push-in starts
+        // faster and settles gently — reads as "YouTuber zoom" even with the
+        // linear interpolation Premiere gives scripted keys.
+        function easeKeys(t0, t1) {
+            var STEPS = 4;   // 5 keys
+            for (var s = 0; s <= STEPS; s++) {
+                var p = s / STEPS;
+                var v = startScale + (endScale - startScale) * (1 - Math.pow(1 - p, 2));
+                var tt = t0 + (t1 - t0) * p;
+                scale.addKey(tt);
+                scale.setValueAtKey(tt, v, s === STEPS);
+            }
+        }
+
         // Try sequence-time seconds
-        try {
-            scale.addKey(cs); scale.addKey(ce);
-            scale.setValueAtKey(cs, startScale, true);
-            scale.setValueAtKey(ce, endScale, true);
-            return true;
-        } catch (eK) { if (idx === 0) diag.push("seq-time keyframe failed: " + eK.toString()); }
+        try { easeKeys(cs, ce); return true; }
+        catch (eK) { if (idx === 0) diag.push("seq-time keyframe failed: " + eK.toString()); }
 
         // Fallback: clip-relative seconds (0..duration)
-        try {
-            var dur = ce - cs;
-            scale.addKey(0); scale.addKey(dur);
-            scale.setValueAtKey(0, startScale, true);
-            scale.setValueAtKey(dur, endScale, true);
-            return true;
-        } catch (eK2) { if (idx === 0) diag.push("clip-time keyframe failed: " + eK2.toString()); }
+        try { easeKeys(0, ce - cs); return true; }
+        catch (eK2) { if (idx === 0) diag.push("clip-time keyframe failed: " + eK2.toString()); }
 
         return false;
     } catch (e) { if (idx === 0) diag.push("zoom clip threw: " + e.toString()); return false; }
@@ -458,6 +463,64 @@ function importTextGraphics(payloadJson) {
         }
 
         return JSON.stringify({ success: true, placed: placed, track: vIdx, diag: diag });
+    } catch (e) {
+        return JSON.stringify({ success: false, error: e.toString(), diag: diag });
+    }
+}
+
+// ── Read captions from the timeline (EXPERIMENTAL) ─────────────────────────
+// Premiere's ExtendScript DOM has no official caption-content API; newer builds
+// expose captionTracks / getCaptionTrackAt on Sequence. We probe every known
+// surface and return items [{start,end,text}] or a clear "not supported" error.
+function readTimelineCaptions() {
+    var diag = [];
+    try {
+        var seq = app.project.activeSequence;
+        if (!seq) return JSON.stringify({ success: false, error: "No active sequence." });
+
+        var tracks = null;
+        // Probe 1: seq.captionTracks collection
+        try { if (seq.captionTracks && seq.captionTracks.numTracks > 0) tracks = seq.captionTracks; } catch (e1) { diag.push("captionTracks: " + e1.toString()); }
+        // Probe 2: getCaptionTrackCount()/getCaptionTrackAt()
+        var viaGetter = [];
+        if (!tracks) {
+            try {
+                var n = seq.getCaptionTrackCount ? seq.getCaptionTrackCount() : 0;
+                for (var g = 0; g < n; g++) viaGetter.push(seq.getCaptionTrackAt(g));
+            } catch (e2) { diag.push("getCaptionTrackAt: " + e2.toString()); }
+        }
+
+        var trackList = [];
+        if (tracks) { for (var t = 0; t < tracks.numTracks; t++) trackList.push(tracks[t]); }
+        else trackList = viaGetter;
+
+        if (!trackList.length) {
+            return JSON.stringify({ success: false, diag: diag,
+                error: "This Premiere version doesn't expose caption tracks to extensions. Workaround: select the caption track, File > Export > Captions to SRT, then use Load SRT." });
+        }
+
+        var items = [];
+        for (var ti = 0; ti < trackList.length; ti++) {
+            var trk = trackList[ti];
+            var count = 0;
+            try { count = trk.clips ? trk.clips.numItems : (trk.getItemCount ? trk.getItemCount() : 0); } catch (e3) {}
+            for (var c = 0; c < count; c++) {
+                try {
+                    var it = trk.clips ? trk.clips[c] : trk.getItemAt(c);
+                    var st = ticksToSeconds(it.start.ticks);
+                    var en = ticksToSeconds(it.end.ticks);
+                    var txt = "";
+                    try { txt = it.getCaptionText ? it.getCaptionText() : (it.captionText || it.name || ""); } catch (e4) { txt = it.name || ""; }
+                    if (txt) items.push({ start: st, end: en, text: String(txt) });
+                } catch (e5) {}
+            }
+        }
+        if (!items.length) {
+            return JSON.stringify({ success: false, diag: diag,
+                error: "Caption tracks were found but their text isn't readable via scripting on this version. Use File > Export > Captions (SRT) + Load SRT." });
+        }
+        items.sort(function (a, b) { return a.start - b.start; });
+        return JSON.stringify({ success: true, items: items, diag: diag });
     } catch (e) {
         return JSON.stringify({ success: false, error: e.toString(), diag: diag });
     }

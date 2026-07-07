@@ -1352,29 +1352,30 @@ async function cutSilences() {
             return;
         }
 
-        const total = cutRanges.reduce((a, r) => a + (r.end - r.start), 0);
-        if (!confirm(`Ripple-delete ${cutRanges.length} silent gap(s)?\nThis removes ~${total.toFixed(1)}s and shifts clips left.\n(You can undo with Ctrl/Cmd+Z.)`)) {
-            setSilenceStatus("Cut cancelled.", "info");
-            return;
-        }
-
-        setSilenceStatus(`Cutting ${cutRanges.length} gap(s)…`, "info");
-        await evalScript("clearSilenceMarkers()");   // remove old markers if any
-        const arg = JSON.stringify(cutRanges).replace(/'/g, "\\'");
-        const r = await evalScript(`rippleDeleteRanges('${arg}')`);
-
-        if (r && r.success && r.removed > 0) {
-            setSilenceStatus(`✓ Cut ${r.removed} item(s) across ~${total.toFixed(1)}s`, "success");
-            showToast(`Silences cut (${r.removed} segments removed)`, "success");
-        } else {
-            // Fall back to markers so the user still gets value
-            const marks = ranges.map(r2 => ({ start: r2.start, end: r2.end, dur: r2.dur }));
-            await evalScript(`addSilenceMarkers('${JSON.stringify(marks).replace(/'/g, "\\'")}')`);
-            const why = (r && r.error) ? (" — " + r.error) : "";
-            setSilenceStatus("Couldn't ripple-cut on this timeline — marked instead" + why, "warning");
-            showToast("Ripple-cut failed; added markers instead. Send me the diagnostic.", "warning", 6000);
-            if (r && r.diag) console.log("[Whisper] ripple diag:", r.diag);
-        }
+        // Preview modal: user sees every gap and can uncheck the ones to keep.
+        setSilenceStatus(`${cutRanges.length} silent gap(s) found — review & apply`, "info");
+        showRangePreview("Cut silences (ripple delete)", cutRanges, async (chosen) => {
+            const total = chosen.reduce((a, r) => a + (r.end - r.start), 0);
+            setSilenceStatus(`Cutting ${chosen.length} gap(s)…`, "info");
+            showSilenceProgress(true);
+            try {
+                await evalScript("clearSilenceMarkers()");   // remove old markers if any
+                const arg = JSON.stringify(chosen).replace(/'/g, "\\'");
+                const r = await evalScript(`rippleDeleteRanges('${arg}')`);
+                if (r && r.success && r.removed > 0) {
+                    setSilenceStatus(`✓ Cut ${r.removed} item(s) across ~${total.toFixed(1)}s`, "success");
+                    showToast(`Silences cut (${r.removed} segments removed)`, "success");
+                } else {
+                    // Fall back to markers so the user still gets value
+                    const marks = ranges.map(r2 => ({ start: r2.start, end: r2.end, dur: r2.dur }));
+                    await evalScript(`addSilenceMarkers('${JSON.stringify(marks).replace(/'/g, "\\'")}')`);
+                    const why = (r && r.error) ? (" — " + r.error) : "";
+                    setSilenceStatus("Couldn't ripple-cut on this timeline — marked instead" + why, "warning");
+                    showToast("Ripple-cut failed; added markers instead. Send me the diagnostic.", "warning", 6000);
+                    if (r && r.diag) console.log("[Whisper] ripple diag:", r.diag);
+                }
+            } finally { showSilenceProgress(false); }
+        });
     } catch (e) {
         setSilenceStatus(e.message, "error");
         showToast(e.message, "error", 5000);
@@ -3232,3 +3233,457 @@ function initTooltips() {
         setupIndicator.className = "setup-indicator ok";
     });
 })();
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   v1.9 feature pack — shared by extension + desktop. Everything below is
+   defensive: each feature initializes inside try/catch and NOTHING here may
+   break core transcription. UI elements are injected dynamically so the HTML
+   files (and the extension↔desktop footer sync) stay untouched.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const APP_VERSION = "1.9.0";
+const GH_REPO = "mertrusen/subsper";
+const IS_DESKTOP_APP = (typeof window !== "undefined" && window.IS_DESKTOP === true);
+
+// ── Undo / Redo ────────────────────────────────────────────────────────────
+const _undoStack = [], _redoStack = [];
+function pushUndo() {
+    try {
+        _undoStack.push(JSON.stringify(segments));
+        if (_undoStack.length > 50) _undoStack.shift();
+        _redoStack.length = 0;
+    } catch (e) {}
+}
+function _restoreSnapshot(json) {
+    segments = JSON.parse(json);
+    renderSegments(); updateSegCount();
+    if (typeof sendBtn !== "undefined" && sendBtn) sendBtn.disabled = segments.length === 0;
+    if (typeof actionsBar !== "undefined" && actionsBar) actionsBar.style.display = segments.length ? "flex" : "none";
+}
+function undoSegments() {
+    if (!_undoStack.length) { showToast("Nothing to undo", "info", 1500); return; }
+    try { _redoStack.push(JSON.stringify(segments)); } catch (e) {}
+    _restoreSnapshot(_undoStack.pop());
+    showToast("Undo", "info", 1200);
+}
+function redoSegments() {
+    if (!_redoStack.length) { showToast("Nothing to redo", "info", 1500); return; }
+    try { _undoStack.push(JSON.stringify(segments)); } catch (e) {}
+    _restoreSnapshot(_redoStack.pop());
+    showToast("Redo", "info", 1200);
+}
+
+// ── Timing nudge (Alt+←/→ start, Alt+Shift+←/→ end, of selected segment) ──
+function nudgeSelected(edge, delta) {
+    const seg = segments[selectedIndex];
+    if (!seg) { showToast("Select a segment first", "info", 2000); return; }
+    pushUndo();
+    if (edge === "start") {
+        seg.seqStart = Math.max(0, Math.min(seg.seqEnd - 0.05, seg.seqStart + delta));
+        seg.start += delta;
+    } else {
+        seg.seqEnd = Math.max(seg.seqStart + 0.05, seg.seqEnd + delta);
+        seg.end += delta;
+    }
+    renderSegments(); selectSegment(selectedIndex);
+    setStatus(`Timing: ${formatTime(seg.seqStart)} → ${formatTime(seg.seqEnd)}`, "info");
+}
+
+// ── Update check (GitHub Releases, both apps) ──────────────────────────────
+function _semverNewer(remote, local) {
+    const r = String(remote).replace(/^v/, "").split(".").map(Number);
+    const l = String(local).replace(/^v/, "").split(".").map(Number);
+    for (let i = 0; i < 3; i++) { if ((r[i]||0) > (l[i]||0)) return true; if ((r[i]||0) < (l[i]||0)) return false; }
+    return false;
+}
+async function checkForUpdates() {
+    try {
+        const res = await fetch(`https://api.github.com/repos/${GH_REPO}/releases/latest`, { headers: { Accept: "application/vnd.github+json" } });
+        if (!res.ok) return;
+        const rel = await res.json();
+        const tag = rel.tag_name || "";
+        if (!_semverNewer(tag, APP_VERSION)) return;
+        if (localStorage.getItem("ws_skip_update") === tag) return;
+        const bar = document.createElement("div");
+        bar.id = "update-banner";
+        bar.style.cssText = "position:fixed;bottom:0;left:0;right:0;z-index:9998;display:flex;gap:10px;align-items:center;justify-content:center;padding:9px 14px;background:linear-gradient(90deg,#1a6dff,#7b3ff2);color:#fff;font-size:12px;font-weight:600;";
+        const isTr = settings.uiLang === "tr";
+        bar.innerHTML =
+            `<span>${isTr ? "Yeni sürüm çıktı" : "New version available"}: v${APP_VERSION} → <b>${tag}</b></span>` +
+            `<button id="upd-get" style="background:#fff;color:#1a2;border:none;border-radius:6px;padding:4px 12px;font-weight:700;cursor:pointer;color:#333">${isTr ? "İndir" : "Download"}</button>` +
+            `<button id="upd-skip" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:6px;padding:4px 10px;cursor:pointer">${isTr ? "Bu sürümü atla" : "Skip"}</button>`;
+        document.body.appendChild(bar);
+        $("upd-get").onclick = () => { openExternal(rel.html_url || `https://github.com/${GH_REPO}/releases/latest`); };
+        $("upd-skip").onclick = () => { localStorage.setItem("ws_skip_update", tag); bar.remove(); };
+    } catch (e) {}
+}
+function openExternal(url) {
+    try {
+        if (IS_DESKTOP_APP) { _req("electron").shell.openExternal(url); return; }
+    } catch (e) {}
+    try { if (typeof csInterface !== "undefined" && csInterface.openURLInDefaultBrowser) { csInterface.openURLInDefaultBrowser(url); return; } } catch (e) {}
+    try { window.open(url); } catch (e) {}
+}
+
+// ── Report a problem (prefilled GitHub issue with diagnostics) ─────────────
+function reportProblem() {
+    let logTail = "";
+    try { const W = (typeof wcpp === "function") ? wcpp() : null; if (W && W.recentLog) logTail = W.recentLog(30); } catch (e) {}
+    const body =
+`**What happened?**
+(describe the problem here / sorunu buraya yaz)
+
+---
+App: Subsper ${IS_DESKTOP_APP ? "Desktop" : "Premiere Extension"} v${APP_VERSION}
+OS: ${process.platform} ${os.release()} (${process.arch})
+Engine log (last steps):
+\`\`\`
+${logTail || "(no log)"}
+\`\`\``;
+    openExternal(`https://github.com/${GH_REPO}/issues/new?title=${encodeURIComponent("[Bug] ")}&body=${encodeURIComponent(body)}`);
+}
+
+// ── Model manager (Setup tab): list downloaded GGML models, delete, fetch ──
+const MODEL_LABELS = { turbo: "turbo (large-v3-turbo)", "large-v3": "large-v3", medium: "medium", small: "small", base: "base", tiny: "tiny" };
+function renderModelManager() {
+    const wrap = $("models-list");
+    const W = (typeof wcpp === "function") ? wcpp() : null;
+    if (!wrap || !W) return;
+    const rows = Object.keys(MODEL_LABELS).map(key => {
+        let size = 0, exists = false;
+        try { const p = W.modelPath(key); if (fs.existsSync(p)) { exists = true; size = fs.statSync(p).size; } } catch (e) {}
+        const mb = size ? (size / 1048576 | 0) + " MB" : "";
+        const btn = exists
+            ? `<button class="btn-secondary" style="padding:2px 10px" onclick="deleteModel('${key}')">Delete</button>`
+            : `<button class="btn-secondary" style="padding:2px 10px" onclick="downloadModel('${key}')">Download</button>`;
+        return `<div class="model-item" style="display:flex;align-items:center;gap:8px">
+            <div class="model-dot" style="opacity:${exists ? 1 : .25}"></div>
+            <div class="model-name" style="flex:1">${MODEL_LABELS[key]}</div>
+            <div class="model-size">${mb}</div>${btn}</div>`;
+    }).join("");
+    wrap.innerHTML = `<div class="glist">${rows}</div>
+        <div class="setting-desc" style="margin-top:6px">Models are stored in ${escHtml((W.modelsDir && W.modelsDir()) || "")}</div>`;
+}
+function deleteModel(key) {
+    const W = wcpp(); if (!W) return;
+    try {
+        const p = W.modelPath(key);
+        if (fs.existsSync(p) && confirm(`Delete ${MODEL_LABELS[key]} (${(fs.statSync(p).size/1048576|0)} MB)? It will re-download on next use.`)) {
+            fs.unlinkSync(p);
+            showToast("Model deleted", "success");
+        }
+    } catch (e) { showToast("Delete failed: " + e.message, "error"); }
+    renderModelManager();
+}
+async function downloadModel(key) {
+    const W = wcpp(); if (!W) return;
+    try {
+        setStatus(`Downloading ${key} model…`, "info");
+        await W.ensureModel(key, (frac) => setStatus(`Downloading ${key}… ${Math.round(frac * 100)}%`, "info"));
+        setStatus(`✓ ${key} model ready`, "success");
+        showToast("Model downloaded", "success");
+    } catch (e) { setStatus(e.message, "error"); showToast("Download failed", "error"); }
+    renderModelManager();
+}
+
+// ── Range preview modal (silence cut / filler cut confirmation) ────────────
+function showRangePreview(title, ranges, onApply) {
+    let ov = $("range-preview-ov");
+    if (ov) ov.remove();
+    ov = document.createElement("div");
+    ov.id = "range-preview-ov";
+    ov.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center";
+    const total = ranges.reduce((a, r) => a + (r.end - r.start), 0);
+    const rows = ranges.map((r, i) => `
+        <label style="display:flex;gap:8px;align-items:center;padding:4px 2px;border-bottom:1px solid var(--border2);font-size:12px;cursor:pointer">
+          <input type="checkbox" class="rp-chk" data-i="${i}" checked>
+          <span style="flex:1">#${i + 1} &nbsp; ${formatTime(r.start)} → ${formatTime(r.end)}</span>
+          <span style="color:var(--text3)">${(r.end - r.start).toFixed(2)}s</span>
+        </label>`).join("");
+    ov.innerHTML = `
+      <div style="background:var(--bg2,#16181d);border:1px solid var(--border2,#333);border-radius:12px;max-width:440px;width:92%;max-height:70vh;display:flex;flex-direction:column;padding:16px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:4px">${escHtml(title)}</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px">${ranges.length} range(s) · ~${total.toFixed(1)}s — uncheck any you want to keep</div>
+        <div style="overflow-y:auto;flex:1">${rows}</div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+          <button class="btn-secondary" id="rp-cancel">Cancel</button>
+          <button class="btn-transcribe btn-compact" id="rp-apply" style="margin:0;width:auto;padding:6px 18px">Apply</button>
+        </div>
+      </div>`;
+    document.body.appendChild(ov);
+    $("rp-cancel").onclick = () => ov.remove();
+    ov.onclick = e => { if (e.target === ov) ov.remove(); };
+    $("rp-apply").onclick = () => {
+        const keep = [...ov.querySelectorAll(".rp-chk")].filter(c => c.checked).map(c => ranges[+c.dataset.i]);
+        ov.remove();
+        if (keep.length) onApply(keep);
+    };
+}
+
+// ── Filler-word ranges (word-timing based, for video cutting) ──────────────
+function computeFillerRanges() {
+    const list = getFillerList().filter(w => !w.includes(" "));   // single words only
+    if (!list.length) return [];
+    const set = new Set(list.map(w => w.toLowerCase()));
+    const ranges = [];
+    for (const seg of segments) {
+        for (const w of (seg.words || [])) {
+            if (w.start == null || w.end == null) continue;
+            const clean = (w.word || "").toLowerCase().replace(/[.,!?;:"'()\[\]{}…-]/g, "");
+            if (clean && set.has(clean)) {
+                const start = (seg.seqStart - seg.start) + w.start;   // map to timeline
+                const end   = (seg.seqStart - seg.start) + w.end;
+                if (end - start > 0.04) ranges.push({ start: Math.max(0, start - 0.02), end: end + 0.02 });
+            }
+        }
+    }
+    // merge overlapping
+    ranges.sort((a, b) => a.start - b.start);
+    const merged = [];
+    for (const r of ranges) {
+        const last = merged[merged.length - 1];
+        if (last && r.start <= last.end + 0.05) last.end = Math.max(last.end, r.end);
+        else merged.push({ ...r });
+    }
+    return merged;
+}
+async function cutFillerWords() {
+    if (!segments.length) { showToast("Transcribe first — filler cutting needs word timings", "info", 3500); return; }
+    const ranges = computeFillerRanges();
+    if (!ranges.length) { showToast("No filler words with word-timing found", "info", 3000); return; }
+    showRangePreview("Cut filler words from video", ranges, async keep => {
+        if (IS_DESKTOP_APP) { showToast("Use the Edit tab on desktop (exports a trimmed file)", "info", 3000); return; }
+        setEditStatus(`Cutting ${keep.length} filler(s)…`, "info");
+        await loadHostJSX();
+        const arg = JSON.stringify(keep).replace(/'/g, "\\'");
+        const r = await evalScript(`rippleDeleteRanges('${arg}')`);
+        if (r && r.success) { setEditStatus(`✓ Removed ${r.removed} item(s)`, "success"); showToast("Fillers cut — undo with Cmd+Z in Premiere", "success", 5000); }
+        else setEditStatus((r && r.error) || "Filler cut failed", "error");
+    });
+}
+
+// ── Word-by-word captions (karaoke-style, one caption per word) ────────────
+function buildWordSRT() {
+    let out = "", n = 0;
+    for (const seg of segments) {
+        const words = (seg.words || []).filter(w => w && w.start != null && w.end != null && (w.word || "").trim());
+        if (words.length) {
+            const off = seg.seqStart - seg.start;
+            for (let i = 0; i < words.length; i++) {
+                const w = words[i];
+                const start = off + w.start;
+                const end   = Math.max(start + 0.08, off + (i + 1 < words.length ? Math.min(w.end, words[i+1].start) : w.end));
+                out += `${++n}\n${formatTime(start)} --> ${formatTime(end)}\n${w.word.trim()}\n\n`;
+            }
+        } else {
+            // fallback: proportional split of the segment text
+            const toks = (seg.text || "").split(/\s+/).filter(Boolean);
+            const dur = (seg.seqEnd - seg.seqStart) / Math.max(1, toks.length);
+            toks.forEach((tk, i) => {
+                const start = seg.seqStart + i * dur;
+                out += `${++n}\n${formatTime(start)} --> ${formatTime(start + dur)}\n${tk}\n\n`;
+            });
+        }
+    }
+    return out;
+}
+async function sendWordCaptions() {
+    if (!segments.length) { showToast("Nothing to send yet", "info", 2000); return; }
+    if (IS_DESKTOP_APP) {   // desktop: save as SRT file instead
+        if (window.exportWordSRTDesktop) window.exportWordSRTDesktop();
+        return;
+    }
+    sendBtn.disabled = true;
+    setStatus("Sending word-by-word captions…", "info");
+    showProgress(true);
+    const srt = buildWordSRT();
+    const escaped = srt.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\r?\n/g, "\\n");
+    const result = await evalScript(`importSRTToProject('${escaped}')`);
+    showProgress(false); sendBtn.disabled = false;
+    if (result && result.success) { setStatus(result.autoAdded ? "✓ Word-by-word captions on the timeline!" : "SRT saved — drag onto a caption track", "success"); showToast("Word captions sent", "success"); }
+    else handleError((result && result.error) || "Failed");
+}
+
+// ── Translation SRT export (from the AI panel translate output) ────────────
+function exportTranslationSRT() {
+    const text = $("ai-output") ? $("ai-output").value : "";
+    const map = parseNumberedAi(text);
+    if (!Object.keys(map).length) { showToast("Run Translate first (numbered output needed)", "info", 3000); return; }
+    const lines = segments.map((seg, i) => {
+        const t2 = map[i] != null ? map[i] : seg.text;
+        return `${i + 1}\n${formatTime(seg.seqStart)} --> ${formatTime(seg.seqEnd)}\n${t2}\n`;
+    }).join("\n");
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    const outPath = path.join(os.homedir(), "Desktop", `captions_translated_${stamp}.srt`);
+    try {
+        fs.writeFileSync(outPath, lines, "utf8");
+        setStatus(`Translated SRT → ${outPath}`, "success");
+        showToast("Translated SRT saved to Desktop", "success");
+        revealInFolder(outPath);
+    } catch (e) { showToast("Save failed: " + e.message, "error"); }
+}
+
+// ── Pull captions from the Premiere timeline (experimental) ────────────────
+async function pullTimelineCaptions() {
+    if (IS_DESKTOP_APP) return;
+    setStatus("Reading captions from the timeline…", "info");
+    await loadHostJSX();
+    const r = await evalScript("readTimelineCaptions()");
+    if (!r || !r.success || !r.items || !r.items.length) {
+        const why = (r && r.error) || "This Premiere version doesn't expose caption contents to extensions.";
+        setStatus("Couldn't read captions — " + why, "warning");
+        showToast("Caption pull not supported here: " + why, "warning", 6000);
+        return;
+    }
+    pushUndo();
+    segments = r.items.map((it, i) => ({
+        id: i, start: it.start, end: it.end, seqStart: it.start, seqEnd: it.end,
+        text: it.text || "", words: [], speaker: null,
+    }));
+    seqInTime = 0;
+    renderSegments(); updateSegCount();
+    actionsBar.style.display = "flex"; sendBtn.disabled = false;
+    setStatus(`✓ Pulled ${segments.length} caption(s) from the timeline`, "success");
+}
+
+// ── Onboarding (first run, 3 steps) ────────────────────────────────────────
+function maybeShowOnboarding() {
+    if (localStorage.getItem("ws_onboarded") === "1") return;
+    const isTr = settings.uiLang === "tr";
+    const steps = isTr ? [
+        ["1 · Yazıya dök", IS_DESKTOP_APP ? "Bir video/ses dosyası aç (sürükle-bırak da olur) ve Transcribe'a bas. Model ilk seferde bir kez iner." : "Timeline'ında klip varken Transcribe'a bas. In/Out koymazsan tüm timeline yazıya dökülür."],
+        ["2 · Düzenle", "Metne çift tıkla = düzenle · kelimeye tıkla = böl · Space = oynat/duraklat · Cmd/Ctrl+Z = geri al."],
+        ["3 · Dışa aktar", IS_DESKTOP_APP ? "SRT/VTT/ASS olarak kaydet — CapCut, YouTube, Premiere hepsi açar." : "Send to Premiere = timeline'a caption track. Export menüsünden SRT de alabilirsin."],
+    ] : [
+        ["1 · Transcribe", IS_DESKTOP_APP ? "Open a video/audio file (drag & drop works) and hit Transcribe. The model downloads once." : "With clips on your timeline, hit Transcribe. No In/Out set = the whole timeline."],
+        ["2 · Edit", "Double-click text to edit · click a word to split · Space = play/pause · Cmd/Ctrl+Z = undo."],
+        ["3 · Export", IS_DESKTOP_APP ? "Save as SRT/VTT/ASS — CapCut, YouTube and Premiere all open them." : "Send to Premiere puts a caption track on the timeline. SRT export is in the menu too."],
+    ];
+    const ov = document.createElement("div");
+    ov.id = "onboard-ov";
+    ov.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center";
+    ov.innerHTML = `
+      <div style="background:var(--bg2,#16181d);border:1px solid var(--border2,#333);border-radius:14px;max-width:420px;width:90%;padding:22px">
+        <div style="font-size:16px;font-weight:800;margin-bottom:2px">Subsper 👋</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:14px">${isTr ? "30 saniyede başla" : "Get going in 30 seconds"}</div>
+        ${steps.map(s => `<div style="margin-bottom:12px"><div style="font-weight:700;font-size:12.5px;margin-bottom:2px">${s[0]}</div><div style="font-size:12px;color:var(--text2,#bbb);line-height:1.45">${s[1]}</div></div>`).join("")}
+        <button class="btn-transcribe" id="onboard-ok" style="width:100%;margin-top:6px">${isTr ? "Başla" : "Let's go"}</button>
+      </div>`;
+    document.body.appendChild(ov);
+    $("onboard-ok").onclick = () => { localStorage.setItem("ws_onboarded", "1"); ov.remove(); };
+}
+
+// ── License skeleton (disabled until a payment provider is wired) ──────────
+const LICENSING_ENABLED = false;   // flip on when selling; UI stays hidden until then
+function verifyLicenseKey(key) {
+    // Gumroad-style verification endpoint — fill in the product id when live.
+    return fetch("https://api.gumroad.com/v2/licenses/verify", {
+        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `product_id=SUBSPER_PRODUCT_ID&license_key=${encodeURIComponent(key)}`,
+    }).then(r => r.json());
+}
+
+// ── Feature-pack init (runs AFTER desktop-app.js overrides, via setTimeout) ─
+setTimeout(function initFeaturePack() {
+    try {
+        // Undo hooks around every mutating action
+        ["deleteSegment", "splitSegmentHalf", "splitAtWord", "doReplaceAll",
+         "applyAiToSubtitles", "applySyncProposal", "cleanAll", "editSegment",
+         "applyDictionary", "removeFillers", "censorProfanity"].forEach(name => {
+            const orig = window[name];
+            if (typeof orig === "function") window[name] = function () { pushUndo(); return orig.apply(this, arguments); };
+        });
+        document.addEventListener("keydown", e => {
+            const el = document.activeElement, tag = el && el.tagName;
+            const typing = tag === "INPUT" || tag === "TEXTAREA" || (el && el.isContentEditable);
+            if (typing) return;
+            const mod = e.metaKey || e.ctrlKey;
+            if (mod && !e.shiftKey && e.key.toLowerCase() === "z") { e.preventDefault(); undoSegments(); }
+            else if (mod && e.shiftKey && e.key.toLowerCase() === "z") { e.preventDefault(); redoSegments(); }
+            else if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+                e.preventDefault();
+                nudgeSelected(e.shiftKey ? "end" : "start", e.key === "ArrowLeft" ? -0.1 : 0.1);
+            }
+        });
+
+        // Export menu: extra entries (word captions, translated SRT; burn-in added by desktop)
+        const em = $("export-menu");
+        if (em) {
+            const mk = (label, fn, tip) => {
+                const b = document.createElement("button");
+                b.textContent = label; b.setAttribute("data-tip", tip || "");
+                b.onclick = fn;
+                em.appendChild(b);
+                return b;
+            };
+            mk(settings.uiLang === "tr" ? "Kelime kelime altyazı" : "Word-by-word captions",
+               () => { em.style.display = "none"; sendWordCaptions(); },
+               "TikTok-style: every word becomes its own caption cue");
+        }
+
+        // Remember last export format + preselect
+        const origExport = window.exportAs;
+        if (typeof origExport === "function") {
+            window.exportAs = function (fmt) { try { settings.lastExport = fmt; saveSettings(); } catch (e) {} return origExport.apply(this, arguments); };
+        }
+
+        // AI panel: "Save translated SRT" button next to Apply
+        const applyBtn = $("ai-apply-btn");
+        if (applyBtn && applyBtn.parentElement) {
+            const tb = document.createElement("button");
+            tb.className = applyBtn.className || "btn-secondary";
+            tb.id = "ai-srt-btn";
+            tb.textContent = settings.uiLang === "tr" ? "Çeviriyi SRT kaydet" : "Save translated SRT";
+            tb.style.marginLeft = "6px";
+            tb.onclick = exportTranslationSRT;
+            applyBtn.parentElement.insertBefore(tb, applyBtn.nextSibling);
+        }
+
+        // Extension-only: caption pull + filler cut buttons on the Edit-tools panel
+        if (!IS_DESKTOP_APP) {
+            const edPanel = document.querySelector("#panel-ed-work .controls, #panel-ed-work");
+            if (edPanel) {
+                const wrap = document.createElement("div");
+                wrap.className = "setting-item tool-card";
+                wrap.innerHTML = `
+                  <div class="setting-row"><div class="setting-info">
+                    <div class="setting-name">${settings.uiLang === "tr" ? "Dolgu Kelime Kes (deneysel)" : "Cut Filler Words (experimental)"}</div>
+                    <div class="setting-desc">${settings.uiLang === "tr" ? "ee, ıı, şey… kelimelerini videodan ripple-delete ile keser. Önce Transcribe." : "Ripple-deletes ee/um/uh words from the video. Transcribe first."}</div>
+                  </div></div>
+                  <button class="btn-transcribe btn-compact" id="filler-cut-btn" style="margin-top:8px">${settings.uiLang === "tr" ? "Dolguları Kes" : "Cut Fillers"}</button>`;
+                edPanel.appendChild(wrap);
+                $("filler-cut-btn").onclick = cutFillerWords;
+            }
+            const txControls = document.querySelector("#panel-tx-work .controls");
+            if (txControls) {
+                const pb = document.createElement("button");
+                pb.className = "btn-load-srt";
+                pb.style.cssText = "width:100%;margin-top:8px;justify-content:center";
+                pb.innerHTML = `<span>${settings.uiLang === "tr" ? "⇩ Timeline'daki altyazıyı çek (deneysel)" : "⇩ Pull captions from timeline (experimental)"}</span>`;
+                pb.onclick = pullTimelineCaptions;
+                txControls.appendChild(pb);
+            }
+        }
+
+        // Setup tab: model manager + report button
+        const setupPanel = $("panel-setup");
+        if (setupPanel) {
+            const sc = setupPanel.querySelector(".setup-scroll") || setupPanel;
+            const rep = document.createElement("div");
+            rep.innerHTML = `<div class="setup-section-title" style="margin-top:14px">Feedback</div>
+              <div class="setting-item"><div class="setting-row"><div class="setting-info">
+                <div class="setting-name">Report a problem</div>
+                <div class="setting-desc">Opens a GitHub issue prefilled with your app version and the last engine-log lines. No data is sent automatically.</div>
+              </div><button class="btn-secondary" onclick="reportProblem()">Report</button></div></div>
+              <div class="setting-desc" style="margin-top:10px;text-align:center;color:var(--text3)">Subsper v${APP_VERSION} · by zipheron</div>`;
+            sc.appendChild(rep);
+        }
+        // Re-render models with the manager whenever diagnostics render them
+        const origRenderModels = window.renderModels;
+        if (typeof origRenderModels === "function") window.renderModels = function () { renderModelManager(); };
+        renderModelManager();
+
+        maybeShowOnboarding();
+        checkForUpdates();
+    } catch (e) { console.error("[Subsper] feature pack init failed:", e); }
+}, 0);

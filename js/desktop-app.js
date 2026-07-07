@@ -333,39 +333,50 @@
       const pad = Math.max(0, parseFloat(settings.silencePad) || 0);
       const cuts = silences.map(s => [Math.min(dur, s.start + pad), Math.max(0, s.end - pad)])
                            .filter(([a, b]) => b - a > 0.08);
-      const keep = [];
-      let cursor = 0;
-      for (const [a, b] of cuts) {
-        if (a > cursor) keep.push([cursor, a]);
-        cursor = Math.max(cursor, b);
-      }
-      if (cursor < dur) keep.push([cursor, dur]);
-      const kept = keep.filter(([a, b]) => b - a > 0.05);
-      if (!kept.length) { setSilenceStatus("Nothing left after cutting — lower padding.", "warning"); return; }
+      if (!cuts.length) { setSilenceStatus("Silences too short after padding.", "warning"); return; }
 
-      const removed = dur - kept.reduce((s, [a, b]) => s + (b - a), 0);
-      if (!confirm(`Remove ${cuts.length} silent gap(s) (~${removed.toFixed(1)}s) and export a trimmed file?`)) {
-        setSilenceStatus("Cancelled.", "info"); return;
-      }
+      // Preview modal — user can uncheck gaps to keep, then we export the trim.
+      setSilenceStatus(`${cuts.length} silent gap(s) found — review & apply`, "info");
+      showRangePreview("Cut silences (export trimmed file)",
+        cuts.map(([a, b]) => ({ start: a, end: b })), async (chosen) => {
+        showSilenceProgress(true);
+        const btn2 = document.getElementById("silence-cut-btn");
+        if (btn2) btn2.disabled = true;
+        try {
+          const keep = [];
+          let cursor = 0;
+          for (const r of chosen.slice().sort((x, y) => x.start - y.start)) {
+            if (r.start > cursor) keep.push([cursor, r.start]);
+            cursor = Math.max(cursor, r.end);
+          }
+          if (cursor < dur) keep.push([cursor, dur]);
+          const kept = keep.filter(([a, b]) => b - a > 0.05);
+          if (!kept.length) { setSilenceStatus("Nothing left after cutting — lower padding.", "warning"); return; }
 
-      // 4) Output file + run the ffmpeg trim/concat script
-      const inExt = (mediaPath.split(".").pop() || "mp4").toLowerCase();
-      const isAudio = ["mp3","wav","m4a","aac","flac","ogg"].includes(inExt);
-      const outExt = isAudio ? inExt : "mp4";
-      const res = await ipcRenderer.invoke("dialog:saveFile",
-        { defaultName: baseName() + "_cut." + outExt, ext: outExt });
-      if (!res || !res.filePath) { setSilenceStatus("Cancelled", "info"); return; }
+          const inExt = (mediaPath.split(".").pop() || "mp4").toLowerCase();
+          const isAudio = ["mp3","wav","m4a","aac","flac","ogg"].includes(inExt);
+          const outExt = isAudio ? inExt : "mp4";
+          const res = await ipcRenderer.invoke("dialog:saveFile",
+            { defaultName: baseName() + "_cut." + outExt, ext: outExt });
+          if (!res || !res.filePath) { setSilenceStatus("Cancelled", "info"); return; }
 
-      setSilenceStatus(`Cutting ${cuts.length} gap(s)…`, "info");
-      if (WCPP) {
-        await WCPP.cutMedia(extDir(), mediaPath, res.filePath, kept, { video: !isAudio });
-      } else {
-        const cut = await runPython("cut_media.py",
-          [mediaPath, res.filePath, JSON.stringify(kept)]);
-        if (!cut.success) { setSilenceStatus(cut.error || "Cut failed", "error"); showToast("Cut failed", "error", 5000); return; }
-      }
-      setSilenceStatus(`✓ Trimmed file saved → ${res.filePath}`, "success");
-      showToast("Silences cut — trimmed file saved", "success", 5000);
+          setSilenceStatus(`Cutting ${chosen.length} gap(s)…`, "info");
+          if (WCPP) {
+            await WCPP.cutMedia(extDir(), mediaPath, res.filePath, kept, { video: !isAudio });
+          } else {
+            const cut = await runPython("cut_media.py",
+              [mediaPath, res.filePath, JSON.stringify(kept)]);
+            if (!cut.success) { setSilenceStatus(cut.error || "Cut failed", "error"); showToast("Cut failed", "error", 5000); return; }
+          }
+          setSilenceStatus(`✓ Trimmed file saved → ${res.filePath}`, "success");
+          showToast("Silences cut — trimmed file saved", "success", 5000);
+        } catch (e2) {
+          setSilenceStatus(e2.message, "error");
+        } finally {
+          showSilenceProgress(false);
+          if (btn2) btn2.disabled = false;
+        }
+      });
     } catch (e) {
       setSilenceStatus(e.message, "error");
     } finally {
@@ -543,4 +554,238 @@
       if (badge) badge.style.display = "none";
     }).catch(e => console.warn("Setup check error:", e));
   } catch (e) { console.warn("Setup check error:", e); }
+
+  /* ── v1.9 desktop features: batch · burn-in · waveform · word-SRT · filler cut ── */
+
+  // Word-by-word SRT save (desktop counterpart of the extension's caption send)
+  window.exportWordSRTDesktop = async function () {
+    if (!segments.length) { showToast("Nothing to export yet", "info", 2000); return; }
+    const res = await ipcRenderer.invoke("dialog:saveFile",
+      { defaultName: baseName() + "_words.srt", ext: "srt" });
+    if (!res || !res.filePath) return;
+    try {
+      fsD.writeFileSync(res.filePath, buildWordSRT(), "utf8");
+      setStatus(`Word-by-word SRT → ${res.filePath}`, "success");
+      showToast("Word-by-word SRT saved", "success");
+    } catch (e) { showToast("Save failed: " + e.message, "error"); }
+  };
+
+  // Burn-in export: renders the styled .ass INTO the video via bundled ffmpeg.
+  async function exportBurnedVideo() {
+    if (!mediaPath) { showToast("Open a video first", "info", 2000); return; }
+    if (!segments.length) { showToast("Transcribe first", "info", 2000); return; }
+    if (!WCPP) { showToast("Engine unavailable", "error"); return; }
+    const res = await ipcRenderer.invoke("dialog:saveFile",
+      { defaultName: baseName() + "_subtitled.mp4", ext: "mp4" });
+    if (!res || !res.filePath) return;
+    setStatus("Burning subtitles into the video… (re-encodes, takes a while)", "info");
+    showProgress(true);
+    const assPath = pathD.join(osD.tmpdir(), "subsper_burn_" + Date.now() + ".ass");
+    try {
+      fsD.writeFileSync(assPath, segmentsToASS(), "utf8");
+      // ffmpeg subtitles filter: escape ' : \ for the filter graph
+      const esc = assPath.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
+      await new Promise((resolve, reject) => {
+        const ff = spawnD(WCPP.ffmpegBin(extDir()),
+          ["-y", "-i", mediaPath, "-vf", "subtitles='" + esc + "'",
+           "-c:a", "copy", res.filePath]);
+        let err = "";
+        ff.stderr.on("data", d => {
+          err += d.toString(); if (err.length > 60000) err = err.slice(-30000);
+          const m = /time=(\d+):(\d+):(\d+)/.exec(d.toString());
+          if (m && mediaEl && mediaEl.duration > 0) {
+            const t = (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]);
+            setStatus(`Burning subtitles… ${Math.min(99, Math.round(t / mediaEl.duration * 100))}%`, "info");
+          }
+        });
+        ff.on("error", e => reject(new Error("ffmpeg could not run: " + e.message)));
+        ff.on("close", c => c === 0 ? resolve() :
+          reject(new Error(/libass|subtitles/i.test(err) && /No such filter|not compiled/i.test(err)
+            ? "This ffmpeg build lacks subtitle rendering (libass)."
+            : "Burn-in failed: " + err.slice(-300))));
+      });
+      setStatus(`✓ Subtitled video saved → ${res.filePath}`, "success");
+      showToast("Burned-in video exported", "success", 5000);
+    } catch (e) {
+      setStatus(e.message, "error"); showToast(e.message, "error", 6000);
+    } finally {
+      showProgress(false);
+      try { fsD.unlinkSync(assPath); } catch (e) {}
+    }
+  }
+
+  // Batch transcribe: pick/drop multiple files → SRT saved next to each source.
+  let _batchRunning = false;
+  async function batchTranscribe(paths) {
+    if (_batchRunning) { showToast("Batch already running", "info", 2000); return; }
+    if (!paths || !paths.length) {
+      const r = await ipcRenderer.invoke("dialog:openMediaMulti");
+      paths = (r && r.filePaths) || [];
+    }
+    if (!paths.length) return;
+    _batchRunning = true;
+    const model = document.getElementById("model-select").value;
+    const language = document.getElementById("lang-select").value;
+    let done = 0, failed = 0;
+    try {
+      for (const p of paths) {
+        setStatus(`Batch ${done + failed + 1}/${paths.length}: ${p.split(/[\\/]/).pop()}`, "info");
+        showProgress(true);
+        const tx = await transcribeViaCpp(p, model, language, null);
+        if (tx.success && tx.segments && tx.segments.length) {
+          const srt = tx.segments.map((s, i) =>
+            `${i + 1}\n${formatTime(s.start)} --> ${formatTime(s.end)}\n${(s.text || "").trim()}\n`).join("\n");
+          const out = p.replace(/\.[^.]+$/, "") + ".srt";
+          try { fsD.writeFileSync(out, srt, "utf8"); done++; }
+          catch (e) { failed++; console.warn("batch write failed:", e); }
+        } else failed++;
+      }
+      setStatus(`✓ Batch done — ${done} SRT saved${failed ? ", " + failed + " failed" : ""}`, failed ? "warning" : "success");
+      showToast(`Batch: ${done} ok, ${failed} failed`, failed ? "warning" : "success", 6000);
+    } finally { _batchRunning = false; showProgress(false); }
+  }
+
+  // Filler cut on desktop = trim-export with filler ranges removed
+  window.cutFillerWordsDesktop = function () {
+    if (!mediaPath) { showToast("Open a file first", "info", 2000); return; }
+    if (!segments.length) { showToast("Transcribe first — needs word timings", "info", 3000); return; }
+    const ranges = computeFillerRanges();
+    if (!ranges.length) { showToast("No filler words with timings found", "info", 3000); return; }
+    showRangePreview("Cut filler words (export trimmed file)", ranges, async (chosen) => {
+      const dur = (mediaEl && isFinite(mediaEl.duration) && mediaEl.duration > 0)
+        ? mediaEl.duration : (segments[segments.length - 1].seqEnd + 1);
+      const keep = [];
+      let cursor = 0;
+      for (const r of chosen.slice().sort((a, b) => a.start - b.start)) {
+        if (r.start > cursor) keep.push([cursor, r.start]);
+        cursor = Math.max(cursor, r.end);
+      }
+      if (cursor < dur) keep.push([cursor, dur]);
+      const inExt = (mediaPath.split(".").pop() || "mp4").toLowerCase();
+      const isAudio = ["mp3","wav","m4a","aac","flac","ogg"].includes(inExt);
+      const res = await ipcRenderer.invoke("dialog:saveFile",
+        { defaultName: baseName() + "_nofillers." + (isAudio ? inExt : "mp4"), ext: isAudio ? inExt : "mp4" });
+      if (!res || !res.filePath) return;
+      setStatus(`Cutting ${chosen.length} filler(s)…`, "info"); showProgress(true);
+      try {
+        await WCPP.cutMedia(extDir(), mediaPath, res.filePath, keep, { video: !isAudio });
+        setStatus(`✓ Filler-free file → ${res.filePath}`, "success");
+        showToast("Fillers cut — file saved", "success", 5000);
+      } catch (e) { setStatus(e.message, "error"); }
+      finally { showProgress(false); }
+    });
+  };
+
+  // Waveform strip under the preview player (peaks via bundled ffmpeg PCM dump)
+  async function buildWaveform() {
+    if (!WCPP || !mediaPath || !mediaEl) return;
+    let canvas = document.getElementById("waveform-canvas");
+    if (!canvas) {
+      canvas = document.createElement("canvas");
+      canvas.id = "waveform-canvas";
+      canvas.height = 44;
+      canvas.style.cssText = "width:100%;height:44px;background:var(--bg3,#111);border-radius:6px;margin-bottom:10px;cursor:pointer;display:block";
+      mediaEl.insertAdjacentElement("afterend", canvas);
+      canvas.onclick = (e) => {
+        if (!mediaEl.duration) return;
+        const frac = e.offsetX / canvas.clientWidth;
+        mediaEl.currentTime = frac * mediaEl.duration;
+      };
+    }
+    try {
+      const raw = pathD.join(osD.tmpdir(), "subsper_wave_" + Date.now() + ".pcm");
+      await new Promise((resolve, reject) => {
+        const ff = spawnD(WCPP.ffmpegBin(extDir()),
+          ["-y", "-i", mediaPath, "-ac", "1", "-ar", "400", "-f", "s16le", raw]);
+        ff.on("error", reject);
+        ff.on("close", c => c === 0 ? resolve() : reject(new Error("wave extract failed")));
+      });
+      const buf = fsD.readFileSync(raw);
+      try { fsD.unlinkSync(raw); } catch (e) {}
+      const samples = new Int16Array(buf.buffer, buf.byteOffset, Math.floor(buf.length / 2));
+      const W = canvas.width = canvas.clientWidth * (window.devicePixelRatio || 1);
+      const H = canvas.height = 44 * (window.devicePixelRatio || 1);
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = "rgba(80,140,255,.75)";
+      const per = Math.max(1, Math.floor(samples.length / W));
+      for (let x = 0; x < W; x++) {
+        let peak = 0;
+        for (let i = x * per; i < (x + 1) * per && i < samples.length; i++) {
+          const v = Math.abs(samples[i]); if (v > peak) peak = v;
+        }
+        const h = Math.max(1, (peak / 32768) * H);
+        ctx.fillRect(x, (H - h) / 2, 1, h);
+      }
+      // playhead line
+      if (!canvas._phTimer) {
+        canvas._phTimer = setInterval(() => {
+          if (!mediaEl.duration || !canvas.isConnected) return;
+          const overlay = canvas;
+          // redraw just the playhead by compositing is overkill — draw thin marker via CSS
+          let ph = document.getElementById("waveform-ph");
+          if (!ph) {
+            ph = document.createElement("div");
+            ph.id = "waveform-ph";
+            ph.style.cssText = "position:absolute;top:0;bottom:0;width:2px;background:#fff;pointer-events:none";
+            const wrap = document.createElement("div");
+            wrap.style.cssText = "position:relative";
+            overlay.parentNode.insertBefore(wrap, overlay);
+            wrap.appendChild(overlay); wrap.appendChild(ph);
+          }
+          ph.style.left = (mediaEl.currentTime / mediaEl.duration * 100) + "%";
+        }, 120);
+      }
+    } catch (e) { console.warn("waveform failed:", e); }
+  }
+  const _origLoadMedia = loadMedia;
+  loadMedia = function (p) { _origLoadMedia(p); setTimeout(buildWaveform, 50); };
+
+  // Multi-file drag & drop → batch
+  document.addEventListener("drop", e => {
+    if (!e.dataTransfer || e.dataTransfer.files.length < 2) return;
+    const paths = [...e.dataTransfer.files]
+      .filter(f => MEDIA_EXTS.includes((f.name.split(".").pop() || "").toLowerCase()))
+      .map(f => f.path);
+    if (paths.length >= 2) { e.preventDefault(); e.stopPropagation(); batchTranscribe(paths); }
+  }, true);
+
+  // Desktop UI injections (deferred so main.js's feature pack has run)
+  setTimeout(() => {
+    try {
+      // Export menu: burn-in entry
+      const em = document.getElementById("export-menu");
+      if (em) {
+        const b = document.createElement("button");
+        b.textContent = settings.uiLang === "tr" ? "Videoya göm (burn-in MP4)" : "Burn into video (MP4)";
+        b.setAttribute("data-tip", "Renders the styled subtitles INTO a new video file");
+        b.onclick = () => { em.style.display = "none"; exportBurnedVideo(); };
+        em.appendChild(b);
+      }
+      // Batch button under the Open button
+      const openBtnRow = document.querySelector("#panel-tx-work .controls");
+      if (openBtnRow) {
+        const bb = document.createElement("button");
+        bb.className = "btn-load-srt";
+        bb.style.cssText = "width:100%;margin-top:8px;justify-content:center";
+        bb.innerHTML = `<span>${settings.uiLang === "tr" ? "📁 Toplu Transcribe (çok dosya)" : "📁 Batch Transcribe (multiple files)"}</span>`;
+        bb.setAttribute("data-tip", settings.uiLang === "tr" ? "Birden çok dosya seç; her birinin yanına .srt kaydedilir" : "Pick multiple files; an .srt is saved next to each");
+        bb.onclick = () => batchTranscribe(null);
+        openBtnRow.appendChild(bb);
+      }
+      // Edit tools: filler-cut card
+      const edPanel = document.querySelector("#panel-ed-work .controls, #panel-ed-work");
+      if (edPanel) {
+        const card = document.createElement("div");
+        card.className = "setting-item tool-card";
+        card.innerHTML = `
+          <div class="setting-row"><div class="setting-info">
+            <div class="setting-name">${settings.uiLang === "tr" ? "Dolgu Kelime Kes" : "Cut Filler Words"}</div>
+            <div class="setting-desc">${settings.uiLang === "tr" ? "ee, ıı, şey… kelimeleri çıkarılmış kırpılmış dosya üretir. Önce Transcribe." : "Exports a trimmed file with ee/um/uh words removed. Transcribe first."}</div>
+          </div></div>
+          <button class="btn-transcribe btn-compact" style="margin-top:8px" onclick="cutFillerWordsDesktop()">${settings.uiLang === "tr" ? "Dolguları Kes" : "Cut Fillers"}</button>`;
+        edPanel.appendChild(card);
+      }
+    } catch (e) { console.error("[Desktop] v1.9 UI injection failed:", e); }
+  }, 30);
 })();

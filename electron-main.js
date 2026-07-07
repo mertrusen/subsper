@@ -55,6 +55,20 @@ ipcMain.handle("dialog:openMedia", async () => {
   return { filePath: res.filePaths[0] };
 });
 
+// Open MULTIPLE media files (batch transcribe)
+ipcMain.handle("dialog:openMediaMulti", async () => {
+  const res = await dialog.showOpenDialog(win, {
+    title: "Pick files to batch-transcribe",
+    properties: ["openFile", "multiSelections"],
+    filters: [
+      { name: "Media", extensions: ["mp4","mov","m4v","mkv","webm","avi","wmv","mp3","wav","m4a","aac","flac","ogg"] },
+      { name: "All files", extensions: ["*"] },
+    ],
+  });
+  if (res.canceled || !res.filePaths.length) return { filePaths: [] };
+  return { filePaths: res.filePaths };
+});
+
 // Save a file (subtitles / enhanced audio / trimmed media)
 ipcMain.handle("dialog:saveFile", async (_e, opts) => {
   opts = opts || {};
@@ -72,7 +86,19 @@ ipcMain.handle("dialog:saveFile", async (_e, opts) => {
 // Reveal a file in Finder/Explorer
 ipcMain.handle("shell:showItem", (_e, p) => { try { shell.showItemInFolder(p); } catch (e) { console.error("showItem error:", e); } return true; });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+  // Auto-update: Windows NSIS works unsigned; macOS requires code signing, so
+  // the in-app update banner (renderer) covers mac. Never crash on failure.
+  if (process.platform === "win32" && app.isPackaged) {
+    try {
+      const { autoUpdater } = require("electron-updater");
+      autoUpdater.autoDownload = true;
+      autoUpdater.on("error", (e) => console.warn("autoUpdater:", e && e.message));
+      autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+    } catch (e) { console.warn("electron-updater unavailable:", e.message); }
+  }
+});
 
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

@@ -49,7 +49,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: win-installer
-          path: dist/*.exe
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest.yml
           if-no-files-found: error
 
   macos:
@@ -68,10 +71,14 @@ jobs:
       - run: npm run dist:mac
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Build signed ZXP (Premiere extension)
+        run: bash scripts/build-zxp.sh dist
       - uses: actions/upload-artifact@v4
         with:
           name: mac-installer
-          path: dist/*.dmg
+          path: |
+            dist/*.dmg
+            dist/*.zxp
           if-no-files-found: error
 
   release:
@@ -87,6 +94,9 @@ jobs:
         with:
           files: |
             artifacts/win-installer/*.exe
+            artifacts/win-installer/*.blockmap
+            artifacts/win-installer/latest.yml
             artifacts/mac-installer/*.dmg
+            artifacts/mac-installer/*.zxp
           generate_release_notes: true
           fail_on_unmatched_files: true

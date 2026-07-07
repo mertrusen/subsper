@@ -7,10 +7,22 @@ This repo holds **two apps that share the same engine**:
 | App | For | Where |
 |-----|-----|-------|
 | **Desktop** (this folder) | CapCut / any editor — no Premiere needed. Windows + macOS. | [Releases](../../releases) → `.exe` / `.dmg` |
-| **Premiere extension** | Adobe Premiere Pro users | [`extension/`](extension/) — see [extension/README.md](extension/README.md) |
+| **Premiere extension** | Adobe Premiere Pro users | [Releases](../../releases) → `Subsper-Premiere-*.zxp` |
 
 The Premiere extension reuses the Desktop app's bundled engine, so **installing the
 Desktop app makes both work** — no Python, no terminal.
+
+### Installing the Premiere extension (.zxp)
+
+1. Download `Subsper-Premiere-x.x.x.zxp` from **[Releases](../../releases)**.
+2. Install it with a ZXP installer — either
+   [aescripts ZXP Installer](https://aescripts.com/learn/zxp-installer/) or
+   [Anastasiy's Extension Manager](https://install.anastasiy.com/) (both free):
+   open the app, drag the `.zxp` in, done.
+3. Restart Premiere → **Window → Extensions → Subsper**.
+
+(Developers can still clone [`extension/`](extension/) into the CEP extensions
+folder with PlayerDebugMode — see [extension/README.md](extension/README.md).)
 
 ---
 

@@ -14,7 +14,7 @@
       <div class="brand-text">
         <span class="brand-title">Sub<span>sper</span></span>
         <span class="brand-tagline" data-i18n="tagline">AI Subtitles</span>
-        <span class="brand-version" style="font-size: 10px; color: var(--text3); margin-left: 6px; font-weight: 500;">v1.13.0</span>
+        <span class="brand-version" style="font-size: 10px; color: var(--text3); margin-left: 6px; font-weight: 500;">v1.13.1</span>
       </div>
     </div>
     <div class="header-right">
@@ -332,6 +332,12 @@
             <input type="checkbox" id="set-diarize" onchange="onSettingChange('diarize', this.checked)">
             <span class="toggle-track"></span>
           </label>
+        </div>
+        <div class="setting-sub" style="display:block; border-top:none; padding-top:6px">
+          <input type="password" id="set-hf-token" class="settings-textarea" style="height:30px"
+                 placeholder="HuggingFace token (hf_…) — only needed for Speaker Labels"
+                 onchange="onSettingChange('hfToken', this.value.trim())">
+          <div class="setting-hint" data-i18n="hint_hf">Free token: huggingface.co → Settings → Access Tokens. Also accept the pyannote model terms once.</div>
         </div>
         <div class="setting-row" style="margin-top:10px">
           <div class="setting-info">
@@ -782,6 +788,44 @@
             <input type="checkbox" id="set-audio-normalize" onchange="onSettingChange('audioNormalize', this.checked)">
             <span class="toggle-track"></span>
           </label>
+        </div>
+      </div>
+
+
+      <div class="setup-section-title" style="margin-top:16px" data-i18n="sec_beep">Beep Profanity</div>
+      <div class="setting-item">
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-name" data-i18n="nm_beepshift">Beep timing shift</div>
+            <div class="setting-desc" data-i18n="ds_beepshift">Beep starts too early/late? Shift it. Negative = earlier, positive = later.</div>
+          </div>
+          <span class="setting-value" id="beepshift-val">0 ms</span>
+        </div>
+        <div class="setting-sub" style="display:block; border-top:none; padding-top:4px">
+          <input type="range" class="setting-slider" id="set-beepshift" min="-400" max="400" step="20" value="0"
+                 oninput="onSettingChange('beepShift', +this.value); document.getElementById('beepshift-val').textContent = this.value + ' ms'">
+        </div>
+        <div class="setting-row" style="margin-top:10px">
+          <div class="setting-info">
+            <div class="setting-name" data-i18n="nm_beeppad">Beep padding</div>
+            <div class="setting-desc" data-i18n="ds_beeppad">Extra beep before AND after the word, so the edges are covered.</div>
+          </div>
+          <span class="setting-value" id="beeppad-val">40 ms</span>
+        </div>
+        <div class="setting-sub" style="display:block; border-top:none; padding-top:4px">
+          <input type="range" class="setting-slider" id="set-beeppad" min="0" max="400" step="20" value="40"
+                 oninput="onSettingChange('beepPad', +this.value); document.getElementById('beeppad-val').textContent = this.value + ' ms'">
+        </div>
+        <div class="setting-row" style="margin-top:10px">
+          <div class="setting-info">
+            <div class="setting-name" data-i18n="nm_beepduck">Original audio during beep</div>
+            <div class="setting-desc" data-i18n="ds_beepduck">How loud the original voice stays under the beep. 0% = fully muted.</div>
+          </div>
+          <span class="setting-value" id="beepduck-val">0%</span>
+        </div>
+        <div class="setting-sub" style="display:block; border-top:none; padding-top:4px">
+          <input type="range" class="setting-slider" id="set-beepduck" min="0" max="60" step="5" value="0"
+                 oninput="onSettingChange('beepDuck', +this.value); document.getElementById('beepduck-val').textContent = this.value + '%'">
         </div>
       </div>
 

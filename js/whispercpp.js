@@ -664,8 +664,9 @@ async function beepRanges(appDir, inputPath, outPath, ranges, opts) {
     if (!ranges || !ranges.length) throw new Error("No ranges to beep.");
     const expr = ranges.map(r => `between(t,${r.start.toFixed(3)},${r.end.toFixed(3)})`).join("+");
     const dur = Math.max.apply(null, ranges.map(r => r.end)) + 1;
+    const duck = Math.max(0, Math.min(1, opts.duck || 0));   // original level under the beep
     const filters = [
-        `[0:a]volume='if(${expr},0,1)':eval=frame[main]`,
+        `[0:a]volume='if(${expr},${duck.toFixed(2)},1)':eval=frame[main]`,
     ];
     let amixIn = "[main]";
     if (opts.mode !== "mute") {

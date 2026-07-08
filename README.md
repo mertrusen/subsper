@@ -51,10 +51,10 @@ Download `Subsper-x.x.x-mac-arm64.dmg` from **Releases**, drag to Applications, 
 (Intel Macs are not supported since v1.8.0 — the last Intel build is
 [v1.7.1](../../releases/tag/v1.7.1).)
 
-> **⚠️ "App is damaged and can't be opened" error?**
-> macOS Gatekeeper shows this for unsigned apps. To fix it, open Terminal and run:
+> **⚠️ First launch on macOS:** the app is ad-hoc signed (not notarized), so
+> Gatekeeper warns once. **Right-click the app → Open → Open** (or allow it under
+> System Settings → Privacy & Security). If you ever see "damaged", run:
 > `xattr -cr /Applications/Subsper.app`
-> Then you can open the app normally.
 
 > **Optional — Pro engine:** for speaker labels (diarization) install Python +
 > WhisperX and pick it in Settings. Everyone else needs nothing.

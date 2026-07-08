@@ -1,7 +1,7 @@
 {
   "name": "subsper",
   "productName": "Subsper",
-  "version": "1.13.0",
+  "version": "1.13.1",
   "description": "Subsper — AI subtitles, audio cleanup & silence cutting. By zipheron.",
   "main": "electron-main.js",
   "author": "zipheron",
@@ -78,7 +78,8 @@
         "owner": "mertrusen",
         "repo": "subsper"
       }
-    ]
+    ],
+    "afterPack": "scripts/afterPack.js"
   },
   "dependencies": {
     "diff": "^9.0.0",

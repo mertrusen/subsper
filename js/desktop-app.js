@@ -766,7 +766,7 @@
           settings.uiLang === "tr" ? "Birden çok dosya seç; her birinin yanına .srt kaydedilir" : "Pick multiple files; an .srt is saved next to each");
       }
       // Edit tools: filler-cut card
-      const edPanel = document.querySelector("#panel-ed-work .controls, #panel-ed-work");
+      const edPanel = document.querySelector("#panel-ed-work .setup-scroll, #panel-ed-work");
       if (edPanel) {
         const card = document.createElement("div");
         card.className = "setting-item tool-card";
@@ -794,7 +794,8 @@
     if (!res || !res.filePath) return;
     setStatus(`Beeping ${ranges.length} range(s)…`, "info"); showProgress(true);
     try {
-      await WCPP.beepRanges(extDir(), mediaPath, res.filePath, ranges, { video: !isAudio });
+      await WCPP.beepRanges(extDir(), mediaPath, res.filePath, ranges,
+        { video: !isAudio, duck: (settings.beepDuck || 0) / 100 });
       setStatus(`✓ Beeped file → ${res.filePath}`, "success");
       showToast("Beeped copy saved", "success", 5000);
     } catch (e) { setStatus(e.message, "error"); showToast(e.message, "error", 6000); }

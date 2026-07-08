@@ -103,7 +103,7 @@
 }
 
 html, body {
-  height: 100vh; width: 100vw;
+  height: 100%; width: 100%;
   background: var(--app-bg); background-attachment: fixed;
   color: var(--text);
   font: 13px/1.45 var(--font);
@@ -610,3 +610,11 @@ mark.find-hit { background: var(--yellow); color: #1a1206; border-radius: 3px; p
   border-radius:8px; cursor:pointer; transition:color .12s, border-color .12s;
 }
 #secondary-actions .btn-ghost:hover { color:var(--text); border-color:var(--accent); }
+
+/* ═══ v1.13.1 layout fixes ═══ */
+/* Narrow (panel) mode: the subtitle list takes ALL leftover height, so pulling
+   the panel taller gives the list more room and the actions bar rides the
+   bottom edge (was: fixed-height content + floating footer). */
+#panel-tx-work { overflow: hidden; }
+#panel-tx-work .work-left { flex-shrink: 1; min-height: 0; overflow-y: auto; }
+.segments-wrap { flex: 1 1 auto; overflow-y: auto; min-height: 140px; }

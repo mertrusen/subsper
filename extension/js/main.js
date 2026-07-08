@@ -61,6 +61,10 @@ const DEFAULT_SETTINGS = {
     hwAccel:         "auto",      // auto = use GPU (Windows Vulkan) if available | cpu = force CPU
     whisperModel:    "turbo",     // persisted Whisper model choice
     spokenLang:      "auto",      // persisted spoken-language choice
+    hfToken:         "",          // HuggingFace token (Speaker Labels / diarization)
+    beepShift:       0,           // ms — shift beep earlier(-) / later(+)
+    beepPad:         40,          // ms — extra beep before & after the word
+    beepDuck:        0,           // % — original voice level under the beep (0 = mute)
 };
 
 // Built-in filler words (Turkish + English). Phrases first so they match before single words.
@@ -162,6 +166,11 @@ const I18N = {
     opt_hw_auto: "Auto — use GPU if available (recommended) ★", opt_hw_cpu: "CPU only — most compatible",
     tip_hwaccel: "Auto uses the GPU on Windows (Vulkan) for speed. Pick CPU only if transcription errors or crashes.",
     nm_diar: "Speaker Labels (Pro)", ds_diar: "Tags who is speaking. Needs the WhisperX Pro engine + a free HuggingFace token.",
+    hint_hf: "Free token: huggingface.co → Settings → Access Tokens. Also accept the pyannote model terms once.",
+    sec_beep: "Beep Profanity",
+    nm_beepshift: "Beep timing shift", ds_beepshift: "Beep starts too early/late? Shift it. Negative = earlier, positive = later.",
+    nm_beeppad: "Beep padding", ds_beeppad: "Extra beep before AND after the word, so the edges are covered.",
+    nm_beepduck: "Original audio during beep", ds_beepduck: "How loud the original voice stays under the beep. 0% = fully muted.",
     nm_autocleanup: "Auto clean-up", ds_autocleanup: "Apply dictionary & remove fillers when transcription finishes",
     lbl_dict: "Custom dictionary", hint_dict: "Fixes names, brands & mis-hearings. Format: wrong=right (whole word, case-insensitive).",
     lbl_punct_filter: "Allowed Punctuation", hint_punct_filter: "Only these punctuation marks will be kept. Delete all to remove all punctuation.",
@@ -326,6 +335,11 @@ const I18N = {
     opt_hw_auto: "Otomatik — varsa GPU kullan (önerilen) ★", opt_hw_cpu: "Sadece CPU — en uyumlu",
     tip_hwaccel: "Otomatik, hız için Windows'ta GPU'yu (Vulkan) kullanır. Transkript hata verir/çökerse Sadece CPU seç.",
     nm_diar: "Konuşmacı Etiketleri (Pro)", ds_diar: "Kim konuşuyor etiketler. WhisperX Pro motoru + ücretsiz HuggingFace token gerekir.",
+    hint_hf: "Ücretsiz token: huggingface.co → Settings → Access Tokens. Bir kez de pyannote model şartlarını kabul et.",
+    sec_beep: "Küfür Bipleme",
+    nm_beepshift: "Bip zamanlama kaydırma", ds_beepshift: "Bip erken/geç mi başlıyor? Kaydır. Eksi = daha erken, artı = daha geç.",
+    nm_beeppad: "Bip payı", ds_beeppad: "Kelimenin öncesine VE sonrasına eklenen ekstra bip — kenarlar açıkta kalmasın.",
+    nm_beepduck: "Bip sırasında orijinal ses", ds_beepduck: "Bipin altında orijinal ses ne kadar duyulsun. %0 = tamamen sessiz.",
     nm_autocleanup: "Otomatik temizlik", ds_autocleanup: "İş bitince sözlüğü uygular ve dolgu kelimeleri siler",
     lbl_dict: "Özel sözlük", hint_dict: "İsim/marka/yanlış duymaları düzeltir. Format: yanlış=doğru (tam kelime, büyük-küçük fark etmez).",
     lbl_punct_filter: "İzin Verilen Noktalama", hint_punct_filter: "Sadece bu işaretler korunur (örn. sadece soru işareti için '?' yazın). Hepsini silerseniz tüm noktalamalar kalkar.",
@@ -700,6 +714,7 @@ function spawnEnv() {
     // Force Python to emit UTF-8 on stdout — otherwise on Windows it uses the
     // locale codepage (e.g. cp1254) and Turkish/Unicode text comes back as  .
     const utf8 = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
+    if (settings && settings.hfToken) { utf8.HF_TOKEN = settings.hfToken; utf8.HUGGING_FACE_HUB_TOKEN = settings.hfToken; }
     if (IS_WIN) return Object.assign({}, process.env, utf8);
     const extra = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin";
     const cur   = process.env.PATH || "";
@@ -953,8 +968,13 @@ function initEditSettingsUI() {
 // ── Audio settings init ───────────────────────────────────────────────────
 function initAudioSettingsUI() {
     const chk = (id, v) => { const e = $(id); if (e) e.checked = !!v; };
+    const set = (id, v) => { const e = $(id); if (e) e.value = v; };
+    const txt = (id, v) => { const e = $(id); if (e) e.textContent = v; };
     chk("set-audio-denoise", settings.audioDenoise);
     chk("set-audio-normalize", settings.audioNormalize);
+    set("set-beepshift", settings.beepShift || 0); txt("beepshift-val", (settings.beepShift || 0) + " ms");
+    set("set-beeppad",   settings.beepPad ?? 40); txt("beeppad-val", (settings.beepPad ?? 40) + " ms");
+    set("set-beepduck",  settings.beepDuck || 0); txt("beepduck-val", (settings.beepDuck || 0) + "%");
 }
 
 // ── Settings tab ──────────────────────────────────────────────────────────
@@ -972,6 +992,7 @@ function initSettingsUI() {
     set("set-threads", settings.threads);
     txt("threads-val", settings.threads == 0 ? "Auto" : settings.threads);
     set("set-hwaccel", settings.hwAccel || "auto");
+    set("set-hf-token", settings.hfToken || "");
 
     // Transcript clean-up
     set("set-punct-allowed", settings.punctAllowed !== undefined ? settings.punctAllowed : ".,?!:;\"'()[]{}-");
@@ -2256,10 +2277,21 @@ async function playPause() {
     _playBusy = true;
     const btn = $("playpause-btn");
     try {
-        const p1 = await readPlayheadSecs();
-        await new Promise(r => setTimeout(r, 130));
-        const p2 = await readPlayheadSecs();
-        const playing = p1 >= 0 && p2 >= 0 && Math.abs(p2 - p1) > 0.0005;
+        // Layer 1: ask QE directly (some builds expose player.isPlaying)
+        let playing = null;
+        const probe = await evalScript("wsIsPlayingProbe()");
+        if (probe && probe.success && probe.known) playing = !!probe.playing;
+
+        // Layer 2: playhead motion sampling
+        if (playing === null) {
+            const p1 = await readPlayheadSecs();
+            await new Promise(r => setTimeout(r, 160));
+            const p2 = await readPlayheadSecs();
+            if (p1 >= 0 && p2 >= 0) playing = Math.abs(p2 - p1) > 0.0005;
+        }
+
+        // Layer 3: last resort — our own toggle flag
+        if (playing === null) playing = _isPlaying;
 
         const res = await evalScript(playing ? "wsStop()" : "wsPlay()");
         if (!res || res.success === false) {
@@ -3380,7 +3412,7 @@ function initTooltips() {
    files (and the extension↔desktop footer sync) stay untouched.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION = "1.13.0";
+const APP_VERSION = "1.13.1";
 const GH_REPO = "mertrusen/subsper";
 const IS_DESKTOP_APP = (typeof window !== "undefined" && window.IS_DESKTOP === true);
 
@@ -3820,7 +3852,7 @@ setTimeout(function initFeaturePack() {
 
         // Extension-only: caption pull + filler cut buttons on the Edit-tools panel
         if (!IS_DESKTOP_APP) {
-            const edPanel = document.querySelector("#panel-ed-work .controls, #panel-ed-work");
+            const edPanel = document.querySelector("#panel-ed-work .setup-scroll, #panel-ed-work");
             if (edPanel) {
                 const wrap = document.createElement("div");
                 wrap.className = "setting-item tool-card";
@@ -3963,7 +3995,10 @@ function computeProfanityRanges() {
             const clean = (w.word || "").toLowerCase().replace(/[.,!?;:"'()\[\]{}…*-]/g, "");
             if (clean && set.has(clean)) {
                 const off = seg.seqStart - seg.start;
-                ranges.push({ start: Math.max(0, off + w.start - 0.03), end: off + w.end + 0.03 });
+                const shift = (settings.beepShift || 0) / 1000;
+                const pad   = (settings.beepPad ?? 40) / 1000;
+                ranges.push({ start: Math.max(0, off + w.start + shift - pad),
+                              end:   Math.max(0.05, off + w.end + shift + pad) });
             }
         }
     }
@@ -4154,9 +4189,23 @@ function beepProfanityAction() {
             await W.beepTrackWav(extDir(), chosen, wav, { spawnOpts: { env: spawnEnv() } });
             await loadHostJSX();
             const r = await evalScript(`insertAudioAtStart('${wav.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')`);
+            // Duck (or mute) the original audio clips during the beeped ranges
+            let ducked = null;
+            try {
+                const duckLevel = Math.max(0, Math.min(1, (settings.beepDuck || 0) / 100));
+                const dArg = JSON.stringify({ ranges: chosen, level: duckLevel }).replace(/'/g, "\\'");
+                ducked = await evalScript(`duckAudioRanges('${dArg}')`);
+                if (ducked && ducked.diag) console.log("[Subsper] duck diag:", ducked.diag);
+            } catch (eD) {}
             if (r && r.success) {
-                setStatus(settings.uiLang === "tr" ? `✓ Bip sesi A${(r.track || 0) + 1} kanalına eklendi (${chosen.length} nokta)` : `✓ Beep track added on A${(r.track || 0) + 1} (${chosen.length} spot(s))`, "success");
-                showToast(settings.uiLang === "tr" ? "Bip timeline'da — orijinal kelimeyi tamamen gizlemek için o klibin sesini kıs" : "Beep is on the timeline — lower the original clip's audio to fully hide the word", "success", 7000);
+                const duckedOk = ducked && ducked.success && ducked.keyed > 0;
+                setStatus(settings.uiLang === "tr"
+                    ? `✓ Bip A${(r.track || 0) + 1} kanalında${duckedOk ? " + orijinal ses kısıldı" : ""} (${chosen.length} nokta)`
+                    : `✓ Beep on A${(r.track || 0) + 1}${duckedOk ? " + original audio ducked" : ""} (${chosen.length} spot(s))`, "success");
+                showToast(duckedOk
+                    ? (settings.uiLang === "tr" ? "Bip + ses kısma uygulandı ✓ (geri almak: Premiere'de Cmd+Z)" : "Beep + ducking applied ✓ (undo in Premiere: Cmd+Z)")
+                    : (settings.uiLang === "tr" ? "Bip eklendi. Ses kısma bu Premiere sürümünde otomatik olamadı — klibin sesini elle kıs" : "Beep added. Auto-ducking not possible on this Premiere build — lower the clip audio manually"),
+                    "success", 7000);
             } else {
                 setStatus((r && r.error) || "Beep placement failed", "error");
             }
@@ -4285,7 +4334,7 @@ setTimeout(function initV110() {
         renderStyleFavs();
 
         // Beep-profanity tool card on the Audio tab (both; desktop executes)
-        const auPanel = document.querySelector("#panel-au-work .controls, #panel-au-work");
+        const auPanel = document.querySelector("#panel-au-work .setup-scroll, #panel-au-work");
         if (auPanel) {
             const card = document.createElement("div");
             card.className = "setting-item tool-card";
@@ -4554,7 +4603,7 @@ setTimeout(function initV112() {
         }
 
         // Edit tools: "Cut deleted rows from video" + "Speech analytics" cards
-        const edPanel2 = document.querySelector("#panel-ed-work .controls, #panel-ed-work");
+        const edPanel2 = document.querySelector("#panel-ed-work .setup-scroll, #panel-ed-work");
         if (edPanel2) {
             const isTr = settings.uiLang === "tr";
             const card = document.createElement("div");

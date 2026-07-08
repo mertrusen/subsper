@@ -252,6 +252,87 @@ function wsStop() {
     return JSON.stringify({ success: false, error: "stop failed: " + errs.join(" | ") });
 }
 
+// Probe the real playback state if this Premiere build exposes it via QE.
+// known:false → caller falls back to playhead-motion sampling.
+function wsIsPlayingProbe() {
+    try {
+        app.enableQE();
+        var qeSeq = qe.project.getActiveSequence();
+        if (qeSeq && qeSeq.player) {
+            var p = qeSeq.player;
+            if (typeof p.isPlaying === "boolean") return JSON.stringify({ success: true, known: true, playing: p.isPlaying });
+            if (typeof p.isPlaying === "function") return JSON.stringify({ success: true, known: true, playing: !!p.isPlaying() });
+            if (typeof p.playing === "boolean")   return JSON.stringify({ success: true, known: true, playing: p.playing });
+        }
+    } catch (e) {}
+    return JSON.stringify({ success: true, known: false });
+}
+
+// Duck (lower) the ORIGINAL audio during given ranges by keyframing each audio
+// clip's Volume→Level. payload = { ranges:[{start,end}], level:0..1 }.
+// Level keyframe values are linear gain here; guarded — returns keyed count + diag.
+function duckAudioRanges(payloadJson) {
+    var diag = [], keyed = 0;
+    try {
+        var data = JSON.parse(payloadJson);
+        var ranges = data.ranges || [];
+        var level = (typeof data.level === "number") ? data.level : 0;
+        var seq = app.project.activeSequence;
+        if (!seq) return JSON.stringify({ success: false, error: "No active sequence." });
+        var EDGE = 0.03;   // seconds of ramp on each side
+
+        for (var t = 0; t < seq.audioTracks.numTracks; t++) {
+            var trk = seq.audioTracks[t];
+            for (var c = 0; c < trk.clips.numItems; c++) {
+                var clip = trk.clips[c];
+                var cs, ce;
+                try { cs = ticksToSeconds(clip.start.ticks); ce = ticksToSeconds(clip.end.ticks); } catch (e0) { continue; }
+
+                // find Volume → Level
+                var vol = null;
+                try {
+                    for (var i = 0; i < clip.components.numItems; i++) {
+                        var dn = ""; try { dn = clip.components[i].displayName; } catch (e1) {}
+                        if (dn === "Volume" || dn === "Ses Düzeyi" || dn === "Ses") { vol = clip.components[i]; break; }
+                    }
+                } catch (e2) {}
+                if (!vol) continue;
+                var lev = null;
+                try {
+                    for (var p2 = 0; p2 < vol.properties.numItems; p2++) {
+                        var pn = ""; try { pn = vol.properties[p2].displayName; } catch (e3) {}
+                        if (pn === "Level" || pn === "Düzey") { lev = vol.properties[p2]; break; }
+                    }
+                } catch (e4) {}
+                if (!lev) continue;
+
+                var base = 1.0;
+                try { var bv = lev.getValue(); if (typeof bv === "number" && bv > 0.01 && bv <= 4) base = bv; } catch (e5) {}
+                var duckVal = base * level;
+
+                for (var r = 0; r < ranges.length; r++) {
+                    var rs = parseFloat(ranges[r].start), re = parseFloat(ranges[r].end);
+                    if (isNaN(rs) || isNaN(re)) continue;
+                    if (re <= cs || rs >= ce) continue;   // no overlap with this clip
+                    var a = Math.max(cs, rs), b = Math.min(ce, re);
+                    try {
+                        try { lev.setTimeVarying(true); } catch (eTV) {}
+                        var k1 = Math.max(cs, a - EDGE), k4 = Math.min(ce, b + EDGE);
+                        lev.addKey(k1); lev.setValueAtKey(k1, base, true);
+                        lev.addKey(a);  lev.setValueAtKey(a, duckVal, true);
+                        lev.addKey(b);  lev.setValueAtKey(b, duckVal, true);
+                        lev.addKey(k4); lev.setValueAtKey(k4, base, true);
+                        keyed++;
+                    } catch (eK) { if (keyed === 0) diag.push("keyframe failed: " + eK.toString()); }
+                }
+            }
+        }
+        return JSON.stringify({ success: true, keyed: keyed, diag: diag });
+    } catch (e) {
+        return JSON.stringify({ success: false, error: e.toString(), diag: diag });
+    }
+}
+
 // Seek the timeline playhead to a given position in seconds
 function seekToTime(seconds) {
     try {

@@ -223,6 +223,35 @@ function togglePlayback() {
     }
 }
 
+// Stateless play / stop — the PANEL decides which to call (it can tell if the
+// playhead is moving), so Premiere-initiated playback never desyncs a flag.
+function wsPlay() {
+    var errs = [];
+    try { app.enableQE(); } catch (eQ) { return JSON.stringify({ success: false, error: "enableQE: " + eQ.toString() }); }
+    var qeSeq = null;
+    try { qeSeq = qe.project.getActiveSequence(); } catch (eS) {}
+    if (!qeSeq) return JSON.stringify({ success: false, error: "No active QE sequence" });
+    var plays = [function () { qeSeq.play(1); }, function () { qeSeq.play(1.0); }, function () { qeSeq.player.play(); }];
+    for (var p = 0; p < plays.length; p++) {
+        try { plays[p](); _wsIsPlaying = true; return JSON.stringify({ success: true, playing: true }); }
+        catch (e2) { errs.push(e2.toString()); }
+    }
+    return JSON.stringify({ success: false, error: "play failed: " + errs.join(" | ") });
+}
+function wsStop() {
+    var errs = [];
+    try { app.enableQE(); } catch (eQ) { return JSON.stringify({ success: false, error: "enableQE: " + eQ.toString() }); }
+    var qeSeq = null;
+    try { qeSeq = qe.project.getActiveSequence(); } catch (eS) {}
+    if (!qeSeq) return JSON.stringify({ success: false, error: "No active QE sequence" });
+    var stops = [function () { qeSeq.stop(); }, function () { qeSeq.play(0); }, function () { qeSeq.player.stop(); }];
+    for (var s = 0; s < stops.length; s++) {
+        try { stops[s](); _wsIsPlaying = false; return JSON.stringify({ success: true, playing: false }); }
+        catch (e1) { errs.push(e1.toString()); }
+    }
+    return JSON.stringify({ success: false, error: "stop failed: " + errs.join(" | ") });
+}
+
 // Seek the timeline playhead to a given position in seconds
 function seekToTime(seconds) {
     try {
@@ -547,6 +576,72 @@ function importAudioToProject(audioPath) {
     } catch (e) {
         return JSON.stringify({ success: false, error: e.toString() });
     }
+}
+
+// ── Insert an audio file onto a NEW audio track at time 0 (beep overlay) ───
+function insertAudioAtStart(audioPath) {
+    try {
+        if (!new File(audioPath).exists) return JSON.stringify({ success: false, error: "File not found: " + audioPath });
+        var seq = app.project.activeSequence;
+        if (!seq) return JSON.stringify({ success: false, error: "No active sequence." });
+
+        // Import into the Whisper Audio bin (reuses importAudioToProject plumbing)
+        var root = app.project.rootItem;
+        var bin = null;
+        for (var i = 0; i < root.children.numItems; i++) {
+            try { if (root.children[i].name === "Whisper Audio" && root.children[i].type === 2) { bin = root.children[i]; break; } } catch (e) {}
+        }
+        if (!bin) { try { bin = root.createBin("Whisper Audio"); } catch (eB) {} }
+        var target = bin || root;
+        var before = {};
+        for (var s = 0; s < target.children.numItems; s++) { try { before[target.children[s].nodeId] = true; } catch (e2) {} }
+        app.project.importFiles([audioPath], true, target, false);
+        var item = null;
+        for (var n = target.children.numItems - 1; n >= 0; n--) {
+            try { if (!before[target.children[n].nodeId]) { item = target.children[n]; break; } } catch (e3) {}
+        }
+        if (!item) return JSON.stringify({ success: false, error: "Import succeeded but item not found." });
+
+        // Add a fresh audio track (QE), fall back to the last existing one.
+        var aIdx = seq.audioTracks.numTracks;
+        try {
+            app.enableQE();
+            var qeSeq = qe.project.getActiveSequence();
+            if (qeSeq) { qeSeq.addTracks(0, 0, 1, 1, aIdx); }
+        } catch (eT) {}
+        if (aIdx >= seq.audioTracks.numTracks) aIdx = seq.audioTracks.numTracks - 1;
+        if (aIdx < 0) return JSON.stringify({ success: false, error: "No audio track available." });
+
+        var trk = seq.audioTracks[aIdx];
+        try { trk.overwriteClip(item, 0); }
+        catch (eO) {
+            try { trk.insertClip(item, 0); }
+            catch (eI) { return JSON.stringify({ success: false, error: "Could not place clip: " + eI.toString() }); }
+        }
+        return JSON.stringify({ success: true, track: aIdx });
+    } catch (e) {
+        return JSON.stringify({ success: false, error: e.toString() });
+    }
+}
+
+// ── Find .srt items in the project (fallback source for "pull captions") ───
+function findProjectSRTs() {
+    var found = [];
+    function scan(item, depth) {
+        if (!item || depth > 6) return;
+        var n = 0;
+        try { n = item.children ? item.children.numItems : 0; } catch (e) { return; }
+        for (var i = 0; i < n; i++) {
+            var ch = item.children[i];
+            try {
+                if (ch.type === 2) { scan(ch, depth + 1); continue; }   // bin
+                var p = ch.getMediaPath ? decodePath(ch.getMediaPath()) : "";
+                if (p && /\.srt$/i.test(p) && new File(p).exists) found.push({ path: p, name: ch.name });
+            } catch (e2) {}
+        }
+    }
+    try { scan(app.project.rootItem, 0); } catch (e) {}
+    return JSON.stringify({ success: true, items: found });
 }
 
 // ── Silence auto-cut: ripple-delete time ranges across all tracks ──────────

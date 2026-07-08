@@ -27,7 +27,7 @@ function createWindow() {
   win.webContents.session.webRequest.onHeadersReceived((details, cb) => {
     cb({ responseHeaders: {
       ...details.responseHeaders,
-      "Content-Security-Policy": ["default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:; media-src 'self' file: blob:; connect-src 'self' https:"]
+      "Content-Security-Policy": ["default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:; media-src 'self' file: blob:; connect-src 'self' https: http://localhost:* http://127.0.0.1:*"]
     }});
   });
   win.setMenuBarVisibility(false);

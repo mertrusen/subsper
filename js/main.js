@@ -2240,23 +2240,40 @@ function parseSRT(content) {
 
 // ── Play / pause ──────────────────────────────────────────────────────────
 let _isPlaying = false;
+let _playBusy  = false;
 
+// Read the Premiere playhead in seconds (ticks-based, robust across builds).
+function readPlayheadSecs() {
+    return evalScript("(function(){try{var s=app.project.activeSequence;if(!s)return -1;var p=s.getPlayerPosition();if(!p)return -1;if(p.ticks!==undefined&&p.ticks!==null&&p.ticks!=='')return parseInt(p.ticks)/254016000000;if(typeof p.seconds==='number')return p.seconds;return -1;}catch(e){return -1;}})()")
+        .then(r => { const v = (typeof r === "number") ? r : parseFloat(r); return isNaN(v) ? -1 : v; });
+}
+
+// STATELESS play/pause: instead of trusting a toggle flag (which desyncs the
+// moment the user starts playback from Premiere itself), sample the playhead
+// twice — moving → stop, still → play.
 async function playPause() {
+    if (_playBusy) return;
+    _playBusy = true;
     const btn = $("playpause-btn");
-    const res = await evalScript("togglePlayback()");
+    try {
+        const p1 = await readPlayheadSecs();
+        await new Promise(r => setTimeout(r, 130));
+        const p2 = await readPlayheadSecs();
+        const playing = p1 >= 0 && p2 >= 0 && Math.abs(p2 - p1) > 0.0005;
 
-    if (!res || res.success === false) {
-        const msg = (res && res.error) ? res.error : "Playback failed (QE unavailable?)";
-        setStatus("Play/Pause failed: " + msg, "error");
-        showToast("Play/Pause failed: " + msg, "error", 7000);
-        return;
-    }
-
-    _isPlaying = !!res.playing;
-    if (btn) {
-        btn.innerHTML = _isPlaying ? icon("pause") + "<span>" + t("btn_pause") + "</span>" : icon("play") + "<span>" + t("btn_play") + "</span>";
-        btn.classList.toggle("playing", _isPlaying);
-    }
+        const res = await evalScript(playing ? "wsStop()" : "wsPlay()");
+        if (!res || res.success === false) {
+            const msg = (res && res.error) ? res.error : "Playback failed (QE unavailable?)";
+            setStatus("Play/Pause failed: " + msg, "error");
+            showToast("Play/Pause failed: " + msg, "error", 7000);
+            return;
+        }
+        _isPlaying = !playing;
+        if (btn) {
+            btn.innerHTML = _isPlaying ? icon("pause") + "<span>" + t("btn_pause") + "</span>" : icon("play") + "<span>" + t("btn_play") + "</span>";
+            btn.classList.toggle("playing", _isPlaying);
+        }
+    } finally { _playBusy = false; }
 }
 
 // ── Seek timeline + play ───────────────────────────────────────────────────
@@ -2266,12 +2283,9 @@ async function seekToSegment(idx) {
     if (!seg) return;
     selectSegment(idx);
     await evalScript(`seekToTime(${seg.seqStart})`);
-    _isPlaying = false;
-    // Start playing after seek
-    const playRes = await evalScript("togglePlayback()");
-    if (playRes && playRes.success !== false) {
-        _isPlaying = !!(playRes.playing);
-    }
+    // Start playing after seek — stateless wsPlay (seek always stops playback)
+    const playRes = await evalScript("wsPlay()");
+    _isPlaying = !!(playRes && playRes.success !== false);
     const btn = $("playpause-btn");
     if (btn) {
         btn.innerHTML = _isPlaying ? icon("pause") + "<span>" + t("btn_pause") + "</span>" : icon("play") + "<span>" + t("btn_play") + "</span>";
@@ -2593,7 +2607,7 @@ function renderSegments() {
         el.dataset.idx = idx;
 
         const speakerHtml = seg.speaker
-            ? `<span class="seg-speaker">${seg.speaker.replace("SPEAKER_", "S")}</span>`
+            ? `<span class="seg-speaker" style="cursor:pointer" onclick="event.stopPropagation();renameSpeaker(segments[${idx}].speaker)" data-tip="Click to rename this speaker everywhere">${escHtml(String(seg.speaker).replace("SPEAKER_", "S"))}</span>`
             : "";
 
         const tipSeek = escHtml(t("tip_seek"));
@@ -2822,11 +2836,23 @@ function escAssText(s) {
 function karaokeBody(seg) {
     const words = (seg.words || []).filter(w => w && w.start != null && w.end != null && w.word);
     if (!words.length) return escAssText(seg.text);
+    // Keyword emphasis (Submagic-style): context words, ALL-CAPS words and
+    // numbers pop bigger. Cheap heuristic, no AI call needed.
+    const emph = new Set((settings.promptWords || "").split(/[,\n]/).map(w => w.trim().toLowerCase()).filter(Boolean));
+    const isEmph = (word) => {
+        const clean = word.replace(/[.,!?;:"'()]/g, "");
+        if (!clean) return false;
+        if (emph.has(clean.toLowerCase())) return true;
+        if (/\d/.test(clean)) return true;
+        if (clean.length >= 3 && clean === clean.toUpperCase() && /[A-Z\u00c7\u011e\u0130\u00d6\u015e\u00dc]/.test(clean)) return true;
+        return false;
+    };
     let prev = seg.start != null ? seg.start : words[0].start;
     let parts = [];
     for (const w of words) {
         const durCs = Math.max(1, Math.round((w.end - prev) * 100));
-        parts.push(`{\\kf${durCs}}` + escAssText(w.word) + " ");
+        const txt = escAssText(w.word);
+        parts.push(`{\\kf${durCs}}` + (isEmph(w.word) ? `{\\fscx118\\fscy118}${txt}{\\fscx100\\fscy100}` : txt) + " ");
         prev = w.end;
     }
     return parts.join("").trim();
@@ -3279,13 +3305,21 @@ function initTooltips() {
     const _isDesktop = (typeof window !== "undefined" && window.IS_DESKTOP === true);
     if (!_isDesktop) {
         // Space = play/pause in Premiere (unless you're typing in a field).
+        // Buttons keep focus after a click, and Space would "click" them again —
+        // so we blur buttons on click AND swallow Space's default activation.
+        document.addEventListener("click", (e) => {
+            const b = e.target && e.target.closest && e.target.closest("button, select");
+            if (b) b.blur();
+        }, true);
         document.addEventListener("keydown", (e) => {
             if (e.code !== "Space" && e.key !== " ") return;
             const el = document.activeElement, tag = el && el.tagName;
             if (tag === "INPUT" || tag === "TEXTAREA" || (el && el.isContentEditable)) return;
             e.preventDefault();
+            e.stopPropagation();
+            if (tag === "BUTTON" || tag === "SELECT") el.blur();   // never re-trigger the focused control
             playPause();
-        });
+        }, true);
 
         setInterval(async () => {
             if (!segments || segments.length === 0 || isRunning) return;
@@ -3346,7 +3380,7 @@ function initTooltips() {
    files (and the extension↔desktop footer sync) stay untouched.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION = "1.11.0";
+const APP_VERSION = "1.13.0";
 const GH_REPO = "mertrusen/subsper";
 const IS_DESKTOP_APP = (typeof window !== "undefined" && window.IS_DESKTOP === true);
 
@@ -3628,27 +3662,55 @@ function exportTranslationSRT() {
     } catch (e) { showToast("Save failed: " + e.message, "error"); }
 }
 
-// ── Pull captions from the Premiere timeline (experimental) ────────────────
-async function pullTimelineCaptions() {
-    if (IS_DESKTOP_APP) return;
-    setStatus("Reading captions from the timeline…", "info");
-    await loadHostJSX();
-    const r = await evalScript("readTimelineCaptions()");
-    if (!r || !r.success || !r.items || !r.items.length) {
-        const why = (r && r.error) || "This Premiere version doesn't expose caption contents to extensions.";
-        setStatus("Couldn't read captions — " + why, "warning");
-        showToast("Caption pull not supported here: " + why, "warning", 6000);
-        return;
-    }
+// ── Pull captions from the Premiere timeline ────────────────────────────────
+// Try the scripting caption API first (rarely exposed); then fall back to the
+// .srt project items — which always covers captions that Subsper itself sent
+// (importSRTToProject keeps the .srt in the project). Newest whisper_*.srt wins.
+function _loadPulledSegments(items, sourceNote) {
     pushUndo();
-    segments = r.items.map((it, i) => ({
+    segments = items.map((it, i) => ({
         id: i, start: it.start, end: it.end, seqStart: it.start, seqEnd: it.end,
         text: it.text || "", words: [], speaker: null,
     }));
     seqInTime = 0;
     renderSegments(); updateSegCount();
     actionsBar.style.display = "flex"; sendBtn.disabled = false;
-    setStatus(`✓ Pulled ${segments.length} caption(s) from the timeline`, "success");
+    setStatus(`✓ Pulled ${segments.length} caption(s)${sourceNote ? " — " + sourceNote : ""}`, "success");
+}
+async function pullTimelineCaptions() {
+    if (IS_DESKTOP_APP) return;
+    setStatus("Reading captions from the timeline…", "info");
+    await loadHostJSX();
+
+    // 1) Direct caption-track read (works only on Premiere builds that expose it)
+    const r = await evalScript("readTimelineCaptions()");
+    if (r && r.success && r.items && r.items.length) {
+        _loadPulledSegments(r.items, "from the caption track");
+        return;
+    }
+
+    // 2) Fallback: .srt files referenced by the project (incl. our own sends)
+    const f = await evalScript("findProjectSRTs()");
+    const srts = (f && f.items) || [];
+    if (srts.length) {
+        // newest whisper_*.srt first (our own timestamped sends), else last srt
+        srts.sort((a, b) => (b.path.match(/whisper_(\d+)/) || [0, 0])[1] - (a.path.match(/whisper_(\d+)/) || [0, 0])[1]);
+        const pick = srts[0];
+        try {
+            const parsed = parseSRT(fs.readFileSync(pick.path, "utf8"));
+            if (parsed.length) {
+                _loadPulledSegments(parsed.map(s => ({ start: s.seqStart, end: s.seqEnd, text: s.text })),
+                    (settings.uiLang === "tr" ? "kaynak: " : "source: ") + pick.name);
+                return;
+            }
+        } catch (e) { console.warn("SRT fallback read failed:", e); }
+    }
+
+    const why = (r && r.error) || "This Premiere version doesn't expose caption contents to extensions.";
+    setStatus("Couldn't read captions — " + why, "warning");
+    showToast((settings.uiLang === "tr"
+        ? "Çekilemedi. Çözüm: caption track'i seç → File > Export > Captions (SRT) → Load SRT ile aç. "
+        : "Couldn't pull. Workaround: select the caption track → File > Export > Captions (SRT) → open with Load SRT. ") , "warning", 8000);
 }
 
 // ── Onboarding (first run, 3 steps) ────────────────────────────────────────
@@ -4069,15 +4131,38 @@ async function aiClipsAction() {
     else showToast((res && res.error) || "Could not add markers", "error");
 }
 
-// ── Beep profanity (desktop executes; extension gets a clear pointer) ──────
+// ── Beep profanity ──────────────────────────────────────────────────────────
+// Desktop: exports a beeped copy of the file. Extension: generates a beep-only
+// WAV (silent except 1 kHz at the ranges) and lays it on a NEW audio track at 0
+// — a real beep on the timeline. Mute/lower the original words manually if the
+// underlying audio must be fully hidden.
 function beepProfanityAction() {
     if (!segments.length) { showToast("Transcribe first — beeping needs word timings", "info", 3000); return; }
     const ranges = computeProfanityRanges();
-    if (!ranges.length) { showToast(settings.uiLang === "tr" ? "Küfür bulunamadı (kelime zamanlı)" : "No profanity found (word-timed)", "info", 3000); return; }
-    showRangePreview(settings.uiLang === "tr" ? "Küfürleri biple" : "Beep profanity", ranges, (chosen) => {
-        if (IS_DESKTOP_APP && window.beepProfanityDesktop) window.beepProfanityDesktop(chosen);
-        else showToast(settings.uiLang === "tr" ? "Bip'li dosya çıkışı masaüstü uygulamasında — Premiere'de bu aralıklara marker koyuyorum" : "Beeped file export lives in the desktop app — adding markers here", "info", 5000),
-             (!IS_DESKTOP_APP && evalScript(`addSilenceMarkers('${JSON.stringify(chosen.map((r,i)=>({start:r.start,end:r.end,dur:+(r.end-r.start).toFixed(2)}))).replace(/'/g, "\\'")}')`));
+    if (!ranges.length) { showToast(settings.uiLang === "tr" ? "Küfür bulunamadı — Ayarlar'daki küfür listesi + kelime zamanları kullanılır" : "No profanity found (uses the Settings profanity list + word timings)", "info", 4000); return; }
+    showRangePreview(settings.uiLang === "tr" ? "Küfürleri biple" : "Beep profanity", ranges, async (chosen) => {
+        if (IS_DESKTOP_APP) {
+            if (window.beepProfanityDesktop) window.beepProfanityDesktop(chosen);
+            return;
+        }
+        const W = wcpp();
+        if (!W || !W.beepTrackWav) { showToast("Engine unavailable", "error"); return; }
+        try {
+            setStatus(settings.uiLang === "tr" ? "Bip sesi üretiliyor…" : "Generating beep track…", "info");
+            showProgress(true);
+            const wav = path.join(os.tmpdir(), `subsper_beep_${Date.now()}.wav`);
+            await W.beepTrackWav(extDir(), chosen, wav, { spawnOpts: { env: spawnEnv() } });
+            await loadHostJSX();
+            const r = await evalScript(`insertAudioAtStart('${wav.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')`);
+            if (r && r.success) {
+                setStatus(settings.uiLang === "tr" ? `✓ Bip sesi A${(r.track || 0) + 1} kanalına eklendi (${chosen.length} nokta)` : `✓ Beep track added on A${(r.track || 0) + 1} (${chosen.length} spot(s))`, "success");
+                showToast(settings.uiLang === "tr" ? "Bip timeline'da — orijinal kelimeyi tamamen gizlemek için o klibin sesini kıs" : "Beep is on the timeline — lower the original clip's audio to fully hide the word", "success", 7000);
+            } else {
+                setStatus((r && r.error) || "Beep placement failed", "error");
+            }
+        } catch (e) {
+            setStatus(e.message, "error");
+        } finally { showProgress(false); }
     });
 }
 
@@ -4216,3 +4301,336 @@ setTimeout(function initV110() {
         maybeOfferRestore();
     } catch (e) { console.error("[Subsper] v1.10 init failed:", e); }
 }, 10);
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   v1.12 differentiator pack — text-based video editing, chapters, multi-lang
+   SRT, speech analytics, keyword-emphasis karaoke, speaker rename, style
+   share, dictionary packs, local-AI (Ollama) support.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+// ── Text-based video editing ("delete the sentence → cut the video") ───────
+// _originalSegments = the segment list right after transcription. Rows the user
+// DELETES afterwards become cut-ranges; splits/edits/merges are left alone
+// (their time span is still covered by the current list).
+let _originalSegments = null;
+function snapshotOriginalSegments() {
+    try { _originalSegments = segments.map(s => ({ seqStart: s.seqStart, seqEnd: s.seqEnd })); } catch (e) { _originalSegments = null; }
+}
+function computeDeletedRanges() {
+    if (!_originalSegments || !_originalSegments.length) return [];
+    const covered = (t) => segments.some(s => t >= s.seqStart - 0.02 && t <= s.seqEnd + 0.02);
+    const removed = [];
+    for (const o of _originalSegments) {
+        const mid = (o.seqStart + o.seqEnd) / 2;
+        if (!covered(mid)) removed.push({ start: o.seqStart, end: o.seqEnd });
+    }
+    removed.sort((a, b) => a.start - b.start);
+    const merged = [];
+    for (const r of removed) {
+        const last = merged[merged.length - 1];
+        if (last && r.start <= last.end + 0.05) last.end = Math.max(last.end, r.end);
+        else merged.push({ ...r });
+    }
+    return merged;
+}
+async function applyTextCuts() {
+    if (!_originalSegments) { showToast(settings.uiLang === "tr" ? "Önce Transcribe — sonra istemediğin satırları sil" : "Transcribe first — then delete the rows you don't want", "info", 4000); return; }
+    const removed = computeDeletedRanges();
+    if (!removed.length) { showToast(settings.uiLang === "tr" ? "Silinmiş satır yok. Satır sil (✕), sonra tekrar dene" : "No deleted rows yet. Delete rows (✕), then retry", "info", 4500); return; }
+    showRangePreview(settings.uiLang === "tr" ? "Silinen satırları videodan kes" : "Cut deleted rows from the video", removed, async (chosen) => {
+        if (IS_DESKTOP_APP) {
+            if (window.applyTextCutsDesktop) window.applyTextCutsDesktop(chosen);
+            return;
+        }
+        setEditStatus(`Cutting ${chosen.length} range(s)…`, "info");
+        await loadHostJSX();
+        const arg = JSON.stringify(chosen).replace(/'/g, "\\'");
+        const r = await evalScript(`rippleDeleteRanges('${arg}')`);
+        if (r && r.success) {
+            snapshotOriginalSegments();   // current state becomes the new baseline
+            setEditStatus(`✓ Removed ${r.removed} item(s) — timeline follows your text`, "success");
+            showToast(settings.uiLang === "tr" ? "Video metnini takip etti ✂ (geri almak: Premiere'de Cmd+Z)" : "Video now follows your text ✂ (undo in Premiere: Cmd+Z)", "success", 6000);
+        } else setEditStatus((r && r.error) || "Cut failed", "error");
+    });
+}
+
+// ── Speaker rename (click the S1/S2 chip on a segment) ─────────────────────
+function renameSpeaker(sp) {
+    const cur = sp || "";
+    const name = prompt((settings.uiLang === "tr" ? "Konuşmacı adı: " : "Speaker name: ") + cur, cur.replace("SPEAKER_", "S"));
+    if (!name || name === cur) return;
+    pushUndo();
+    segments.forEach(s => { if (s.speaker === sp) s.speaker = name; });
+    renderSegments(); reselect();
+    showToast((settings.uiLang === "tr" ? "Yeniden adlandırıldı: " : "Renamed: ") + name, "success");
+}
+
+// ── Speech analytics (works fully offline, no AI needed) ───────────────────
+function showSpeechStats() {
+    if (!segments.length) { showToast("Transcribe first", "info", 2000); return; }
+    const first = segments[0].seqStart, last = segments[segments.length - 1].seqEnd;
+    const span = Math.max(0.01, last - first);
+    let spoken = 0, words = 0, fillers = 0, chars = 0;
+    const fl = getFillerList().filter(w => !w.includes(" "));
+    const fset = new Set(fl.map(w => w.toLowerCase()));
+    for (const s of segments) {
+        spoken += (s.seqEnd - s.seqStart);
+        const ws = (s.text || "").split(/\s+/).filter(Boolean);
+        words += ws.length; chars += (s.text || "").length;
+        ws.forEach(w => { if (fset.has(w.toLowerCase().replace(/[.,!?;:"']/g, ""))) fillers++; });
+    }
+    const wpm = Math.round(words / (span / 60));
+    const silPct = Math.max(0, Math.round((1 - spoken / span) * 100));
+    const cps = (chars / spoken).toFixed(1);
+    const isTr = settings.uiLang === "tr";
+    const rows = [
+        [isTr ? "Süre" : "Duration", `${Math.floor(span / 60)}m ${Math.round(span % 60)}s`],
+        [isTr ? "Kelime" : "Words", String(words)],
+        [isTr ? "Konuşma hızı" : "Speaking pace", `${wpm} ${isTr ? "kelime/dk" : "wpm"} ${wpm > 170 ? "⚡" : wpm < 110 ? "🐢" : "✓"}`],
+        [isTr ? "Dolgu kelime" : "Filler words", `${fillers} (${(fillers / Math.max(1, words) * 100).toFixed(1)}%)`],
+        [isTr ? "Sessizlik" : "Silence", `${silPct}%`],
+        [isTr ? "Okuma hızı" : "Reading speed", `${cps} ${isTr ? "karakter/sn" : "chars/sec"}`],
+    ];
+    let ov = $("stats-ov"); if (ov) ov.remove();
+    ov = document.createElement("div");
+    ov.id = "stats-ov";
+    ov.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center";
+    ov.innerHTML = `<div style="background:var(--bg2,#16181d);border:1px solid var(--border2,#333);border-radius:12px;max-width:340px;width:90%;padding:18px">
+        <div style="font-weight:800;font-size:13px;margin-bottom:10px">📊 ${isTr ? "Konuşma Analizi" : "Speech Analytics"}</div>
+        ${rows.map(r => `<div style="display:flex;justify-content:space-between;font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--border2)"><span style="color:var(--text2)">${r[0]}</span><b>${r[1]}</b></div>`).join("")}
+        <button class="btn-secondary" style="margin-top:12px;width:100%" onclick="document.getElementById('stats-ov').remove()">OK</button></div>`;
+    ov.onclick = e => { if (e.target === ov) ov.remove(); };
+    document.body.appendChild(ov);
+}
+
+// ── Provider-agnostic single completion (used by chapters & multi-lang) ─────
+async function aiComplete(prompt) {
+    const provider = settings.aiProvider || "gemini";
+    const model = modelForProvider(provider, settings.geminiModel);
+    const key = { gemini: settings.geminiApiKey, openai: settings.openaiApiKey,
+                  anthropic: settings.anthropicApiKey, custom: settings.customApiKey }[provider] || "";
+    if (!key && provider !== "custom") throw new Error("API key missing (Settings → AI & API)");
+    if (provider === "gemini") {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error?.message || "API error");
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    }
+    if (provider === "anthropic") {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerously-allow-browser": "true" },
+            body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: "user", content: prompt }] }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error?.message || "API error");
+        return data.content?.[0]?.text || "";
+    }
+    const url = provider === "custom" && settings.customApiUrl ? settings.customApiUrl + "/chat/completions" : "https://api.openai.com/v1/chat/completions";
+    const res = await fetch(url, {
+        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
+        body: JSON.stringify({ model: model || "gpt-4o", messages: [{ role: "user", content: prompt }] }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || "API error");
+    return data.choices?.[0]?.message?.content || "";
+}
+
+function _plainTranscript() {
+    return segments.map((s, i) => `${i + 1} [${fmtMMSS(s.seqStart)}] ${(s.text || "").replace(/\s+/g, " ").trim()}`).join("\n");
+}
+
+// ── YouTube chapters ────────────────────────────────────────────────────────
+async function aiChapters() {
+    if (!segments.length) { showToast("Transcribe first", "info", 2000); return; }
+    const out = $("ai-output"); if (out) out.value = "Thinking...";
+    updateAiActions(null);
+    try {
+        const text = await aiComplete(
+`Create YouTube chapters for this video transcript. Rules: 4-10 chapters, first one MUST be "00:00", format each line exactly "MM:SS Title" (or HH:MM:SS if over an hour), titles short and catchy, same language as the transcript. Output ONLY the chapter lines.
+
+Transcript:
+${_plainTranscript()}`);
+        if (out) out.value = text.trim();
+        updateAiActions("chapters");
+        showToast(settings.uiLang === "tr" ? "Bölümler hazır — kopyala, YouTube açıklamasına yapıştır" : "Chapters ready — copy into your YouTube description", "success", 5000);
+    } catch (e) { if (out) out.value = "Error: " + e.message; }
+}
+
+// ── Multi-language SRT batch ────────────────────────────────────────────────
+const LANG_NAMES = { en: "English", tr: "Turkish", de: "German", es: "Spanish", fr: "French", pt: "Portuguese", it: "Italian", ar: "Arabic", ru: "Russian", ja: "Japanese" };
+async function multiLangSRT() {
+    if (!segments.length) { showToast("Transcribe first", "info", 2000); return; }
+    const isTr = settings.uiLang === "tr";
+    const raw = prompt(isTr ? "Hedef diller (virgülle, örn: en,de,es,fr):" : "Target languages (comma-separated, e.g. en,de,es,fr):", "en,de,es");
+    if (!raw) return;
+    const langs = raw.split(/[, ]+/).map(s => s.trim().toLowerCase()).filter(l => l && l.length <= 3);
+    if (!langs.length) return;
+    const outDir = path.join(os.homedir(), "Desktop", "subsper_translations");
+    try { fs.mkdirSync(outDir, { recursive: true }); } catch (e) {}
+    const lineCount = segments.length;
+    const out = $("ai-output");
+    let done = 0;
+    for (const lc of langs) {
+        const langName = LANG_NAMES[lc] || lc;
+        if (out) out.value = `Translating → ${langName} (${done + 1}/${langs.length})…`;
+        setStatus(`AI translating → ${langName}…`, "info");
+        try {
+            const text = await aiComplete(
+`Translate each numbered subtitle line below into natural ${langName}. The transcript has ${lineCount} numbered lines ("N [MM:SS] text"). Return EXACTLY ${lineCount} lines as "N. text" — same count and order, never merge or drop lines. Output ONLY the numbered lines.
+
+Transcript:
+${_plainTranscript()}`);
+            const map = parseNumberedAi(text);
+            const srt = segments.map((seg, i) =>
+                `${i + 1}\n${formatTime(seg.seqStart)} --> ${formatTime(seg.seqEnd)}\n${map[i] != null ? map[i] : seg.text}\n`).join("\n");
+            fs.writeFileSync(path.join(outDir, `captions_${lc}.srt`), srt, "utf8");
+            done++;
+        } catch (e) {
+            showToast(`${langName}: ${e.message}`, "error", 5000);
+        }
+    }
+    if (out) out.value = (isTr ? `✓ ${done}/${langs.length} dil kaydedildi → ` : `✓ ${done}/${langs.length} language(s) saved → `) + outDir;
+    setStatus(`✓ Multi-language SRT: ${done}/${langs.length} → ${outDir}`, done ? "success" : "error");
+    if (done) revealInFolder(path.join(outDir, `captions_${langs[0]}.srt`));
+}
+
+// ── Style favorites: share (export / import) ───────────────────────────────
+function exportStyleFavs() {
+    const favs = settings.styleFavs || [];
+    if (!favs.length) { showToast(settings.uiLang === "tr" ? "Önce favori kaydet (★)" : "Save a favorite first (★)", "info", 2500); return; }
+    const p = path.join(os.homedir(), "Desktop", "subsper_styles.json");
+    try { fs.writeFileSync(p, JSON.stringify({ app: "subsper-styles", favs }, null, 1), "utf8"); showToast("→ " + p, "success", 4000); revealInFolder(p); }
+    catch (e) { showToast(e.message, "error"); }
+}
+function importStyleFavs() {
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = ".json";
+    inp.onchange = () => {
+        const f = inp.files[0]; if (!f) return;
+        try {
+            const data = JSON.parse(fs.readFileSync(f.path, "utf8"));
+            if (data.app !== "subsper-styles" || !Array.isArray(data.favs)) throw new Error("Not a Subsper style file");
+            settings.styleFavs = (settings.styleFavs || []).concat(data.favs).slice(-12);
+            saveSettings(); renderStyleFavs();
+            showToast(`+${data.favs.length} style(s)`, "success");
+        } catch (e) { showToast(e.message, "error"); }
+    };
+    inp.click();
+}
+
+// ── Dictionary packs (one-click wrong=right rule sets) ─────────────────────
+const DICT_PACKS = {
+    tech:   ["java script=JavaScript", "phyton=Python", "gugıl=Google", "yutub=YouTube", "linkedin=LinkedIn", "ai=AI", "chat gpt=ChatGPT", "opun ai=OpenAI"],
+    gaming: ["valorant=Valorant", "cs go=CS:GO", "lol=LoL", "fps=FPS", "gg=GG", "meta=meta", "skin=skin", "battle royale=Battle Royale"],
+    social: ["instagram=Instagram", "tiktok=TikTok", "reels=Reels", "shorts=Shorts", "influencer=influencer", "hashtag=hashtag", "story=story", "dm=DM"],
+};
+function applyDictPack(name) {
+    const pack = DICT_PACKS[name]; if (!pack) return;
+    const cur = (settings.customDict || "").trim();
+    const have = new Set(cur.split(/\r?\n/).map(l => l.split("=")[0].trim().toLowerCase()));
+    const add = pack.filter(r => !have.has(r.split("=")[0].toLowerCase()));
+    settings.customDict = (cur ? cur + "\n" : "") + add.join("\n");
+    saveSettings();
+    const ta = $("set-dict"); if (ta) ta.value = settings.customDict;
+    updateDictCount();
+    showToast(`+${add.length} ${name} rules`, "success");
+}
+
+// ── v1.12 init ──────────────────────────────────────────────────────────────
+setTimeout(function initV112() {
+    try {
+        // Baseline snapshot for text-based editing: taken after every transcription
+        const origStart2 = window.startTranscription;
+        if (typeof origStart2 === "function") {
+            window.startTranscription = async function () {
+                const r = await origStart2.apply(this, arguments);
+                try { if (segments && segments.length) snapshotOriginalSegments(); } catch (e) {}
+                return r;
+            };
+        }
+
+        // Edit tools: "Cut deleted rows from video" + "Speech analytics" cards
+        const edPanel2 = document.querySelector("#panel-ed-work .controls, #panel-ed-work");
+        if (edPanel2) {
+            const isTr = settings.uiLang === "tr";
+            const card = document.createElement("div");
+            card.className = "setting-item tool-card";
+            card.innerHTML = `
+              <div class="setting-row"><div class="setting-info">
+                <div class="setting-name">✂️ ${isTr ? "Metinden Video Kurgu" : "Text-Based Video Editing"}</div>
+                <div class="setting-desc">${isTr ? "Altyazı listesinden sildiğin satırlar videodan da kesilir. Sil (✕) → bu butona bas → önizle → uygula." : "Rows you delete from the subtitle list get cut from the video too. Delete (✕) → press this → preview → apply."}</div>
+              </div></div>
+              <button class="btn-transcribe btn-compact" style="margin-top:8px" onclick="applyTextCuts()">${isTr ? "Silinenleri Videodan Kes" : "Cut Deleted Rows"}</button>
+              <button class="btn-secondary" style="margin-top:6px;width:100%" onclick="showSpeechStats()">📊 ${isTr ? "Konuşma Analizi" : "Speech Analytics"}</button>`;
+            edPanel2.appendChild(card);
+        }
+
+        // AI panel: Chapters + Multi-language buttons into the content grid
+        const grids = document.querySelectorAll("#ai-panel .ai-grid");
+        const contentGrid = grids[grids.length - 1];
+        if (contentGrid) {
+            const isTr = settings.uiLang === "tr";
+            const bCh = document.createElement("button");
+            bCh.innerHTML = `<span class="ic" data-icon="captions"></span><span>${isTr ? "YouTube Bölümleri" : "YouTube Chapters"}</span>`;
+            bCh.onclick = aiChapters;
+            const bML = document.createElement("button");
+            bML.innerHTML = `<span class="ic" data-icon="download"></span><span>${isTr ? "Çoklu Dil SRT" : "Multi-language SRT"}</span>`;
+            bML.setAttribute("data-tip", isTr ? "Tek seferde birden çok dile çevirip Desktop'a SRT seti kaydeder" : "Translates into several languages at once, saves an SRT set to Desktop");
+            bML.onclick = multiLangSRT;
+            contentGrid.appendChild(bCh); contentGrid.appendChild(bML);
+            if (typeof applyIcons === "function") applyIcons(contentGrid);
+        }
+        // Copy button for chapters output
+        const aiActs2 = $("ai-actions");
+        if (aiActs2) {
+            const bCp = document.createElement("button");
+            bCp.className = "btn-secondary";
+            bCp.id = "ai-copy-btn";
+            bCp.style.display = "none";
+            bCp.textContent = settings.uiLang === "tr" ? "📋 Kopyala" : "📋 Copy";
+            bCp.onclick = () => copyText($("ai-output").value);
+            aiActs2.appendChild(bCp);
+        }
+        // extend contextual actions for chapters
+        const origUpd = window.updateAiActions;
+        if (typeof origUpd === "function") {
+            window.updateAiActions = function (type) {
+                origUpd(type);
+                const el = $("ai-copy-btn");
+                if (el) el.style.display = (type === "chapters" || type === "summary" || type === "tags") ? "inline-flex" : "none";
+            };
+        }
+
+        // Style favorites share buttons
+        const favRow = $("style-favs-row");
+        if (favRow) {
+            const isTr = settings.uiLang === "tr";
+            const ex = document.createElement("button");
+            ex.className = "style-chip"; ex.textContent = "⇪"; ex.setAttribute("data-tip", isTr ? "Favorileri dosyaya aktar (paylaş)" : "Export favorites to a file (share)");
+            ex.onclick = exportStyleFavs;
+            const im = document.createElement("button");
+            im.className = "style-chip"; im.textContent = "⇩"; im.setAttribute("data-tip", isTr ? "Stil dosyası içe aktar" : "Import a style file");
+            im.onclick = importStyleFavs;
+            favRow.appendChild(ex); favRow.appendChild(im);
+        }
+
+        // Dictionary packs under the custom-dictionary textarea
+        const dictTa = $("set-dict");
+        if (dictTa && dictTa.parentElement) {
+            const isTr = settings.uiLang === "tr";
+            const row = document.createElement("div");
+            row.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin-top:6px";
+            row.innerHTML = `<span style="font-size:10.5px;color:var(--text3);align-self:center">${isTr ? "Hazır paket:" : "Preset pack:"}</span>` +
+                Object.keys(DICT_PACKS).map(k => `<button class="style-chip" onclick="applyDictPack('${k}')">＋ ${k}</button>`).join("");
+            dictTa.parentElement.insertBefore(row, dictTa.nextSibling);
+        }
+
+        // Local AI (Ollama) hint on the custom-URL field
+        const cu = $("set-custom-url");
+        if (cu) cu.placeholder = "http://localhost:11434/v1  (Ollama — %100 offline AI)";
+    } catch (e) { console.error("[Subsper] v1.12 init failed:", e); }
+}, 20);

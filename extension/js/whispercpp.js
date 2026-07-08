@@ -685,12 +685,28 @@ async function beepRanges(appDir, inputPath, outPath, ranges, opts) {
     return outPath;
 }
 
+/* Overlay-only beep track: a WAV that is SILENT everywhere except a 1 kHz tone
+ * during `ranges` — meant to be laid on its own track above the original audio
+ * (Premiere). ranges=[{start,end}] in timeline seconds. */
+async function beepTrackWav(appDir, ranges, outWav, opts) {
+    opts = opts || {};
+    if (!ranges || !ranges.length) throw new Error("No ranges to beep.");
+    const expr = ranges.map(r => `between(t,${r.start.toFixed(3)},${r.end.toFixed(3)})`).join("+");
+    const dur = Math.max.apply(null, ranges.map(r => r.end)) + 0.5;
+    const args = ["-y", "-f", "lavfi", "-i", `sine=f=1000:d=${dur.toFixed(2)}`,
+                  "-af", `volume='if(${expr},0.85,0)':eval=frame`,
+                  "-ar", "48000", "-c:a", "pcm_s16le", outWav];
+    dbg("beepTrackWav: " + ranges.length + " range(s), dur=" + dur.toFixed(1) + "s");
+    await _runFfmpeg(appDir, args, opts.spawnOpts || {});
+    return outWav;
+}
+
 module.exports = {
     platKey, whisperBin, ffmpegBin, resolveBin,
     modelsDir, modelPath, modelExists, ensureModel, GGML_FILES,
     parseWhisperJson, toWav16k, transcribeWav, dtwPreset,
     normalizePath, extractClipsToWav,
-    detectSilence, enhanceMedia, cutMedia, beepRanges,
+    detectSilence, enhanceMedia, cutMedia, beepRanges, beepTrackWav,
     setLogger, recentLog, logPath, dbg,
     flushLog, cleanupStaleDownloads, verifyModel,
 };

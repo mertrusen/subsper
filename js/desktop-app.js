@@ -896,6 +896,79 @@
       layer.appendChild(el);
     });
   }
+  /* ── v1.12 desktop: text-cut export · vertical 9:16 clip ─────────────── */
+
+  // Text-based editing: export a copy with the deleted-row ranges removed
+  window.applyTextCutsDesktop = async function (removed) {
+    if (!mediaPath || !WCPP) { showToast("Open a file first", "info", 2000); return; }
+    const dur = (mediaEl && isFinite(mediaEl.duration) && mediaEl.duration > 0)
+      ? mediaEl.duration : (segments.length ? segments[segments.length - 1].seqEnd + 1 : 0);
+    const keep = [];
+    let cursor = 0;
+    for (const r of removed.slice().sort((a, b) => a.start - b.start)) {
+      if (r.start > cursor) keep.push([cursor, r.start]);
+      cursor = Math.max(cursor, r.end);
+    }
+    if (cursor < dur) keep.push([cursor, dur]);
+    const inExt = (mediaPath.split(".").pop() || "mp4").toLowerCase();
+    const isAudio = ["mp3","wav","m4a","aac","flac","ogg"].includes(inExt);
+    const res = await ipcRenderer.invoke("dialog:saveFile",
+      { defaultName: baseName() + "_edited." + (isAudio ? inExt : "mp4"), ext: isAudio ? inExt : "mp4" });
+    if (!res || !res.filePath) return;
+    setStatus(`Cutting ${removed.length} range(s)…`, "info"); showProgress(true);
+    try {
+      await WCPP.cutMedia(extDir(), mediaPath, res.filePath, keep, { video: !isAudio });
+      snapshotOriginalSegments();
+      setStatus(`✓ Edited file → ${res.filePath}`, "success");
+      showToast("Video now follows your text ✂", "success", 5000);
+    } catch (e) { setStatus(e.message, "error"); }
+    finally { showProgress(false); }
+  };
+
+  // Vertical 9:16 clip: center-crop to 1080x1920 + burn the styled subtitles.
+  async function exportVerticalClip() {
+    if (!mediaPath) { showToast("Open a video first", "info", 2000); return; }
+    if (!WCPP) { showToast("Engine unavailable", "error"); return; }
+    const res = await ipcRenderer.invoke("dialog:saveFile",
+      { defaultName: baseName() + "_vertical.mp4", ext: "mp4" });
+    if (!res || !res.filePath) return;
+    setStatus("Exporting vertical 9:16 clip… (re-encodes)", "info"); showProgress(true);
+    const assPath = pathD.join(osD.tmpdir(), "subsper_vert_" + Date.now() + ".ass");
+    try {
+      let vf = "crop=ih*9/16:ih,scale=1080:1920";
+      if (segments.length) {
+        fsD.writeFileSync(assPath, segmentsToASS(), "utf8");
+        const esc = assPath.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
+        vf += ",subtitles='" + esc + "'";
+      }
+      await new Promise((resolve, reject) => {
+        const ff = spawnD(WCPP.ffmpegBin(extDir()),
+          ["-y", "-i", mediaPath, "-vf", vf, "-c:a", "copy", res.filePath]);
+        let err = "";
+        ff.stderr.on("data", d => {
+          err += d.toString(); if (err.length > 60000) err = err.slice(-30000);
+          const m = /time=(\d+):(\d+):(\d+)/.exec(d.toString());
+          if (m && mediaEl && mediaEl.duration > 0) {
+            const t2 = (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]);
+            setStatus(`Vertical export… ${Math.min(99, Math.round(t2 / mediaEl.duration * 100))}%`, "info");
+          }
+        });
+        ff.on("error", e => reject(new Error("ffmpeg could not run: " + e.message)));
+        ff.on("close", c => c === 0 ? resolve() : reject(new Error("Export failed: " + err.slice(-300))));
+      });
+      setStatus(`✓ Vertical clip → ${res.filePath}`, "success");
+      showToast("9:16 clip ready — TikTok/Reels/Shorts", "success", 5000);
+    } catch (e) { setStatus(e.message, "error"); showToast(e.message, "error", 6000); }
+    finally { showProgress(false); try { fsD.unlinkSync(assPath); } catch (e) {} }
+  }
+  setTimeout(() => {
+    if (window.menuGroupAdd) {
+      menuGroupAdd("export-grp-video", "grp_video",
+        settings.uiLang === "tr" ? "Dikey klip 9:16 (TikTok/Reels)" : "Vertical clip 9:16 (TikTok/Reels)",
+        exportVerticalClip, "Center-crops to 1080x1920 and burns the styled subtitles in");
+    }
+  }, 60);
+
   // redraw boxes whenever segments re-render (post-hoc wrap, cheap)
   setTimeout(() => {
     const origRender = window.renderSegments;

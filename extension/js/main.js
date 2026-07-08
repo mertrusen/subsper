@@ -115,6 +115,10 @@ function onSettingChange(key, value) {
         const sub = document.getElementById("autosplit-sub");
         if (sub) sub.style.display = value ? "block" : "none";
     }
+    // Keep the AI panel's "no key yet" hint in sync with the key fields
+    if (/ApiKey$|^aiProvider$/.test(key) && typeof updateAiKeyHint === "function") {
+        try { updateAiKeyHint(); } catch (e) {}
+    }
 }
 
 // ── Internationalization (EN / TR) ─────────────────────────────────────────
@@ -167,6 +171,13 @@ const I18N = {
     sec_api: "AI & API", nm_gemini_api: "Gemini API Key", ds_gemini_api: "Get a free key from Google AI Studio to use AI tools.",
     lbl_ai_tools: "AI Studio", tip_ai: "AI Video Tools",
     ai_summary: "Summary & Title", ai_shorts: "Extract Shorts", ai_broll: "B-Roll Ideas",
+    ai_tags: "Tags / SEO", ai_translate: "Translate → EN", ai_grammar: "Fix Grammar", ai_apply: "Apply to Subtitles",
+    ai_sub_tools: "Improve subtitles", ai_content_tools: "Content ideas",
+    ai_key_hint: "No API key yet — click here to add one in Settings (free from Google AI Studio).",
+    tip_ai_provider: "Which AI service answers. The model list follows your choice.",
+    tip_ai_grammar: "Fixes spelling & grammar line by line, then lets you apply it back",
+    tip_ai_translate: "Translates every line, keeping the timing — apply back or export as SRT",
+    grp_files: "Subtitle file", grp_video: "Video", grp_premiere: "Premiere", grp_project: "Project",
     ai_ph: "Generated insights will appear here...",
     nm_filler: "Filler words", ds_filler: "Include the built-in list (ee, ıı, şey, um, uh…)",
     lbl_extrafiller: "Extra fillers to remove",
@@ -324,6 +335,13 @@ const I18N = {
     sec_api: "Yapay Zeka & API", nm_gemini_api: "Gemini API Anahtarı", ds_gemini_api: "Google AI Studio'dan ücretsiz alacağınız anahtarla çalışır.",
     lbl_ai_tools: "AI Studio", tip_ai: "Yapay Zeka Araçları",
     ai_summary: "Özet & Başlık", ai_shorts: "Shorts Çıkar", ai_broll: "B-Roll Fikirleri",
+    ai_tags: "Etiket / SEO", ai_translate: "Çevir → EN", ai_grammar: "Dilbilgisi Düzelt", ai_apply: "Altyazıya Uygula",
+    ai_sub_tools: "Altyazıyı iyileştir", ai_content_tools: "İçerik fikirleri",
+    ai_key_hint: "Henüz API anahtarı yok — eklemek için tıkla (Google AI Studio'dan ücretsiz).",
+    tip_ai_provider: "Hangi yapay zekâ cevaplasın. Model listesi seçimine göre değişir.",
+    tip_ai_grammar: "Satır satır yazım ve dilbilgisini düzeltir, sonra geri uygularsın",
+    tip_ai_translate: "Her satırı zamanlamayı koruyarak çevirir — geri uygula veya SRT al",
+    grp_files: "Altyazı dosyası", grp_video: "Video", grp_premiere: "Premiere", grp_project: "Proje",
     ai_ph: "Üretilen fikirler burada görünecek...",
     nm_filler: "Dolgu kelimeler", ds_filler: "Yerleşik listeyi kullan (ee, ıı, şey, um, uh…)",
     lbl_extrafiller: "Kaldırılacak ekstra dolgular",
@@ -979,8 +997,7 @@ function initSettingsUI() {
     set("set-anthropic-key", settings.anthropicApiKey || "");
     set("set-custom-url", settings.customApiUrl || "");
     set("set-custom-key", settings.customApiKey || "");
-    set("set-gemini-model", settings.geminiModel || "gemini-3.5-flash");
-    set("ai-panel-model", settings.geminiModel || "gemini-3.5-flash");
+    if (typeof rebuildAiModelSelect === "function") rebuildAiModelSelect();
     if (typeof updateAiProviderUI === "function") updateAiProviderUI(settings.aiProvider || "gemini");
 
     chk("set-karaoke", settings.karaoke);
@@ -1728,6 +1745,67 @@ function modelForProvider(provider, chosen) {
     return DEFAULT_MODELS[provider] || chosen;
 }
 
+// Per-provider model choices — the AI-panel model list follows the provider,
+// so a Gemini user never sees (or accidentally selects) a GPT model id.
+const PROVIDER_MODELS = {
+    gemini:    [["gemini-3.5-flash", "gemini-3.5-flash ★"], ["gemini-3.1-pro-preview", "gemini-3.1-pro"], ["gemini-3.1-flash-lite", "gemini-3.1-flash-lite"]],
+    openai:    [["gpt-4o", "gpt-4o ★"], ["gpt-4o-mini", "gpt-4o-mini"]],
+    anthropic: [["claude-sonnet-4-5", "claude-sonnet-4.5 ★"], ["claude-haiku-4-5", "claude-haiku-4.5"]],
+    custom:    [["llama-3.3-70b-versatile", "llama-3.3-70b (Groq)"]],
+};
+function rebuildAiModelSelect() {
+    const provider = settings.aiProvider || "gemini";
+    const list = PROVIDER_MODELS[provider] || [];
+    ["ai-panel-model", "set-gemini-model"].forEach(id => {
+        const sel = $(id); if (!sel) return;
+        sel.innerHTML = "";
+        list.forEach(([v, label]) => {
+            const o = document.createElement("option"); o.value = v; o.textContent = label; sel.appendChild(o);
+        });
+        const cur = (settings.geminiModel || "").trim();
+        if (cur && !list.some(([v]) => v === cur)) {
+            const o = document.createElement("option"); o.value = cur; o.textContent = cur; sel.appendChild(o);
+        }
+        const oc = document.createElement("option"); oc.value = "_custom"; oc.textContent = "Type custom…"; sel.appendChild(oc);
+        sel.value = list.some(([v]) => v === cur) || (cur && sel.querySelector(`option[value="${cur}"]`)) ? cur : (list[0] ? list[0][0] : "_custom");
+    });
+}
+function aiProviderChanged(v) {
+    onSettingChange("aiProvider", v);
+    const sp = $("set-ai-provider"); if (sp) sp.value = v;
+    if (typeof updateAiProviderUI === "function") updateAiProviderUI(v);
+    // switch to that provider's default model unless the saved one already fits
+    settings.geminiModel = modelForProvider(v, settings.geminiModel);
+    saveSettings();
+    rebuildAiModelSelect();
+    updateAiKeyHint();
+}
+function aiModelChanged(sel) {
+    if (sel.value === "_custom") {
+        sel.style.display = "none";
+        const inp = $("ai-panel-custom-input");
+        if (inp) { inp.style.display = "inline-block"; inp.focus(); }
+        return;
+    }
+    onSettingChange("geminiModel", sel.value);
+    rebuildAiModelSelect();
+}
+function aiCustomModelBlur(inp) {
+    const m = (inp.value || "").trim();
+    inp.style.display = "none";
+    const sel = $("ai-panel-model"); if (sel) sel.style.display = "";
+    if (m) { onSettingChange("geminiModel", m); }
+    rebuildAiModelSelect();
+    inp.value = "";
+}
+function updateAiKeyHint() {
+    const hint = $("ai-key-hint"); if (!hint) return;
+    const provider = settings.aiProvider || "gemini";
+    const key = { gemini: settings.geminiApiKey, openai: settings.openaiApiKey,
+                  anthropic: settings.anthropicApiKey, custom: settings.customApiKey }[provider] || "";
+    hint.style.display = (key || provider === "custom") ? "none" : "flex";
+}
+
 async function askAi(type) {
     const provider = settings.aiProvider || "gemini";
     
@@ -1777,9 +1855,8 @@ async function askAi(type) {
     }
     
     const outBox = $("ai-output");
-    const applyBtn = $("ai-apply-btn");
-    if (applyBtn) applyBtn.style.display = "none";
-    
+    updateAiActions(null);   // hide contextual actions while thinking
+
     outBox.value = "Thinking...";
     const model = modelForProvider(provider, settings.geminiModel);
     const systemPrompt = "You are an expert video editor and YouTube strategist. Respond clearly using Markdown formatting. If the transcript is in Turkish, respond in Turkish unless asked to translate. If English, respond in English.";
@@ -1843,14 +1920,22 @@ async function askAi(type) {
         }
         
         outBox.value = text;
-        
-        if (type === "grammar" || type === "translate_en") {
-            if (applyBtn) applyBtn.style.display = "inline-flex";
-        }
+        updateAiActions(type);
     } catch (e) {
         console.error("AI Error:", e);
         outBox.value = "Error: " + e.message;
     }
+}
+
+// Show ONLY the follow-up actions that make sense for the last AI result:
+// grammar/translate → Apply (+ SRT / send-to-Premiere for translate),
+// shorts → hook-clip action. Everything else → no buttons (plain reading).
+function updateAiActions(type) {
+    const show = (id, on) => { const el = $(id); if (el) el.style.display = on ? "inline-flex" : "none"; };
+    show("ai-apply-btn",   type === "grammar" || type === "translate_en");
+    show("ai-srt-btn",     type === "translate_en");
+    show("ai-send-tr-btn", type === "translate_en");
+    show("ai-clips-btn",   type === "shorts");
 }
 
 // Parse the AI's numbered output ("N. text") back onto segments 1:1. Robust —
@@ -3261,7 +3346,7 @@ function initTooltips() {
    files (and the extension↔desktop footer sync) stay untouched.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION = "1.10.0";
+const APP_VERSION = "1.11.0";
 const GH_REPO = "mertrusen/subsper";
 const IS_DESKTOP_APP = (typeof window !== "undefined" && window.IS_DESKTOP === true);
 
@@ -3626,19 +3711,31 @@ setTimeout(function initFeaturePack() {
             }
         });
 
-        // Export menu: extra entries (word captions, translated SRT; burn-in added by desktop)
-        const em = $("export-menu");
-        if (em) {
-            const mk = (label, fn, tip) => {
-                const b = document.createElement("button");
-                b.textContent = label; b.setAttribute("data-tip", tip || "");
-                b.onclick = fn;
-                em.appendChild(b);
-                return b;
-            };
-            mk(settings.uiLang === "tr" ? "Kelime kelime altyazı" : "Word-by-word captions",
-               () => { em.style.display = "none"; sendWordCaptions(); },
-               "TikTok-style: every word becomes its own caption cue");
+        // Export menu: grouped extra entries. menuGroupAdd puts each feature
+        // under a labeled group (Video / Premiere / Project) instead of a flat pile.
+        window.menuGroupAdd = function (grpId, labelKey, text, fn, tip) {
+            const grp = $(grpId); if (!grp) return null;
+            if (labelKey && !grp.querySelector(".menu-group-label")) {
+                const lab = document.createElement("div");
+                lab.className = "menu-group-label";
+                lab.textContent = t(labelKey);
+                grp.appendChild(lab);
+            }
+            const b = document.createElement("button");
+            b.innerHTML = `<span>${text}</span>`;
+            if (tip) b.setAttribute("data-tip", tip);
+            b.onclick = () => { const em2 = $("export-menu"); if (em2) em2.style.display = "none"; fn(); };
+            grp.appendChild(b);
+            return b;
+        };
+        if (IS_DESKTOP_APP) {
+            menuGroupAdd("export-grp-files", null,
+                settings.uiLang === "tr" ? "Kelime kelime SRT" : "Word-by-word SRT",
+                sendWordCaptions, "TikTok-style: every word becomes its own cue");
+        } else {
+            menuGroupAdd("export-grp-premiere", "grp_premiere",
+                settings.uiLang === "tr" ? "Kelime kelime altyazı → timeline" : "Word-by-word captions → timeline",
+                sendWordCaptions, "TikTok-style: every word becomes its own caption cue");
         }
 
         // Remember last export format + preselect
@@ -3647,16 +3744,16 @@ setTimeout(function initFeaturePack() {
             window.exportAs = function (fmt) { try { settings.lastExport = fmt; saveSettings(); } catch (e) {} return origExport.apply(this, arguments); };
         }
 
-        // AI panel: "Save translated SRT" button next to Apply
-        const applyBtn = $("ai-apply-btn");
-        if (applyBtn && applyBtn.parentElement) {
+        // AI panel: "Save translated SRT" — contextual, only visible after Translate
+        const aiActions = $("ai-actions");
+        if (aiActions) {
             const tb = document.createElement("button");
-            tb.className = applyBtn.className || "btn-secondary";
+            tb.className = "btn-secondary";
             tb.id = "ai-srt-btn";
+            tb.style.display = "none";
             tb.textContent = settings.uiLang === "tr" ? "Çeviriyi SRT kaydet" : "Save translated SRT";
-            tb.style.marginLeft = "6px";
             tb.onclick = exportTranslationSRT;
-            applyBtn.parentElement.insertBefore(tb, applyBtn.nextSibling);
+            aiActions.appendChild(tb);
         }
 
         // Extension-only: caption pull + filler cut buttons on the Edit-tools panel
@@ -3674,15 +3771,32 @@ setTimeout(function initFeaturePack() {
                 edPanel.appendChild(wrap);
                 $("filler-cut-btn").onclick = cutFillerWords;
             }
+        }
+
+        // Compact secondary-actions row under the main controls (shared helper —
+        // desktop adds Batch here, extension adds caption pull). Keeps the primary
+        // Transcribe/Play area clean instead of stacking full-width buttons.
+        window.secondaryAdd = function (text, fn, tip) {
             const txControls = document.querySelector("#panel-tx-work .controls");
-            if (txControls) {
-                const pb = document.createElement("button");
-                pb.className = "btn-load-srt";
-                pb.style.cssText = "width:100%;margin-top:8px;justify-content:center";
-                pb.innerHTML = `<span>${settings.uiLang === "tr" ? "⇩ Timeline'daki altyazıyı çek (deneysel)" : "⇩ Pull captions from timeline (experimental)"}</span>`;
-                pb.onclick = pullTimelineCaptions;
-                txControls.appendChild(pb);
+            if (!txControls) return null;
+            let row = $("secondary-actions");
+            if (!row) {
+                row = document.createElement("div");
+                row.id = "secondary-actions";
+                txControls.appendChild(row);
             }
+            const b = document.createElement("button");
+            b.className = "btn-ghost";
+            b.textContent = text;
+            if (tip) b.setAttribute("data-tip", tip);
+            b.onclick = fn;
+            row.appendChild(b);
+            return b;
+        };
+        if (!IS_DESKTOP_APP) {
+            secondaryAdd(settings.uiLang === "tr" ? "⇩ Timeline'dan altyazı çek" : "⇩ Pull captions from timeline",
+                pullTimelineCaptions,
+                settings.uiLang === "tr" ? "Deneysel — timeline'daki caption track'i panele alır" : "Experimental — pulls the caption track into the panel");
         }
 
         // Setup tab: model manager + report button
@@ -4041,45 +4155,46 @@ setTimeout(function initV110() {
             uiSel.value = settings.uiLang;
         }
 
-        // Project buttons (Save/Open) into the export menu
-        const em = $("export-menu");
-        if (em) {
-            const bSave = document.createElement("button");
-            bSave.textContent = settings.uiLang === "tr" ? "Projeyi kaydet (.subsper)" : "Save project (.subsper)";
-            bSave.onclick = () => { em.style.display = "none"; saveProject(); };
-            const bOpen = document.createElement("button");
-            bOpen.textContent = settings.uiLang === "tr" ? "Proje aç…" : "Open project…";
-            bOpen.onclick = () => { em.style.display = "none"; openProject(); };
-            em.appendChild(bSave); em.appendChild(bOpen);
-            // MOGRT send (Premiere only)
+        // Project buttons (Save/Open) → "Project" group in the export menu
+        if (window.menuGroupAdd) {
+            menuGroupAdd("export-grp-project", "grp_project",
+                settings.uiLang === "tr" ? "Projeyi kaydet (.subsper)" : "Save project (.subsper)", saveProject);
+            menuGroupAdd("export-grp-project", "grp_project",
+                settings.uiLang === "tr" ? "Proje aç…" : "Open project…", openProject);
             if (!IS_DESKTOP_APP) {
-                const bM = document.createElement("button");
-                bM.textContent = settings.uiLang === "tr" ? "Stilli grafik olarak gönder (MOGRT)" : "Send as styled graphics (MOGRT)";
-                bM.setAttribute("data-tip", "Places each subtitle as an editable Essential Graphics clip. Pick any .mogrt once.");
-                bM.onclick = () => { em.style.display = "none"; sendStyledGraphics(); };
-                em.appendChild(bM);
+                menuGroupAdd("export-grp-premiere", "grp_premiere",
+                    settings.uiLang === "tr" ? "Stilli grafik (MOGRT) → timeline" : "Styled graphics (MOGRT) → timeline",
+                    sendStyledGraphics, "Places each subtitle as an editable Essential Graphics clip. Pick any .mogrt once.");
             }
         }
 
-        // AI panel: clips + translation-to-Premiere buttons
-        const aiBtnHost = $("ai-apply-btn") && $("ai-apply-btn").parentElement;
-        if (aiBtnHost) {
+        // AI panel: contextual clip + translation buttons (visibility via updateAiActions)
+        const aiActs = $("ai-actions");
+        if (aiActs) {
             const bC = document.createElement("button");
             bC.className = "btn-secondary";
-            bC.textContent = settings.uiLang === "tr" ? (IS_DESKTOP_APP ? "Klipleri dışa aktar" : "Hook marker'ları koy") : (IS_DESKTOP_APP ? "Export hook clips" : "Mark hooks on timeline");
-            bC.style.marginLeft = "6px";
+            bC.id = "ai-clips-btn";
+            bC.style.display = "none";
+            bC.textContent = settings.uiLang === "tr" ? (IS_DESKTOP_APP ? "🎬 Klipleri dışa aktar" : "🎬 Hook marker'ları koy") : (IS_DESKTOP_APP ? "🎬 Export hook clips" : "🎬 Mark hooks on timeline");
             bC.setAttribute("data-tip", "Parses MM:SS-MM:SS ranges from the Shorts output");
             bC.onclick = aiClipsAction;
-            aiBtnHost.appendChild(bC);
+            aiActs.appendChild(bC);
             if (!IS_DESKTOP_APP) {
                 const bT = document.createElement("button");
                 bT.className = "btn-secondary";
+                bT.id = "ai-send-tr-btn";
+                bT.style.display = "none";
                 bT.textContent = settings.uiLang === "tr" ? "Çeviriyi Premiere'e gönder" : "Send translation to Premiere";
-                bT.style.marginLeft = "6px";
                 bT.onclick = sendTranslationToPremiere;
-                aiBtnHost.appendChild(bT);
+                aiActs.appendChild(bT);
             }
         }
+
+        // AI header: sync provider/model selects + key hint with saved settings
+        const provSel = $("ai-panel-provider");
+        if (provSel) provSel.value = settings.aiProvider || "gemini";
+        rebuildAiModelSelect();
+        updateAiKeyHint();
 
         // Style favorites row under the preset chips
         renderStyleFavs();

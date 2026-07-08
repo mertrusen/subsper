@@ -753,25 +753,17 @@
   // Desktop UI injections (deferred so main.js's feature pack has run)
   setTimeout(() => {
     try {
-      // Export menu: burn-in entry
-      const em = document.getElementById("export-menu");
-      if (em) {
-        const b = document.createElement("button");
-        b.textContent = settings.uiLang === "tr" ? "Videoya göm (burn-in MP4)" : "Burn into video (MP4)";
-        b.setAttribute("data-tip", "Renders the styled subtitles INTO a new video file");
-        b.onclick = () => { em.style.display = "none"; exportBurnedVideo(); };
-        em.appendChild(b);
+      // Export menu: burn-in under the "Video" group
+      if (window.menuGroupAdd) {
+        menuGroupAdd("export-grp-video", "grp_video",
+          settings.uiLang === "tr" ? "Videoya göm (burn-in MP4)" : "Burn into video (MP4)",
+          exportBurnedVideo, "Renders the styled subtitles INTO a new video file");
       }
-      // Batch button under the Open button
-      const openBtnRow = document.querySelector("#panel-tx-work .controls");
-      if (openBtnRow) {
-        const bb = document.createElement("button");
-        bb.className = "btn-load-srt";
-        bb.style.cssText = "width:100%;margin-top:8px;justify-content:center";
-        bb.innerHTML = `<span>${settings.uiLang === "tr" ? "📁 Toplu Transcribe (çok dosya)" : "📁 Batch Transcribe (multiple files)"}</span>`;
-        bb.setAttribute("data-tip", settings.uiLang === "tr" ? "Birden çok dosya seç; her birinin yanına .srt kaydedilir" : "Pick multiple files; an .srt is saved next to each");
-        bb.onclick = () => batchTranscribe(null);
-        openBtnRow.appendChild(bb);
+      // Batch → compact secondary-actions row
+      if (window.secondaryAdd) {
+        secondaryAdd(settings.uiLang === "tr" ? "📁 Toplu transcribe" : "📁 Batch transcribe",
+          () => batchTranscribe(null),
+          settings.uiLang === "tr" ? "Birden çok dosya seç; her birinin yanına .srt kaydedilir" : "Pick multiple files; an .srt is saved next to each");
       }
       // Edit tools: filler-cut card
       const edPanel = document.querySelector("#panel-ed-work .controls, #panel-ed-work");

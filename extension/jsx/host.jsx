@@ -277,16 +277,36 @@ function duckAudioRanges(payloadJson) {
         var data = JSON.parse(payloadJson);
         var ranges = data.ranges || [];
         var level = (typeof data.level === "number") ? data.level : 0;
+        // Only duck the clips that were actually transcribed (speech source) —
+        // never music beds or the beep track we just inserted.
+        var pathSet = null;
+        if (data.paths && data.paths.length) {
+            pathSet = {};
+            for (var ps = 0; ps < data.paths.length; ps++) pathSet[String(data.paths[ps])] = true;
+        }
+        var skipTrack = (typeof data.skipTrack === "number") ? data.skipTrack : -1;
         var seq = app.project.activeSequence;
         if (!seq) return JSON.stringify({ success: false, error: "No active sequence." });
         var EDGE = 0.03;   // seconds of ramp on each side
 
         for (var t = 0; t < seq.audioTracks.numTracks; t++) {
+            if (t === skipTrack) continue;
             var trk = seq.audioTracks[t];
             for (var c = 0; c < trk.clips.numItems; c++) {
                 var clip = trk.clips[c];
                 var cs, ce;
                 try { cs = ticksToSeconds(clip.start.ticks); ce = ticksToSeconds(clip.end.ticks); } catch (e0) { continue; }
+                if (pathSet) {
+                    var mp = "";
+                    try { mp = decodePath(clip.projectItem.getMediaPath()); } catch (eMP) {}
+                    if (!pathSet[mp]) { continue; }   // not a transcribed source → leave it alone
+                }
+                // Keyframe times on clip properties are in MEDIA time: offset by the
+                // clip's source inPoint (a head-trimmed clip otherwise gets its dip
+                // shifted earlier by exactly the trimmed amount).
+                var inP = 0;
+                try { inP = ticksToSeconds(clip.inPoint.ticks); } catch (eIP) {}
+                var toKey = function (seqT) { return inP + (seqT - cs); };
 
                 // find Volume → Level
                 var vol = null;
@@ -317,10 +337,11 @@ function duckAudioRanges(payloadJson) {
                     var a = Math.max(cs, rs), b = Math.min(ce, re);
                     try {
                         try { lev.setTimeVarying(true); } catch (eTV) {}
-                        var k1 = Math.max(cs, a - EDGE), k4 = Math.min(ce, b + EDGE);
+                        var k1 = toKey(Math.max(cs, a - EDGE)), k4 = toKey(Math.min(ce, b + EDGE));
+                        var ka = toKey(a), kb = toKey(b);
                         lev.addKey(k1); lev.setValueAtKey(k1, base, true);
-                        lev.addKey(a);  lev.setValueAtKey(a, duckVal, true);
-                        lev.addKey(b);  lev.setValueAtKey(b, duckVal, true);
+                        lev.addKey(ka); lev.setValueAtKey(ka, duckVal, true);
+                        lev.addKey(kb); lev.setValueAtKey(kb, duckVal, true);
                         lev.addKey(k4); lev.setValueAtKey(k4, base, true);
                         keyed++;
                     } catch (eK) { if (keyed === 0) diag.push("keyframe failed: " + eK.toString()); }

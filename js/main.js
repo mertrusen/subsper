@@ -303,14 +303,14 @@ const I18N = {
     tip_zoomstyle: "Alternate = clips zoom in then out; Always push-in = every clip pushes in",
   },
   tr: {
-    tagline: "Yapay Zekâ Altyazı", status_ready: "Hazır — In/Out koy ve Transcribe'a bas",
+    tagline: "Yapay Zekâ Altyazı", status_ready: "Hazır — Transcribe'a bas (In/Out istersen aralık seçer)",
     tab_transcribe: "Altyazı", tab_silence: "Sessizlik", tab_setup: "Kurulum",
     sub_work_tx: "Düzenle", sub_settings: "Ayarlar", sub_detect: "Tespit",
     lbl_model: "Model", lbl_language: "Dil", opt_auto: "Otomatik algıla",
     btn_transcribe: "In/Out Aralığını Yazıya Dök", btn_loadsrt: "SRT Yükle",
     btn_play: "Oynat", btn_pause: "Duraklat",
     btn_enhance: "Sesi İyileştir — gürültü azalt + dengele",
-    empty_p: "Timeline'da In (I) ve Out (O) noktalarını koy, sonra Transcribe'a bas.",
+    empty_p: "Transcribe'a bas — tüm timeline yazıya dökülür. Sadece bir aralık istersen önce In/Out (I/O) koy.",
     empty_hint: "Bölmek için kelimeye tıkla · düzenlemek için metne çift tıkla.",
     find_ph: "Ara…", replace_ph: "Şununla değiştir… (opsiyonel)",
     btn_close: "Kapat", btn_replaceall: "Tümünü Değiştir", btn_cancel: "İptal",
@@ -3412,7 +3412,7 @@ function initTooltips() {
    files (and the extension↔desktop footer sync) stay untouched.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION = "1.13.2";
+const APP_VERSION = "1.13.3";
 const GH_REPO = "mertrusen/subsper";
 const IS_DESKTOP_APP = (typeof window !== "undefined" && window.IS_DESKTOP === true);
 
@@ -4189,11 +4189,20 @@ function beepProfanityAction() {
             await W.beepTrackWav(extDir(), chosen, wav, { spawnOpts: { env: spawnEnv() } });
             await loadHostJSX();
             const r = await evalScript(`insertAudioAtStart('${wav.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')`);
-            // Duck (or mute) the original audio clips during the beeped ranges
+            // Duck (or mute) ONLY the transcribed speech clips during the beeped
+            // ranges — never music beds, never the beep track we just inserted.
             let ducked = null;
             try {
                 const duckLevel = Math.max(0, Math.min(1, (settings.beepDuck || 0) / 100));
-                const dArg = JSON.stringify({ ranges: chosen, level: duckLevel }).replace(/'/g, "\\'");
+                let paths = [];
+                try {
+                    const si = await evalScript("getSequenceInfo()");
+                    if (si && si.clips) paths = si.clips.map(c => c.path).filter(Boolean);
+                } catch (eSI) {}
+                const dArg = JSON.stringify({
+                    ranges: chosen, level: duckLevel, paths,
+                    skipTrack: (r && r.success && typeof r.track === "number") ? r.track : -1,
+                }).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
                 ducked = await evalScript(`duckAudioRanges('${dArg}')`);
                 if (ducked && ducked.diag) console.log("[Subsper] duck diag:", ducked.diag);
             } catch (eD) {}

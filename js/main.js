@@ -3412,7 +3412,7 @@ function initTooltips() {
    files (and the extension↔desktop footer sync) stay untouched.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION = "1.13.1";
+const APP_VERSION = "1.13.2";
 const GH_REPO = "mertrusen/subsper";
 const IS_DESKTOP_APP = (typeof window !== "undefined" && window.IS_DESKTOP === true);
 
@@ -3852,7 +3852,7 @@ setTimeout(function initFeaturePack() {
 
         // Extension-only: caption pull + filler cut buttons on the Edit-tools panel
         if (!IS_DESKTOP_APP) {
-            const edPanel = document.querySelector("#panel-ed-work .setup-scroll, #panel-ed-work");
+            const edPanel = (document.querySelector("#panel-ed-work .setup-scroll") || document.getElementById("panel-ed-work"));
             if (edPanel) {
                 const wrap = document.createElement("div");
                 wrap.className = "setting-item tool-card";
@@ -4334,7 +4334,7 @@ setTimeout(function initV110() {
         renderStyleFavs();
 
         // Beep-profanity tool card on the Audio tab (both; desktop executes)
-        const auPanel = document.querySelector("#panel-au-work .setup-scroll, #panel-au-work");
+        const auPanel = (document.querySelector("#panel-au-work .setup-scroll") || document.getElementById("panel-au-work"));
         if (auPanel) {
             const card = document.createElement("div");
             card.className = "setting-item tool-card";
@@ -4603,7 +4603,7 @@ setTimeout(function initV112() {
         }
 
         // Edit tools: "Cut deleted rows from video" + "Speech analytics" cards
-        const edPanel2 = document.querySelector("#panel-ed-work .setup-scroll, #panel-ed-work");
+        const edPanel2 = (document.querySelector("#panel-ed-work .setup-scroll") || document.getElementById("panel-ed-work"));
         if (edPanel2) {
             const isTr = settings.uiLang === "tr";
             const card = document.createElement("div");

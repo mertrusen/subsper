@@ -54,6 +54,7 @@ jobs:
             dist/*.blockmap
             dist/latest.yml
           if-no-files-found: error
+          retention-days: 1
 
   macos:
     runs-on: macos-15
@@ -81,6 +82,7 @@ jobs:
             dist/*.zxp
             dist/latest-mac.yml
           if-no-files-found: error
+          retention-days: 1
 
   release:
     needs: [windows, macos]

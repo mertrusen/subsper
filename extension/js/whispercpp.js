@@ -375,7 +375,7 @@ function dtwPreset(modelKey) {
 }
 
 // ── ffmpeg: any media → 16 kHz mono PCM WAV (what whisper.cpp wants) ─────────
-function toWav16k(appDir, inputPath, outWav, spawnOpts, signal) {
+function toWav16k(appDir, inputPath, outWav, spawnOpts, signal, onProgress) {
     return new Promise((resolve, reject) => {
         const args = ["-y", "-i", inputPath, "-ar", "16000", "-ac", "1",
                       "-c:a", "pcm_s16le", "-vn", outWav];
@@ -384,8 +384,15 @@ function toWav16k(appDir, inputPath, outWav, spawnOpts, signal) {
             if (signal.aborted) { ff.kill(); return reject(new Error("Cancelled")); }
             signal.addEventListener('abort', () => { ff.kill(); }, { once: true });
         }
-        let err = "";
-        ff.stderr.on("data", d => { err += d.toString(); });
+        let err = "", totalSec = 0;
+        ff.stderr.on("data", d => {
+            const s = d.toString(); err += s;
+            if (onProgress) {
+                if (!totalSec) { const md = /Duration:\s*(\d+):(\d+):(\d+)/.exec(s); if (md) totalSec = (+md[1])*3600 + (+md[2])*60 + (+md[3]); }
+                const mt = /time=(\d+):(\d+):(\d+)/.exec(s);
+                if (mt && totalSec) onProgress(Math.min(1, ((+mt[1])*3600 + (+mt[2])*60 + (+mt[3])) / totalSec));
+            }
+        });
         ff.on("error", e => reject(new Error("ffmpeg could not run: " + e.message)));
         ff.on("close", code => code === 0
             ? resolve(outWav)
@@ -484,10 +491,13 @@ function transcribeWav(opts) {
             "-m", mdl,
             "-f", wav,
             "-ojf", "-of", outBase,
-            "--dtw", dtwPreset(opts.modelKey || "turbo"),
             "-t", String(opts.threads || Math.max(2, os.cpus().length)),
             "-pp",          // print progress to stderr
         ];
+        // --dtw (aligned word timestamps) roughly DOUBLES transcription time.
+        // The full JSON already carries heuristic token offsets, which is what
+        // karaoke/word-SRT/beep actually consume — so DTW is opt-in now.
+        if (opts.dtw) { args.push("--dtw", dtwPreset(opts.modelKey || "turbo")); }
         const lang = opts.language && opts.language !== "auto" ? opts.language : null;
         if (lang) { args.push("--language", lang); }
         else      { args.push("--language", "auto"); }
@@ -528,8 +538,14 @@ function transcribeWav(opts) {
                 opts.signal.addEventListener('abort', () => { dbg("abort signal received, killing whisper-cli"); wc.kill(); }, { once: true });
             }
             
-            wc.stdout.on("data", d => { if (opts.onLog) opts.onLog(d.toString()); });
-            wc.stderr.on("data", d => { errOut += d; if (opts.onLog) opts.onLog(d.toString()); });
+            let sawOutput = false;
+            const relay = (d) => {
+                const s = d.toString();
+                if (!sawOutput) { sawOutput = true; if (opts.onLog) opts.onLog("__ENGINE_STARTED__"); }
+                if (opts.onLog) opts.onLog(s);
+            };
+            wc.stdout.on("data", relay);
+            wc.stderr.on("data", d => { errOut += d; relay(d); });
             
             wc.on("close", code => {
                 const outJson = outBase + ".json";

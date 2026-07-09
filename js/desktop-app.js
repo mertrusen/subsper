@@ -100,17 +100,21 @@
           setStatus(phase ? `Reconnecting… (download resumes automatically)`
                           : `Downloading ${modelKey} model… ${Math.round(frac * 100)}%`, "info"));
       }
-      setStatus("Preparing audio…", "info");
+      setStatus("Preparing audio… 0%", "info");
       const wav = pathD.join(osD.tmpdir(), `subsper_${Date.now()}.wav`);
-      await WCPP.toWav16k(extDir(), inputPath, wav, {}, signal);
+      await WCPP.toWav16k(extDir(), inputPath, wav, {}, signal,
+        f => setStatus(`Preparing audio… ${Math.round(f * 100)}%`, "info"));
 
-      setStatus("Transcribing (Subsper engine)…", "info");
+      setStatus(`Loading ${modelKey} model…`, "info");
       const r = await WCPP.transcribeWav({
         appDir: extDir(), wavPath: wav, modelKey, language, signal,
         threads: settings.threads || 0,
         forceCpu: settings.hwAccel === "cpu",
         initialPrompt: settings.promptWords || "",
-        onLog: s => { const m = /progress\s*=\s*(\d+)\s*%/i.exec(s); if (m) setStatus(`Transcribing… ${m[1]}%`, "info"); },
+        onLog: s => {
+          if (s === "__ENGINE_STARTED__") { setStatus("Transcribing… 0%", "info"); return; }
+          const m = /progress\s*=\s*(\d+)\s*%/i.exec(s); if (m) setStatus(`Transcribing… ${m[1]}%`, "info");
+        },
       });
       try { fsD.unlinkSync(wav); } catch (e) {}
       return { success: true, segments: r.segments, text: r.text, language: r.language, engine: "whisper.cpp", notes: [] };
@@ -148,13 +152,17 @@
       const wantPython = settings.diarize ||
                          ["whisperx", "mlx", "openai"].indexOf(settings.engine) !== -1;
       const useCpp = WCPP && !wantPython;
+      if (!wantPython && !WCPP) {
+        handleError("Built-in engine failed to load — reinstall the app.\n(Details in the engine log.)");
+        return;
+      }
 
       let txRes;
       if (useCpp) {
         txRes = await transcribeViaCpp(mediaPath, model, language, _transcribeAbort.signal);
       } else {
         const engLabel = { whisperx:"WhisperX", mlx:"mlx-whisper", openai:"openai-whisper", auto:"Whisper" }[settings.engine] || "Whisper";
-        setStatus(`Transcribing with ${engLabel}… (first run may download the model)`, "info");
+        setStatus(`Transcribing with ${engLabel} (Pro/Python)…`, "info");
         txRes = await runPython("transcribe.py",
           [mediaPath, model, language, settings.engine, settings.diarize ? "1" : "0"],
           stderr => { if (/download/i.test(stderr)) setStatus("Downloading model… (one-time)", "info"); });

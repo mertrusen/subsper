@@ -54,6 +54,9 @@ function buildWhisper(vulkan = false) {
   } else if (isWin) {
     // Static CRT so the .exe doesn't need vcruntime DLLs on the user's PC.
     flags += " -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DCMAKE_POLICY_DEFAULT_CMP0091=NEW";
+    // NATIVE=ON tunes for the GitHub runner CPU (AVX-512 etc.) — target the
+    // portable AVX2 baseline so every user machine gets the same fast path.
+    flags += " -DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON";
     if (vulkan) flags += " -DGGML_VULKAN=ON";
   }
 

@@ -699,7 +699,7 @@ function scriptsDir() { return path.join(extDir(), "scripts"); }
 
 // Bundled zero-setup engine (whisper.cpp). Loaded lazily, cached. Returns null
 // if unavailable so callers can fall back to the Python engine.
-let _WCPP;
+let _WCPP, _WCPP_ERR = "";
 function wcpp() {
     if (_WCPP === undefined) {
         try {
@@ -709,7 +709,7 @@ function wcpp() {
                 _WCPP.dbg("=== Subsper extension start " + new Date().toISOString() + " | " + process.platform + " ===");
             } catch (e) {}
         }
-        catch (e) { console.error("[Subsper] whispercpp load failed:", e); _WCPP = null; }
+        catch (e) { console.error("[Subsper] whispercpp load failed:", e); _WCPP = null; _WCPP_ERR = (e && e.message) || String(e); }
     }
     return _WCPP;
 }
@@ -2514,6 +2514,14 @@ async function startTranscription() {
         const wantPython = settings.diarize ||
                            ["whisperx", "mlx", "openai"].indexOf(settings.engine) !== -1;
         const W = wantPython ? null : wcpp();
+        // The silent Python fallback hid real problems (slow, no % progress,
+        // "first run may download…" every time). If the BUILT-IN engine was
+        // expected but failed to load, say so loudly instead.
+        if (!wantPython && !W) {
+            handleError("Built-in engine failed to load" + (_WCPP_ERR ? ":\n" + _WCPP_ERR : "") +
+                "\nReinstall the app/extension, or pick a Pro engine in Settings.");
+            return;
+        }
 
         let txRes;
         if (W) {
@@ -2527,14 +2535,17 @@ async function startTranscription() {
                         setStatus(phase ? "Reconnecting… (download resumes automatically)"
                                         : `Downloading ${model} model… ${Math.round(frac * 100)}%`, "info"));
                 }
-                setStatus("Transcribing (Subsper engine)…", "info");
+                setStatus(settings.uiLang === "tr" ? `Model yükleniyor (${model})…` : `Loading ${model} model…`, "info");
                 const r = await W.transcribeWav({
                     appDir: extDir(), wavPath: tmpAudio, modelKey: model, language,
                     initialPrompt: settings.promptWords || "",
                     threads: settings.threads || 0,
                     forceCpu: settings.hwAccel === "cpu",
                     spawnOpts: { env: spawnEnv() },
-                    onLog: s => { const m = /progress\s*=\s*(\d+)\s*%/i.exec(s); if (m) setStatus(`Transcribing… ${m[1]}%`, "info"); },
+                    onLog: s => {
+                        if (s === "__ENGINE_STARTED__") { setStatus(settings.uiLang === "tr" ? "Transcribe başlıyor… 0%" : "Transcribing… 0%", "info"); return; }
+                        const m = /progress\s*=\s*(\d+)\s*%/i.exec(s); if (m) setStatus(`Transcribing… ${m[1]}%`, "info");
+                    },
                 });
                 txRes = { success: true, segments: r.segments, text: r.text, language: r.language, engine: "whisper.cpp", notes: [] };
             } catch (e) {
@@ -2553,7 +2564,7 @@ async function startTranscription() {
             if (!extractRes.success) { handleError(extractRes.error || "Audio extraction failed."); return; }
 
             const engLabel = { whisperx: "WhisperX", mlx: "mlx-whisper", openai: "openai-whisper", auto: "Whisper" }[settings.engine] || "Whisper";
-            setStatus(`Transcribing with ${engLabel}… (first run may download the model)`, "info");
+            setStatus(`Transcribing with ${engLabel} (Pro/Python)…`, "info");
             txRes = await runPython("transcribe.py",
                 [tmpAudio, model, language, settings.engine, settings.diarize ? "1" : "0", settings.promptWords || ""],
                 stderr => {
@@ -3464,7 +3475,7 @@ function initTooltips() {
    files (and the extension↔desktop footer sync) stay untouched.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION = "1.14.1";
+const APP_VERSION = "1.15.0";
 const GH_REPO = "mertrusen/subsper";
 const IS_DESKTOP_APP = (typeof window !== "undefined" && window.IS_DESKTOP === true);
 

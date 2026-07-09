@@ -134,7 +134,7 @@ const I18N = {
     // header / tabs
     tagline: "AI Subtitles", status_ready: "Ready — set In/Out points and click Transcribe",
     tab_transcribe: "Subtitles", tab_silence: "Silence", tab_setup: "Settings",
-    sub_work_tx: "Edit", sub_settings: "Settings", sub_detect: "Detect",
+    sub_work_tx: "Edit", sub_settings: "Settings", sub_detect: "Detect", sub_install: "Setup",
     // transcribe controls
     lbl_model: "Model", lbl_language: "Language", opt_auto: "Auto detect",
     btn_transcribe: "Transcribe", btn_loadsrt: "Load SRT",
@@ -311,7 +311,7 @@ const I18N = {
   tr: {
     tagline: "Yapay Zekâ Altyazı", status_ready: "Hazır — Transcribe'a bas (In/Out istersen aralık seçer)",
     tab_transcribe: "Altyazı", tab_silence: "Sessizlik", tab_setup: "Ayarlar",
-    sub_work_tx: "Düzenle", sub_settings: "Ayarlar", sub_detect: "Tespit",
+    sub_work_tx: "Düzenle", sub_settings: "Ayarlar", sub_detect: "Tespit", sub_install: "Kurulum",
     lbl_model: "Model", lbl_language: "Dil", opt_auto: "Otomatik algıla",
     btn_transcribe: "In/Out Aralığını Yazıya Dök", btn_loadsrt: "SRT Yükle",
     btn_play: "Oynat", btn_pause: "Duraklat",
@@ -926,17 +926,17 @@ function revealInFolder(p) {
 // ── Two-level navigation ──────────────────────────────────────────────────
 // Main tabs with work/settings sub-tabs (prefixes), plus the prefix-less Setup.
 const MAIN_TABS = ["transcribe", "edit", "audio", "setup"];
-const TAB_PREFIX = { transcribe: "tx", edit: "ed", audio: "au" };
+const TAB_PREFIX = { transcribe: "tx", edit: "ed", audio: "au", setup: "su" };
 
 let currentMainTab = "transcribe";
-let currentSubTab  = { transcribe: "work", edit: "work", audio: "work" };
+let currentSubTab  = { transcribe: "work", edit: "work", audio: "work", setup: "main" };
 
-const ALL_PANELS = ["tx-work", "tx-settings", "ed-work", "ed-settings", "au-work", "au-settings", "setup"];
+const ALL_PANELS = ["tx-work", "tx-settings", "ed-work", "ed-settings", "au-work", "au-settings", "su-main", "setup"];
 
 function showCurrentPanel() {
     ALL_PANELS.forEach(p => { const el = $(`panel-${p}`); if (el) el.style.display = "none"; });
     let target;
-    if (currentMainTab === "setup") target = "panel-setup";
+    if (currentMainTab === "setup") target = currentSubTab.setup === "install" ? "panel-setup" : "panel-su-main";
     else {
         const prefix = TAB_PREFIX[currentMainTab];
         const sub = currentSubTab[currentMainTab] === "settings" ? "settings" : "work";
@@ -948,14 +948,14 @@ function showCurrentPanel() {
 function switchMainTab(name) {
     currentMainTab = name;
     MAIN_TABS.forEach(t => { const tab = $(`tab-${t}`); if (tab) tab.classList.toggle("active", t === name); });
-    ["transcribe", "edit", "audio"].forEach(t => {
+    ["transcribe", "edit", "audio", "setup"].forEach(t => {
         const bar = $(`sub-tabs-${t}`);
         if (bar) bar.style.display = name === t ? "flex" : "none";
     });
     showCurrentPanel();
     if (name === "setup") {
-        runDiagnostics();
-        try { initSettingsUI(); initEditSettingsUI(); initAudioSettingsUI(); } catch (e) {}
+        if (currentSubTab.setup === "install") runDiagnostics();
+        else try { initSettingsUI(); } catch (e) {}
     }
     if (name === "edit"  && currentSubTab.edit  === "settings") initEditSettingsUI();
     if (name === "audio" && currentSubTab.audio === "settings") initAudioSettingsUI();
@@ -965,7 +965,8 @@ function switchMainTab(name) {
 function switchSubTab(mainTab, sub) {
     currentSubTab[mainTab] = sub;
     const prefix = TAB_PREFIX[mainTab];
-    ["work", "settings"].forEach(s => {
+    const subs = mainTab === "setup" ? ["main", "install"] : ["work", "settings"];
+    subs.forEach(s => {
         const btn = $(`sub-tab-${prefix}-${s}`);
         if (btn) btn.classList.toggle("active", s === sub);
     });
@@ -974,6 +975,10 @@ function switchSubTab(mainTab, sub) {
         if (mainTab === "transcribe") initSettingsUI();
         if (mainTab === "edit")       initEditSettingsUI();
         if (mainTab === "audio")      initAudioSettingsUI();
+    }
+    if (mainTab === "setup") {
+        if (sub === "install") runDiagnostics();
+        else initSettingsUI();   // Interface + AI fields live here now
     }
 }
 
@@ -2719,8 +2724,11 @@ function renderSegments() {
             `<div class="seg-text" id="seg-text-${idx}" ondblclick="editSegment(${idx})">${bodyHtml}</div>`;
 
         el.addEventListener("click", e => {
-            if (!e.target.classList.contains("seg-btn") &&
-                !e.target.classList.contains("seg-word")) seekToSegment(idx);
+            // closest(): clicks land on the ICON inside the button, whose target
+            // has no .seg-btn class — that made Edit/Split/Delete ALSO seek.
+            const t = e.target;
+            if (t.closest && (t.closest(".seg-btn") || t.closest(".seg-word") || t.closest("textarea"))) return;
+            seekToSegment(idx);
         });
         segmentsWrap.appendChild(el);
     });
@@ -3484,7 +3492,7 @@ function initTooltips() {
    files (and the extension↔desktop footer sync) stay untouched.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION = "1.16.0";
+const APP_VERSION = "1.2.0";
 const GH_REPO = "mertrusen/subsper";
 const IS_DESKTOP_APP = (typeof window !== "undefined" && window.IS_DESKTOP === true);
 
@@ -3766,69 +3774,6 @@ function exportTranslationSRT() {
     } catch (e) { showToast("Save failed: " + e.message, "error"); }
 }
 
-// ── Pull captions from the Premiere timeline ────────────────────────────────
-// Try the scripting caption API first (rarely exposed); then fall back to the
-// .srt project items — which always covers captions that Subsper itself sent
-// (importSRTToProject keeps the .srt in the project). Newest whisper_*.srt wins.
-function _loadPulledSegments(items, sourceNote) {
-    pushUndo();
-    segments = items.map((it, i) => ({
-        id: i, start: it.start, end: it.end, seqStart: it.start, seqEnd: it.end,
-        text: it.text || "", words: [], speaker: null,
-    }));
-    seqInTime = 0;
-    renderSegments(); updateSegCount();
-    actionsBar.style.display = "flex"; sendBtn.disabled = false;
-    setStatus(`✓ Pulled ${segments.length} caption(s)${sourceNote ? " — " + sourceNote : ""}`, "success");
-}
-async function pullTimelineCaptions() {
-    if (IS_DESKTOP_APP) return;
-    const isTr = settings.uiLang === "tr";
-    try {
-        setStatus(isTr ? "Timeline'daki altyazı okunuyor…" : "Reading captions from the timeline…", "info");
-        showProgress(true);
-        await loadHostJSX();
-
-        // 1) Direct caption-track read (works only on Premiere builds that expose it)
-        let r = null;
-        try { r = await evalScript("readTimelineCaptions()"); } catch (e1) { console.warn("readTimelineCaptions:", e1); }
-        if (r && r.success && r.items && r.items.length) {
-            _loadPulledSegments(r.items, isTr ? "caption track'ten" : "from the caption track");
-            return;
-        }
-
-        // 2) Fallback: .srt files referenced by the project (incl. our own sends)
-        let f = null;
-        try { f = await evalScript("findProjectSRTs()"); } catch (e2) { console.warn("findProjectSRTs:", e2); }
-        const srts = (f && f.items) || [];
-        if (srts.length) {
-            srts.sort((a, b) => (b.path.match(/whisper_(\d+)/) || [0, 0])[1] - (a.path.match(/whisper_(\d+)/) || [0, 0])[1]);
-            for (const pick of srts) {
-                try {
-                    const parsed = parseSRT(fs.readFileSync(pick.path, "utf8"));
-                    if (parsed.length) {
-                        _loadPulledSegments(parsed.map(s => ({ start: s.seqStart, end: s.seqEnd, text: s.text })),
-                            (isTr ? "kaynak: " : "source: ") + pick.name);
-                        return;
-                    }
-                } catch (e3) { console.warn("SRT read failed:", pick.path, e3); }
-            }
-        }
-
-        // 3) Last resort: let the user point at an exported SRT directly.
-        const why = (r && r.error) || (isTr ? "Bu Premiere sürümü caption içeriğini eklentiye vermiyor." : "This Premiere version doesn't expose caption contents to extensions.");
-        setStatus(isTr ? "Otomatik çekilemedi — SRT seç" : "Couldn't auto-pull — pick an SRT", "warning");
-        showToast(isTr
-            ? "Otomatik çekilemedi: " + why + " Premiere'de: caption track seç → File > Export > Captions (SRT). Şimdi o dosyayı seç."
-            : "Auto-pull failed: " + why + " In Premiere: select the caption track → File > Export > Captions (SRT). Now pick that file.",
-            "warning", 9000);
-        importSRTFile();   // opens the Load-SRT picker so the user still gets there
-    } catch (e) {
-        setStatus((e && e.message) || String(e), "error");
-        showToast(isTr ? "Hata: " + e.message : "Error: " + e.message, "error", 6000);
-    } finally { showProgress(false); }
-}
-
 // ── Onboarding (first run, 3 steps) ────────────────────────────────────────
 function maybeShowOnboarding() {
     if (localStorage.getItem("ws_onboarded") === "1") return;
@@ -3971,11 +3916,8 @@ setTimeout(function initFeaturePack() {
             row.appendChild(b);
             return b;
         };
-        if (!IS_DESKTOP_APP) {
-            secondaryAdd(settings.uiLang === "tr" ? "⇩ Timeline'dan altyazı çek" : "⇩ Pull captions from timeline",
-                pullTimelineCaptions,
-                settings.uiLang === "tr" ? "Deneysel — timeline'daki caption track'i panele alır" : "Experimental — pulls the caption track into the panel");
-        }
+        // (timeline caption pull removed — Premiere doesn't expose caption
+        //  contents reliably; Load SRT + File>Export>Captions covers the need)
 
         // Setup tab: model manager + report button
         const setupPanel = $("panel-setup");
@@ -3995,41 +3937,31 @@ setTimeout(function initFeaturePack() {
         if (typeof origRenderModels === "function") window.renderModels = function () { renderModelManager(); };
         renderModelManager();
 
-        // ── One Settings hub: move Subtitle/Edit/Audio settings into the (renamed)
-        //    Settings tab as titled sections; System/Install stays at the bottom.
+        // ── Settings tab = GENERAL settings only (Interface, AI & API) + a
+        //    "Setup" subsection. Subtitle/Edit/Audio settings stay under their
+        //    own tabs' Settings sub-tab (user was explicit about this).
         try {
-            const dst = document.querySelector("#panel-setup .setup-scroll");
-            if (dst) {
-                const isTr = settings.uiLang === "tr";
-                const sections = [
-                    ["panel-tx-settings", isTr ? "📝 Altyazı Ayarları" : "📝 Subtitle Settings"],
-                    ["panel-ed-settings", isTr ? "✂️ Düzen Ayarları" : "✂️ Edit Settings"],
-                    ["panel-au-settings", isTr ? "🔊 Ses Ayarları" : "🔊 Audio Settings"],
-                ];
-                const frag = document.createDocumentFragment();
-                for (const [srcId, label] of sections) {
-                    const src = document.querySelector("#" + srcId + " .setup-scroll") || $(srcId);
-                    if (!src) continue;
-                    const h = document.createElement("div");
-                    h.className = "setup-section-title";
-                    h.style.cssText = "font-size:13px;margin:18px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--accent)";
-                    if (frag.childNodes.length === 0) h.style.marginTop = "0";
-                    h.textContent = label;
-                    frag.appendChild(h);
-                    while (src.firstChild) frag.appendChild(src.firstChild);
+            const dst = document.querySelector("#panel-su-main .setup-scroll");
+            const src = document.querySelector("#panel-tx-settings .setup-scroll");
+            if (dst && src) {
+                // pull the Interface + AI&API sections (title + everything until
+                // the next section title) OUT of the Subtitle settings panel into
+                // the Settings tab's "Ayarlar" sub-page. Setup stays on its own
+                // sub-page untouched.
+                const pulled = { sec_interface: [], sec_api: [] };
+                let cur = null;
+                for (const node of [...src.children]) {
+                    const isTitle = node.classList && node.classList.contains("setup-section-title");
+                    if (isTitle) {
+                        const key = (node.querySelector("[data-i18n]") || node).getAttribute("data-i18n");
+                        cur = (key === "sec_interface" || key === "sec_api") ? key : null;
+                    }
+                    if (cur) pulled[cur].push(node);
                 }
-                const sys = document.createElement("div");
-                sys.className = "setup-section-title";
-                sys.style.cssText = "font-size:13px;margin:18px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--accent)";
-                sys.textContent = isTr ? "🔧 Kurulum & Sistem" : "🔧 Setup & System";
-                dst.insertBefore(sys, dst.firstChild);
-                dst.insertBefore(frag, dst.firstChild);
-                // hide the now-empty per-tab Settings sub-tabs (work view remains)
-                ["sub-tab-tx-settings", "sub-tab-ed-settings", "sub-tab-au-settings"].forEach(id => {
-                    const b = $(id); if (b) b.style.display = "none";
-                });
-                ["sub-tabs-edit", "sub-tabs-audio"].forEach(id => { const b = $(id); if (b) b.dataset.singles = "1"; });
-                const st = $("sub-tabs-transcribe"); if (st) st.style.display = "none";
+                pulled.sec_interface.forEach(n => dst.appendChild(n));
+                pulled.sec_api.forEach(n => dst.appendChild(n));
+                const first = dst.querySelector(".setup-section-title");
+                if (first) first.style.marginTop = "0";
             }
         } catch (eMig) { console.error("[Subsper] settings migration failed:", eMig); }
 

@@ -49,7 +49,7 @@ bundled inside the app. The only one-time step is a model download on first use.
 ### macOS (Apple Silicon — M1/M2/M3/M4)
 Download `Subsper-x.x.x-mac-arm64.dmg` from **Releases**, drag to Applications, open it.
 (Intel Macs are not supported since v1.8.0 — the last Intel build is
-[v1.7.1](../../releases/tag/v1.7.1).)
+[v1.7.1](../../releases/tag/v1).)
 
 > **⚠️ First launch on macOS:** the app is ad-hoc signed (not notarized), so
 > Gatekeeper warns once. **Right-click the app → Open → Open** (or allow it under

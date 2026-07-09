@@ -14,7 +14,7 @@
       <div class="brand-text">
         <span class="brand-title">Sub<span>sper</span></span>
         <span class="brand-tagline" data-i18n="tagline">AI Subtitles</span>
-        <span class="brand-version" style="font-size: 10px; color: var(--text3); margin-left: 6px; font-weight: 500;">v1.16.0</span>
+        <span class="brand-version" style="font-size: 10px; color: var(--text3); margin-left: 6px; font-weight: 500;">v1.2.0</span>
       </div>
     </div>
     <div class="header-right">
@@ -45,7 +45,7 @@
     <button class="sub-tab active" id="sub-tab-tx-work" onclick="switchSubTab('transcribe','work')" data-i18n-tip="tip_sub_tx_work">
       <span data-i18n="sub_work_tx">Edit</span>
     </button>
-    <button class="sub-tab" id="sub-tab-tx-settings" onclick="switchMainTab('setup')" data-i18n-tip="tip_sub_tx_settings">
+    <button class="sub-tab" id="sub-tab-tx-settings" onclick="switchSubTab('transcribe','settings')" data-i18n-tip="tip_sub_tx_settings">
       <span class="ic ic-sm" data-icon="settings"></span> <span data-i18n="sub_settings">Settings</span>
     </button>
   </div>
@@ -60,6 +60,16 @@
     </button>
   </div>
 
+  <!-- ── Sub-tabs: Settings ─────────────────────────────────────────── -->
+  <div class="sub-tabs" id="sub-tabs-setup" style="display:none">
+    <button class="sub-tab active" id="sub-tab-su-main" onclick="switchSubTab('setup','main')">
+      <span class="ic ic-sm" data-icon="settings"></span> <span data-i18n="sub_settings">Settings</span>
+    </button>
+    <button class="sub-tab" id="sub-tab-su-install" onclick="switchSubTab('setup','install')">
+      <span data-i18n="sub_install">Setup</span>
+    </button>
+  </div>
+
   <!-- ── Sub-tabs: Audio ────────────────────────────────────────────── -->
   <div class="sub-tabs" id="sub-tabs-audio" style="display:none">
     <button class="sub-tab active" id="sub-tab-au-work" onclick="switchSubTab('audio','work')" data-i18n-tip="tip_sub_au_work">
@@ -70,6 +80,11 @@
     </button>
   </div>
 
+
+  <!-- ═══ PANEL: SETTINGS — GENERAL (Interface + AI, filled at runtime) ═══ -->
+  <div id="panel-su-main" class="panel" style="display:none">
+    <div class="setup-scroll"></div>
+  </div>
 
   <!-- ═══ PANEL: TRANSCRIBE — WORK ═══ -->
   <div id="panel-tx-work" class="panel">
@@ -556,9 +571,9 @@
               <div class="setting-desc" data-i18n="ds_prof">How to handle matched words</div>
             </div>
             <select id="set-profmode" style="max-width:130px" onchange="onSettingChange('profanityMode', this.value)" data-i18n-tip="tip_profmode">
-              <option value="asterisk">s*** (ilk harf + yıldız)</option>
-              <option value="first">*öt (baş harfi sansürle)</option>
-              <option value="middle">g*t (orta sansür)</option>
+              <option value="asterisk">x*** (ilk harf + yıldız)</option>
+              <option value="first">*xx (baş harfi sansürle)</option>
+              <option value="middle">x*x (orta sansür)</option>
               <option value="remove">— (kaldır)</option>
             </select>
           </div>

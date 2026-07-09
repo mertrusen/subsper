@@ -118,22 +118,22 @@ body { display: flex; flex-direction: column; }
 /* ── Header ──────────────────────────────────────────────────────── */
 .header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 13px 14px; flex-shrink: 0;
+  padding: 6px 12px; flex-shrink: 0;
   background: var(--header-bg);
   border-bottom: 1px solid var(--border);
   box-shadow: var(--hi-top);
 }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .brand-mark {
-  width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
+  width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0;
   background: linear-gradient(160deg, #2a96ff 0%, #0a84ff 60%, #0060df 100%);
   color: #fff; display: flex; align-items: center; justify-content: center;
   box-shadow: 0 2px 6px rgba(10,132,255,0.4), inset 0 1px 0 rgba(255,255,255,0.25);
 }
-.brand-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.brand-text { display: flex; flex-direction: row; align-items: baseline; gap: 7px; line-height: 1.15; min-width: 0; white-space: nowrap; overflow: hidden; }
 .brand-title { font-size: 14px; font-weight: 600; color: var(--text); letter-spacing: -0.02em; }
 .brand-title span { color: var(--text); }
-.brand-tagline { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; font-weight: 500; }
+.brand-tagline { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
 .header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
 /* Mini segmented control (header language EN/TR) */
@@ -502,7 +502,7 @@ mark.find-hit { background: var(--yellow); color: #1a1206; border-radius: 3px; p
 /* ── Icon system (sized by context, never 100%) ──────────────────── */
 .ic { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; line-height: 0; }
 .svg-ic { width: 15px; height: 15px; display: inline-block; flex-shrink: 0; vertical-align: -2px; }
-.brand-mark .svg-ic { width: 17px; height: 17px; }
+.brand-mark .svg-ic { width: 13px; height: 13px; }
 .tab .svg-ic { width: 15px; height: 15px; }
 .sub-tab .svg-ic { width: 13px; height: 13px; }
 .btn-transcribe .svg-ic { width: 17px; height: 17px; }

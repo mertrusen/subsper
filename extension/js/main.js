@@ -300,7 +300,7 @@ const I18N = {
     sec_silence: "Silence", sec_enhance: "Enhance",
     // auto zoom
     sec_zoom: "Auto Zoom", nm_zoom: "Auto Zoom",
-    ds_zoom: "Adds a subtle motion (slow push-in) to each clip in the selection for energy — like AutoCut/FireCut.",
+    ds_zoom: "Adds a subtle motion (slow push-in) to each clip in the selection for extra energy.",
     btn_zoom: "Apply Auto Zoom", lbl_zoomamt: "Zoom amount", lbl_zoomstyle: "Zoom style",
     opt_zoom_alt: "Alternate in / out", opt_zoom_in: "Always push-in", opt_zoom_subtle: "Subtle (gentle)",
     hint_zoom: "Adds Motion → Scale keyframes to clips in the In/Out range. Experimental — undo with Ctrl/Cmd+Z.",
@@ -467,7 +467,7 @@ const I18N = {
     au_intro: "In/Out seçimi için ses araçları. Önce timeline'da In/Out noktalarını koy.",
     sec_silence: "Sessizlik", sec_enhance: "İyileştir",
     sec_zoom: "Oto Zoom", nm_zoom: "Oto Zoom",
-    ds_zoom: "Seçimdeki her klibe hafif bir hareket (yavaş zoom) ekler, video enerjik görünür — AutoCut/FireCut gibi.",
+    ds_zoom: "Seçimdeki her klibe hafif bir hareket (yavaş zoom) ekler, video enerjik görünür.",
     btn_zoom: "Oto Zoom Uygula", lbl_zoomamt: "Zoom miktarı", lbl_zoomstyle: "Zoom stili",
     opt_zoom_alt: "Dönüşümlü (içeri/dışarı)", opt_zoom_in: "Hep içeri", opt_zoom_subtle: "Hafif (nazik)",
     hint_zoom: "In/Out aralığındaki kliplere Motion → Scale keyframe'i ekler. Deneysel — Ctrl/Cmd+Z ile geri al.",

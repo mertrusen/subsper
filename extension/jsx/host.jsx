@@ -500,7 +500,7 @@ function applyAutoZoom(optionsJson) {
 
 // ── Styled text graphics via MOGRT (Essential Graphics) ───────────────────
 // Places each subtitle line as an editable Motion Graphics Template clip,
-// like AutoCut / FireCut. payload = { mogrtPath, items:[{text,start,end}], probe }.
+// animated captions template. payload = { mogrtPath, items:[{text,start,end}], probe }.
 // Times are TIMELINE seconds. EXPERIMENTAL — param names vary by PR version, so
 // the diag array reports what was found for tuning.
 function _wsListMgtParams(item) {

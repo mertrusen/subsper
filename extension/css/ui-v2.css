@@ -1,0 +1,155 @@
+/* Subsper UI v2 — card-grid home + tool pages. EXTENSION ONLY.
+   Loaded after style.css; the desktop app never loads this file.
+   Pure shell: main.js's tab state machine still runs underneath — the old
+   .tabs/.sub-tabs bars stay in the DOM but are hidden here. */
+
+/* ── Old navigation hidden (state machine untouched) ─────────────── */
+.tabs { display: none !important; }
+.sub-tabs { display: none !important; }
+/* The Settings page keeps its real Ayarlar|Kurulum sub-tabs visible */
+body[data-ui2page="settings"] #sub-tabs-setup { display: flex !important; }
+
+/* ── Home ⇄ page switching ────────────────────────────────────────── */
+body.ui2-home .panel { display: none !important; }
+body.ui2-home #page-bar { display: none !important; }
+#home-screen { display: none; }
+body.ui2-home #home-screen { display: flex; }
+
+/* ── Page bar (‹ Back · Title · ⚙) ───────────────────────────────── */
+#page-bar {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; flex-shrink: 0;
+  background: var(--header-bg); border-bottom: 1px solid var(--border);
+  box-shadow: var(--hi-top);
+}
+#page-back {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 5px 10px 5px 5px; background: var(--bg3);
+  border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-size: 11.5px; font-weight: 600;
+  cursor: pointer; font-family: var(--font); flex-shrink: 0;
+  transition: background .15s;
+}
+#page-back:hover { background: var(--bg-hover); }
+#page-back svg { width: 14px; height: 14px; color: var(--accent2); }
+#page-title {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  max-width: 52%; text-align: center;
+  font-size: 12.5px; font-weight: 700; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: none;
+}
+#page-gear {
+  margin-left: auto; width: 30px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text2); cursor: pointer; flex-shrink: 0;
+  transition: background .15s, color .15s, border-color .15s;
+}
+#page-gear:hover { background: var(--bg-hover); color: var(--text); }
+#page-gear.active { background: var(--accent-bg); border-color: var(--accent); color: var(--accent2); }
+#page-gear svg { width: 15px; height: 15px; }
+
+/* ── Home screen ──────────────────────────────────────────────────── */
+#home-screen {
+  flex: 1; min-height: 0; flex-direction: column;
+  overflow-y: auto; overflow-x: hidden;
+  padding: 16px 14px 22px;
+  scrollbar-width: thin; scrollbar-color: var(--border2) transparent;
+}
+#home-screen::-webkit-scrollbar { width: 8px; }
+#home-screen::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; border: 2px solid var(--bg); }
+
+.home-badge {
+  align-self: center; display: inline-flex; align-items: center; gap: 7px;
+  font-size: 10.5px; font-weight: 600; color: var(--text2);
+  background: var(--accent-bg);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 999px; padding: 4px 12px; margin-bottom: 14px;
+  white-space: nowrap;
+}
+.home-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+
+.home-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (min-width: 640px)  { .home-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 920px)  { .home-grid { max-width: 760px; align-self: center; width: 100%; } }
+@media (min-width: 920px)  { #home-screen { align-items: center; } .home-badge { align-self: auto; } }
+
+.home-card {
+  position: relative; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px;
+  min-height: 104px; padding: 16px 10px 14px;
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 14px; box-shadow: var(--elev), var(--hi-top);
+  cursor: pointer; color: var(--text); font-family: var(--font);
+  transition: transform .16s var(--ease), border-color .16s, box-shadow .16s;
+}
+.home-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  box-shadow: var(--elev), 0 6px 18px rgba(10,132,255,0.10), var(--hi-top);
+}
+.home-card:active { transform: scale(0.97); }
+
+/* iOS Settings-style colored icon tiles */
+.hc-ico {
+  width: 40px; height: 40px; border-radius: 11px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 2px 6px rgba(0,0,0,0.25);
+}
+.hc-ico svg { width: 21px; height: 21px; }
+.home-card[data-tool="subtitles"] .hc-ico { background: linear-gradient(160deg, #2a96ff, #0060df); }
+.home-card[data-tool="silence"]   .hc-ico { background: linear-gradient(160deg, #ffb340, #f28c00); }
+.home-card[data-tool="filler"]    .hc-ico { background: linear-gradient(160deg, #64d2ff, #0091d5); }
+.home-card[data-tool="zoom"]      .hc-ico { background: linear-gradient(160deg, #7d7aff, #5e5ce6); }
+.home-card[data-tool="beep"]      .hc-ico { background: linear-gradient(160deg, #ff6961, #e6362b); }
+.home-card[data-tool="enhance"]   .hc-ico { background: linear-gradient(160deg, #3ddc63, #1fa845); }
+.home-card[data-tool="ai"]        .hc-ico { background: linear-gradient(160deg, #da8fff, #a94fe0); }
+.home-card[data-tool="settings"]  .hc-ico { background: linear-gradient(160deg, #98989d, #636366); }
+.home-card[data-tool="help"]      .hc-ico { background: linear-gradient(160deg, #34aadc, #1a7db8); }
+
+.hc-label {
+  font-size: 11.8px; font-weight: 600; letter-spacing: -0.01em;
+  text-align: center; line-height: 1.3; color: var(--text);
+}
+.hc-badge {
+  position: absolute; top: 8px; right: 8px;
+  font-size: 8.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--accent2); background: var(--accent-bg);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  padding: 2px 6px; border-radius: 999px;
+}
+.home-foot { margin-top: 16px; text-align: center; font-size: 10px; color: var(--text-lo); flex-shrink: 0; }
+
+/* ── Anchor flash (card highlight when a home card jumps to a section) ── */
+.ui2-flash {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-bg), var(--elev) !important;
+  transition: border-color .9s ease .3s, box-shadow .9s ease .3s;
+}
+
+/* ── Collapsed per-tool settings box (<details class="ui2-adv">) ──── */
+details.ui2-adv {
+  margin-top: 4px; margin-bottom: 16px;
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+  box-shadow: var(--elev), var(--hi-top);
+}
+details.ui2-adv > summary {
+  list-style: none; display: flex; align-items: center; gap: 9px;
+  padding: 12px 14px; cursor: pointer; user-select: none;
+  font-size: 12.5px; font-weight: 600; color: var(--text);
+  transition: background .15s;
+}
+details.ui2-adv > summary:hover { background: var(--bg-hover); }
+details.ui2-adv > summary::-webkit-details-marker { display: none; }
+details.ui2-adv > summary::before {
+  content: ""; width: 6px; height: 6px; flex-shrink: 0; margin-left: 2px;
+  border-right: 1.8px solid var(--text3); border-bottom: 1.8px solid var(--text3);
+  transform: rotate(-45deg); transition: transform .18s var(--ease);
+}
+details.ui2-adv[open] > summary::before { transform: rotate(45deg); }
+details.ui2-adv > .setting-item {
+  border: none; border-top: 1px solid var(--border); border-radius: 0;
+  box-shadow: none; background: transparent; margin-bottom: 0;
+}

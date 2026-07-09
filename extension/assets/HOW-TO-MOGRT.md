@@ -1,7 +1,7 @@
 # Styled captions in Premiere (MOGRT) — 30-second setup
 
 Whisper Studio can drop each subtitle into Premiere as an **editable Essential
-Graphics text clip** (like AutoCut / FireCut), not just a plain caption track.
+Graphics text clip** (animated template), not just a plain caption track.
 For that it needs one **.mogrt template** that carries your style. You make it
 once, then reuse it forever.
 

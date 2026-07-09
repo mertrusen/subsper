@@ -70,18 +70,26 @@ body.ui2-home #home-screen { display: flex; }
 }
 .home-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
 
+#home-cats { display: flex; flex-direction: column; }
+.home-cat-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text3); margin: 14px 2px 8px;
+}
+.home-cat-label:first-child { margin-top: 0; }
+
 .home-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @media (min-width: 640px)  { .home-grid { grid-template-columns: repeat(3, 1fr); } }
-@media (min-width: 920px)  { .home-grid { max-width: 760px; align-self: center; width: 100%; } }
+@media (min-width: 920px)  { #home-cats { max-width: 760px; align-self: center; width: 100%; } }
 @media (min-width: 920px)  { #home-screen { align-items: center; } .home-badge { align-self: auto; } }
 
 .home-card {
   position: relative; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 10px;
-  min-height: 104px; padding: 16px 10px 14px;
+  align-items: stretch; gap: 7px;
+  padding: 9px 9px 12px;
   background: var(--card-bg); border: 1px solid var(--border);
   border-radius: 14px; box-shadow: var(--elev), var(--hi-top);
   cursor: pointer; color: var(--text); font-family: var(--font);
+  text-align: center;
   transition: transform .16s var(--ease), border-color .16s, box-shadow .16s;
 }
 .home-card:hover {
@@ -91,34 +99,31 @@ body.ui2-home #home-screen { display: flex; }
 }
 .home-card:active { transform: scale(0.97); }
 
-/* iOS Settings-style colored icon tiles */
-.hc-ico {
-  width: 40px; height: 40px; border-radius: 11px; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center; color: #fff;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 2px 6px rgba(0,0,0,0.25);
+/* mini illustration strip */
+.hc-art {
+  display: block; width: 100%; border-radius: 9px; overflow: hidden;
+  background: var(--bg2); border: 1px solid var(--border); line-height: 0;
 }
-.hc-ico svg { width: 21px; height: 21px; }
-.home-card[data-tool="subtitles"] .hc-ico { background: linear-gradient(160deg, #2a96ff, #0060df); }
-.home-card[data-tool="silence"]   .hc-ico { background: linear-gradient(160deg, #ffb340, #f28c00); }
-.home-card[data-tool="filler"]    .hc-ico { background: linear-gradient(160deg, #64d2ff, #0091d5); }
-.home-card[data-tool="zoom"]      .hc-ico { background: linear-gradient(160deg, #7d7aff, #5e5ce6); }
-.home-card[data-tool="beep"]      .hc-ico { background: linear-gradient(160deg, #ff6961, #e6362b); }
-.home-card[data-tool="enhance"]   .hc-ico { background: linear-gradient(160deg, #3ddc63, #1fa845); }
-.home-card[data-tool="ai"]        .hc-ico { background: linear-gradient(160deg, #da8fff, #a94fe0); }
-.home-card[data-tool="settings"]  .hc-ico { background: linear-gradient(160deg, #98989d, #636366); }
-.home-card[data-tool="help"]      .hc-ico { background: linear-gradient(160deg, #34aadc, #1a7db8); }
+.hc-art svg { width: 100%; height: auto; display: block; }
 
 .hc-label {
   font-size: 11.8px; font-weight: 600; letter-spacing: -0.01em;
   text-align: center; line-height: 1.3; color: var(--text);
 }
+.hc-desc {
+  font-size: 9.8px; line-height: 1.35; color: var(--text3);
+  text-align: center; padding: 0 2px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
 .hc-badge {
-  position: absolute; top: 8px; right: 8px;
+  position: absolute; top: 13px; right: 13px;
   font-size: 8.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-  color: var(--accent2); background: var(--accent-bg);
+  color: var(--accent2); background: var(--glass);
   border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
   padding: 2px 6px; border-radius: 999px;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
 }
+.hc-badge.soon { color: var(--text2); border-color: var(--border2); }
 .home-foot { margin-top: 16px; text-align: center; font-size: 10px; color: var(--text-lo); flex-shrink: 0; }
 
 /* ── Anchor flash (card highlight when a home card jumps to a section) ── */

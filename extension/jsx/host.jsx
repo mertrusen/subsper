@@ -997,3 +997,104 @@ function importSRTToProject(srtContent) {
         return JSON.stringify({ success: false, error: "Import error: " + e.toString() });
     }
 }
+
+// ── Named chapter/hook markers ─────────────────────────────────────────────
+// payload = [{start:sec, name:"...", comment:"..."}]
+function addNamedMarkers(json) {
+    try {
+        var seq = app.project.activeSequence;
+        if (!seq) return JSON.stringify({ success: false, error: "No active sequence." });
+        var items = JSON.parse(json);
+        var added = 0;
+        for (var i = 0; i < items.length; i++) {
+            var t = parseFloat(items[i].start);
+            if (isNaN(t) || t < 0) continue;
+            var mk = seq.markers.createMarker(t);
+            try {
+                mk.name = items[i].name || ("Marker " + (i + 1));
+                if (items[i].comment) mk.comments = items[i].comment;
+                if (mk.setColorByIndex) mk.setColorByIndex(items[i].color != null ? items[i].color : 4);
+            } catch (eM) {}
+            added++;
+        }
+        return JSON.stringify({ success: true, added: added });
+    } catch (e) {
+        return JSON.stringify({ success: false, error: e.toString() });
+    }
+}
+
+// ── Vertical / square copy of the active sequence ─────────────────────────
+// payload = {w, h, label}. Clones the sequence, changes frame size, scales
+// every video clip to cover the new frame (center crop). EXPERIMENTAL:
+// clone()/setSettings() need Premiere 2019+; no subject tracking.
+function createResizedSequence(optJson) {
+    var diag = [];
+    try {
+        var opt = JSON.parse(optJson);
+        var w = parseInt(opt.w, 10), h = parseInt(opt.h, 10);
+        if (!w || !h) return JSON.stringify({ success: false, error: "Bad target size." });
+        var seq = app.project.activeSequence;
+        if (!seq) return JSON.stringify({ success: false, error: "No active sequence." });
+
+        var oldW = 0, oldH = 0;
+        try { var os_ = seq.getSettings(); oldW = os_.videoFrameWidth; oldH = os_.videoFrameHeight; }
+        catch (eO) { return JSON.stringify({ success: false, error: "This Premiere version can't read sequence settings (needs 2019+)." }); }
+
+        var before = {};
+        for (var i = 0; i < app.project.sequences.numSequences; i++) {
+            try { before[app.project.sequences[i].sequenceID] = 1; } catch (eB) {}
+        }
+        try { seq.clone(); }
+        catch (eC) { return JSON.stringify({ success: false, error: "Sequence clone failed: " + eC.toString() }); }
+
+        var dup = null;
+        for (var j = 0; j < app.project.sequences.numSequences; j++) {
+            var s2 = app.project.sequences[j];
+            var sid = ""; try { sid = s2.sequenceID; } catch (eI) {}
+            if (sid && !before[sid]) { dup = s2; break; }
+        }
+        if (!dup) return JSON.stringify({ success: false, error: "Cloned sequence not found." });
+        try { dup.name = seq.name + " · " + (opt.label || (w + "x" + h)); } catch (eN) {}
+
+        try {
+            var st = dup.getSettings();
+            st.videoFrameWidth = w;
+            st.videoFrameHeight = h;
+            dup.setSettings(st);
+        } catch (eS) {
+            return JSON.stringify({ success: false, error: "Could not change frame size: " + eS.toString() });
+        }
+        try { app.project.activeSequence = dup; } catch (eA) { diag.push("activate: " + eA.toString()); }
+
+        var factor = Math.max(w / oldW, h / oldH);
+        var count = 0;
+        for (var v = 0; v < dup.videoTracks.numTracks; v++) {
+            var trk = dup.videoTracks[v];
+            for (var c = 0; c < trk.clips.numItems; c++) {
+                var clip = trk.clips[c];
+                var motion = null, comps = clip.components;
+                if (!comps) continue;
+                for (var m = 0; m < comps.numItems; m++) {
+                    var dn = ""; try { dn = comps[m].displayName; } catch (eD) {}
+                    if (dn === "Motion" || dn === "Hareket") { motion = comps[m]; break; }
+                }
+                if (!motion) continue;
+                var scale = null;
+                for (var p = 0; p < motion.properties.numItems; p++) {
+                    var pn = ""; try { pn = motion.properties[p].displayName; } catch (eP) {}
+                    if (pn === "Scale" || pn === "Ölçek") { scale = motion.properties[p]; break; }
+                }
+                if (!scale) continue;
+                try {
+                    var cur = 100;
+                    try { cur = parseFloat(scale.getValue()); if (isNaN(cur)) cur = 100; } catch (eG) {}
+                    scale.setValue(cur * factor, true);
+                    count++;
+                } catch (eV) { if (count === 0) diag.push("scale set: " + eV.toString()); }
+            }
+        }
+        return JSON.stringify({ success: true, count: count, name: dup.name, diag: diag });
+    } catch (e) {
+        return JSON.stringify({ success: false, error: e.toString(), diag: diag });
+    }
+}

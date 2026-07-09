@@ -39,53 +39,7 @@
   <!-- ── UI v2: home screen (card grid) ───────────────────────────── -->
   <div id="home-screen">
     <div class="home-badge"><span class="dot"></span><span id="home-badge-text">100% offline · free</span></div>
-    <div class="home-grid">
-      <button class="home-card" data-tool="subtitles">
-        <span class="hc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 13h4M13 13h4M7 16h2M11 16h6"/></svg></span>
-        <span class="hc-label">Subtitles</span>
-        <span class="hc-badge" style="display:none"></span>
-      </button>
-      <button class="home-card" data-tool="silence">
-        <span class="hc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.6"/><circle cx="6" cy="18" r="2.6"/><path d="M8.1 8.1 12 12M20 4 8.1 15.9M14.8 14.8 20 20"/></svg></span>
-        <span class="hc-label">Cut Silences</span>
-        <span class="hc-badge" style="display:none"></span>
-      </button>
-      <button class="home-card" data-tool="filler">
-        <span class="hc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M8 12h.01M12 12h.01M16 12h.01"/></svg></span>
-        <span class="hc-label">Cut Filler Words</span>
-        <span class="hc-badge" style="display:none"></span>
-      </button>
-      <button class="home-card" data-tool="zoom">
-        <span class="hc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/></svg></span>
-        <span class="hc-label">Auto Zoom</span>
-        <span class="hc-badge" style="display:none"></span>
-      </button>
-      <button class="home-card" data-tool="beep">
-        <span class="hc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="m22 9-6 6M16 9l6 6"/></svg></span>
-        <span class="hc-label">Beep Profanity</span>
-        <span class="hc-badge" style="display:none"></span>
-      </button>
-      <button class="home-card" data-tool="enhance">
-        <span class="hc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></svg></span>
-        <span class="hc-label">Enhance Audio</span>
-        <span class="hc-badge" style="display:none"></span>
-      </button>
-      <button class="home-card" data-tool="ai">
-        <span class="hc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"/><path d="M19 15l.9 2.4L22 18l-2.1.6L19 21l-.9-2.4L16 18l2.1-.6L19 15Z"/></svg></span>
-        <span class="hc-label">AI Tools</span>
-        <span class="hc-badge" style="display:none"></span>
-      </button>
-      <button class="home-card" data-tool="settings">
-        <span class="hc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></span>
-        <span class="hc-label">Settings</span>
-        <span class="hc-badge" style="display:none"></span>
-      </button>
-      <button class="home-card" data-tool="help">
-        <span class="hc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></svg></span>
-        <span class="hc-label">Help</span>
-        <span class="hc-badge" style="display:none"></span>
-      </button>
-    </div>
+    <div id="home-cats"></div>
     <div class="home-foot" id="home-foot"></div>
   </div>
 
@@ -964,6 +918,7 @@
        desktop-app overrides the Premiere I/O boundary AFTER main.js. -->
   <script src="js/CSInterface.js"></script>
   <script src="js/main.js"></script>
+  <script src="js/features-v2.js"></script>
   <script src="js/ui-v2.js"></script>
 </body>
 </html>

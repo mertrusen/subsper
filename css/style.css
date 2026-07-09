@@ -441,7 +441,14 @@ mark.find-hit { background: var(--yellow); color: #1a1206; border-radius: 3px; p
 .btn-recheck:hover, .btn-reload:hover { background: var(--bg-hover); }
 
 /* ── Settings items — Apple inset grouped list ───────────────────── */
-.setting-item { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 0 14px; margin-bottom: 16px; overflow: hidden; box-shadow: var(--elev), var(--hi-top); }
+.setting-item { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 14px; margin-bottom: 16px; overflow: hidden; box-shadow: var(--elev), var(--hi-top); }
+/* Cards whose first child isn't a padded .setting-row must not touch the
+   clipped top edge (was flush → text sheared, e.g. "Kural filtresi"). */
+.setting-item > .setting-name:first-child,
+.setting-item > .setting-slider-header:first-child,
+.setting-item > .panel-intro:first-child,
+.setting-item > .setting-desc:first-child { padding-top: 6px; }
+.setting-item > button:last-child { margin-bottom: 6px; }
 .setting-row { display: flex; align-items: center; gap: 12px; padding: 11px 0; min-height: 44px; }
 .setting-row .setting-info { align-self: center; }
 /* hairline separators between rows in the same group (inset to content) */

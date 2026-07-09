@@ -58,13 +58,16 @@ const DEFAULT_SETTINGS = {
     zoomAmount:      8,           // % push-in per clip
     zoomStyle:       "in",        // in (smooth slow push-in, YouTuber-style) | alternate
     threads:         0,           // whisper.cpp threads (0 = auto: use all CPU cores)
-    hwAccel:         "auto",      // auto = use GPU (Windows Vulkan) if available | cpu = force CPU
+    hwAccel:         "cpu",       // cpu (default — most compatible) | auto = use GPU (Windows Vulkan)
     whisperModel:    "turbo",     // persisted Whisper model choice
     spokenLang:      "auto",      // persisted spoken-language choice
     hfToken:         "",          // HuggingFace token (Speaker Labels / diarization)
     beepShift:       0,           // ms — shift beep earlier(-) / later(+)
     beepPad:         40,          // ms — extra beep before & after the word
     beepDuck:        0,           // % — original voice level under the beep (0 = mute)
+    profStem:        true,        // match suffixed forms too (kan → kanın), beep only the root part
+    beepMode:        "beep",      // beep = 1kHz tone | mute = just silence the word (no tone)
+    followPlayhead:  true,        // highlight the active segment while playing
 };
 
 // Built-in filler words (Turkish + English). Phrases first so they match before single words.
@@ -163,7 +166,7 @@ const I18N = {
     nm_threads: "CPU Threads", ds_threads: "Threads for the built-in engine. 0 = use all cores.",
     tip_threads: "How many CPU threads the built-in engine uses. Auto (0) uses all cores — fastest.",
     nm_hwaccel: "Hardware Acceleration", ds_hwaccel: "GPU is faster on Windows (Vulkan). Switch to CPU only if the GPU causes errors.",
-    opt_hw_auto: "Auto — use GPU if available (recommended) ★", opt_hw_cpu: "CPU only — most compatible",
+    opt_hw_auto: "Auto — try GPU (Windows, experimental)", opt_hw_cpu: "CPU — most compatible (recommended) ★",
     tip_hwaccel: "Auto uses the GPU on Windows (Vulkan) for speed. Pick CPU only if transcription errors or crashes.",
     nm_diar: "Speaker Labels (Pro)", ds_diar: "Tags who is speaking. Needs the WhisperX Pro engine + a free HuggingFace token.",
     hint_hf: "Free token: huggingface.co → Settings → Access Tokens. Also accept the pyannote model terms once.",
@@ -171,6 +174,9 @@ const I18N = {
     nm_beepshift: "Beep timing shift", ds_beepshift: "Beep starts too early/late? Shift it. Negative = earlier, positive = later.",
     nm_beeppad: "Beep padding", ds_beeppad: "Extra beep before AND after the word, so the edges are covered.",
     nm_beepduck: "Original audio during beep", ds_beepduck: "How loud the original voice stays under the beep. 0% = fully muted.",
+    nm_profstem: "Catch suffixed forms", ds_profstem: "A filtered word is caught inside inflections too (kan → kanın); only the root part gets beeped/censored.",
+    nm_beepmode: "Censor sound", ds_beepmode: "Cover the word with a 1 kHz beep, or just mute it silently.",
+    opt_beep: "Beep (1 kHz)", opt_mute: "Mute (silent)",
     nm_autocleanup: "Auto clean-up", ds_autocleanup: "Apply dictionary & remove fillers when transcription finishes",
     lbl_dict: "Custom dictionary", hint_dict: "Fixes names, brands & mis-hearings. Format: wrong=right (whole word, case-insensitive).",
     lbl_punct_filter: "Allowed Punctuation", hint_punct_filter: "Only these punctuation marks will be kept. Delete all to remove all punctuation.",
@@ -332,7 +338,7 @@ const I18N = {
     nm_threads: "CPU Çekirdeği", ds_threads: "Yerleşik motor için iş parçacığı sayısı. 0 = tüm çekirdekleri kullan.",
     tip_threads: "Yerleşik motorun kaç CPU çekirdeği kullanacağı. Auto (0) hepsini kullanır — en hızlısı.",
     nm_hwaccel: "Donanım Hızlandırma", ds_hwaccel: "GPU Windows'ta daha hızlı (Vulkan). Sadece GPU hata verirse CPU'ya geç.",
-    opt_hw_auto: "Otomatik — varsa GPU kullan (önerilen) ★", opt_hw_cpu: "Sadece CPU — en uyumlu",
+    opt_hw_auto: "Otomatik — GPU dene (Windows, deneysel)", opt_hw_cpu: "CPU — en uyumlu (önerilen) ★",
     tip_hwaccel: "Otomatik, hız için Windows'ta GPU'yu (Vulkan) kullanır. Transkript hata verir/çökerse Sadece CPU seç.",
     nm_diar: "Konuşmacı Etiketleri (Pro)", ds_diar: "Kim konuşuyor etiketler. WhisperX Pro motoru + ücretsiz HuggingFace token gerekir.",
     hint_hf: "Ücretsiz token: huggingface.co → Settings → Access Tokens. Bir kez de pyannote model şartlarını kabul et.",
@@ -340,6 +346,9 @@ const I18N = {
     nm_beepshift: "Bip zamanlama kaydırma", ds_beepshift: "Bip erken/geç mi başlıyor? Kaydır. Eksi = daha erken, artı = daha geç.",
     nm_beeppad: "Bip payı", ds_beeppad: "Kelimenin öncesine VE sonrasına eklenen ekstra bip — kenarlar açıkta kalmasın.",
     nm_beepduck: "Bip sırasında orijinal ses", ds_beepduck: "Bipin altında orijinal ses ne kadar duyulsun. %0 = tamamen sessiz.",
+    nm_profstem: "Ekli halleri de yakala", ds_profstem: "Filtredeki kelime ek almış haliyle de yakalanır (kan → kanın); sadece kök kısmı biplenir/sansürlenir.",
+    nm_beepmode: "Sansür sesi", ds_beepmode: "Kelimeyi 1 kHz bip ile kapat ya da sessizce sustur.",
+    opt_beep: "Bip (1 kHz)", opt_mute: "Sustur (sessiz)",
     nm_autocleanup: "Otomatik temizlik", ds_autocleanup: "İş bitince sözlüğü uygular ve dolgu kelimeleri siler",
     lbl_dict: "Özel sözlük", hint_dict: "İsim/marka/yanlış duymaları düzeltir. Format: yanlış=doğru (tam kelime, büyük-küçük fark etmez).",
     lbl_punct_filter: "İzin Verilen Noktalama", hint_punct_filter: "Sadece bu işaretler korunur (örn. sadece soru işareti için '?' yazın). Hepsini silerseniz tüm noktalamalar kalkar.",
@@ -486,6 +495,7 @@ function applyLanguage() {
         el.setAttribute("placeholder", t(el.getAttribute("data-i18n-ph")));
     });
     document.documentElement.lang = I18N[settings.uiLang] ? settings.uiLang : "en";
+    document.documentElement.dir = (settings.uiLang === "ar") ? "rtl" : "ltr";
 }
 
 function setLanguage(lang) {
@@ -715,7 +725,24 @@ function spawnEnv() {
     // locale codepage (e.g. cp1254) and Turkish/Unicode text comes back as  .
     const utf8 = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
     if (settings && settings.hfToken) { utf8.HF_TOKEN = settings.hfToken; utf8.HUGGING_FACE_HUB_TOKEN = settings.hfToken; }
-    if (IS_WIN) return Object.assign({}, process.env, utf8);
+    if (IS_WIN) {
+        // The Electron/CEP process captures PATH at launch, so an ffmpeg
+        // installed AFTER we started isn't found until restart ("not installed"
+        // even though it works). Prepend the common install dirs so a fresh
+        // winget/choco/manual ffmpeg is picked up immediately.
+        const la = process.env.LOCALAPPDATA || "";
+        const pf = process.env.PROGRAMFILES || "C:\\Program Files";
+        const extra = [
+            la && (la + "\\Microsoft\\WinGet\\Links"),
+            "C:\\ProgramData\\chocolatey\\bin",
+            pf + "\\ffmpeg\\bin",
+            "C:\\ffmpeg\\bin",
+        ].filter(Boolean);
+        const cur = process.env.PATH || "";
+        const missing = extra.filter(p => cur.toLowerCase().indexOf(p.toLowerCase()) === -1);
+        const path2 = missing.length ? (missing.join(";") + ";" + cur) : cur;
+        return Object.assign({}, process.env, utf8, { PATH: path2 });
+    }
     const extra = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin";
     const cur   = process.env.PATH || "";
     return Object.assign({}, process.env, utf8, {
@@ -975,6 +1002,7 @@ function initAudioSettingsUI() {
     set("set-beepshift", settings.beepShift || 0); txt("beepshift-val", (settings.beepShift || 0) + " ms");
     set("set-beeppad",   settings.beepPad ?? 40); txt("beeppad-val", (settings.beepPad ?? 40) + " ms");
     set("set-beepduck",  settings.beepDuck || 0); txt("beepduck-val", (settings.beepDuck || 0) + "%");
+    set("set-beepmode", settings.beepMode || "beep");
 }
 
 // ── Settings tab ──────────────────────────────────────────────────────────
@@ -1006,6 +1034,7 @@ function initSettingsUI() {
     // set-prof-mode mismatch here meant these never restored on reopen).
     set("set-profanity", settings.profanityList);
     set("set-profmode", settings.profanityMode);
+    chk("set-prof-stem", settings.profStem !== false);
 
     // Model & Language now live in Settings and persist across sessions.
     set("model-select", settings.whisperModel || "turbo");
@@ -1618,15 +1647,20 @@ function censorProfanity(opts) {
     (settings.profanityList || "").split(/[,\n]/).forEach(w => { w = w.trim(); if (w) list.push(w); });
     list = list.filter((v, i, a) => a.indexOf(v) === i);
     if (!list.length) { if (!opts.silent) showToast("No profanity words configured", "info", 2500); return 0; }
-    const re = new RegExp("\\b(" + list.map(escRe).join("|") + ")\\b", "gi");
+    // profStem: also match inflected forms — root + up to 6 letter-suffix (kanın, siktirin…)
+    const suffix = settings.profStem !== false ? "[a-zçğıöşüâîû]{0,6}" : "";
+    const re = new RegExp("\\b(" + list.map(escRe).join("|") + ")" + suffix + "\\b", "gi");
     let count = 0;
+    const mode = settings.profanityMode || "asterisk";
+    const censorWord = (m) => {
+        const n = m.length;
+        if (mode === "remove") return "—";
+        if (mode === "first")  return "*" + m.slice(1);                       // *öt
+        if (mode === "middle" && n >= 3) return m[0] + "*".repeat(n - 2) + m[n - 1]; // g*t
+        return m[0] + "*".repeat(Math.max(1, n - 1));                          // s*** (default)
+    };
     for (const seg of segments) {
-        seg.text = (seg.text || "").replace(re, m => {
-            count++;
-            if (settings.profanityMode === "remove") return "—";
-            // keep first letter, asterisk the rest
-            return m[0] + "*".repeat(Math.max(1, m.length - 1));
-        });
+        seg.text = (seg.text || "").replace(re, m => { count++; return censorWord(m); });
     }
     if (!opts.silent) { renderSegments(); reselect(); showToast(`Censored ${count} word(s)`, "success"); }
     return count;
@@ -3315,6 +3349,9 @@ function initTooltips() {
     applyTheme();   // apply after icons so theme-btn icon renders correctly
     renderSegments();
     initTooltips();
+    // Track manual scrolling so the playhead-follow loop backs off for a few
+    // seconds (don't yank the user down while they scroll up to edit).
+    (function(){ const w = $("segments-wrap"); if (w) w.addEventListener("scroll", () => { window._lastUserScroll = Date.now(); }, { passive: true }); })();
     const lseg = $("lang-seg");
     if (lseg) lseg.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.getAttribute("data-lang") === settings.uiLang));
     setStatus(t("status_ready"), "info");
@@ -3336,12 +3373,18 @@ function initTooltips() {
     // killed this whole init block, so the playhead-sync loop never started.
     const _isDesktop = (typeof window !== "undefined" && window.IS_DESKTOP === true);
     if (!_isDesktop) {
-        // Space = play/pause in Premiere (unless you're typing in a field).
-        // Buttons keep focus after a click, and Space would "click" them again —
-        // so we blur buttons on click AND swallow Space's default activation.
-        document.addEventListener("click", (e) => {
-            const b = e.target && e.target.closest && e.target.closest("button, select");
-            if (b) b.blur();
+        // Space = play/pause in Premiere (unless typing in a field). CEP panels
+        // only get keydown when the webview has DOM focus — so we grab focus when
+        // the pointer enters or clicks the panel (fixes "Space does nothing until I
+        // cmd-tab away and back"). We do NOT blur <select> on click (that closed
+        // dropdowns on mouse-up).
+        const _grabFocus = () => { try { window.focus(); } catch (e) {} };
+        document.addEventListener("mouseenter", _grabFocus, true);
+        document.addEventListener("mousedown", (e) => {
+            const el = e.target;
+            const tag = el && el.tagName;
+            if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (el && el.isContentEditable)) return;
+            _grabFocus();
         }, true);
         document.addEventListener("keydown", (e) => {
             if (e.code !== "Space" && e.key !== " ") return;
@@ -3349,7 +3392,7 @@ function initTooltips() {
             if (tag === "INPUT" || tag === "TEXTAREA" || (el && el.isContentEditable)) return;
             e.preventDefault();
             e.stopPropagation();
-            if (tag === "BUTTON" || tag === "SELECT") el.blur();   // never re-trigger the focused control
+            if (tag === "BUTTON" || tag === "SELECT") { try { el.blur(); } catch (x) {} }
             playPause();
         }, true);
 
@@ -3371,11 +3414,20 @@ function initTooltips() {
             const wrap = $("segments-wrap");
             if (wrap && activeIdx >= 0) {
                 const nodes = wrap.querySelectorAll(".segment");
+                const ae = document.activeElement, at = ae && ae.tagName;
+                const editing = at === "TEXTAREA" || at === "INPUT" || (ae && ae.isContentEditable);
+                const recentlyScrolled = (Date.now() - (window._lastUserScroll || 0)) < 5000;
                 nodes.forEach((n, i) => {
                     if (i === activeIdx) {
                         if (!n.classList.contains("playing")) {
                             n.classList.add("playing");
-                            n.scrollIntoView({ behavior: "smooth", block: "center" });
+                            // Only follow the playhead when the user isn't editing and
+                            // hasn't just scrolled — and only nudge if it's off-screen.
+                            if (!editing && !recentlyScrolled) {
+                                const wr = wrap.getBoundingClientRect(), nr = n.getBoundingClientRect();
+                                if (nr.top < wr.top || nr.bottom > wr.bottom)
+                                    n.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                            }
                         }
                     } else {
                         n.classList.remove("playing");
@@ -3412,7 +3464,7 @@ function initTooltips() {
    files (and the extension↔desktop footer sync) stay untouched.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION = "1.13.3";
+const APP_VERSION = "1.14.0";
 const GH_REPO = "mertrusen/subsper";
 const IS_DESKTOP_APP = (typeof window !== "undefined" && window.IS_DESKTOP === true);
 
@@ -3711,38 +3763,50 @@ function _loadPulledSegments(items, sourceNote) {
 }
 async function pullTimelineCaptions() {
     if (IS_DESKTOP_APP) return;
-    setStatus("Reading captions from the timeline…", "info");
-    await loadHostJSX();
+    const isTr = settings.uiLang === "tr";
+    try {
+        setStatus(isTr ? "Timeline'daki altyazı okunuyor…" : "Reading captions from the timeline…", "info");
+        showProgress(true);
+        await loadHostJSX();
 
-    // 1) Direct caption-track read (works only on Premiere builds that expose it)
-    const r = await evalScript("readTimelineCaptions()");
-    if (r && r.success && r.items && r.items.length) {
-        _loadPulledSegments(r.items, "from the caption track");
-        return;
-    }
+        // 1) Direct caption-track read (works only on Premiere builds that expose it)
+        let r = null;
+        try { r = await evalScript("readTimelineCaptions()"); } catch (e1) { console.warn("readTimelineCaptions:", e1); }
+        if (r && r.success && r.items && r.items.length) {
+            _loadPulledSegments(r.items, isTr ? "caption track'ten" : "from the caption track");
+            return;
+        }
 
-    // 2) Fallback: .srt files referenced by the project (incl. our own sends)
-    const f = await evalScript("findProjectSRTs()");
-    const srts = (f && f.items) || [];
-    if (srts.length) {
-        // newest whisper_*.srt first (our own timestamped sends), else last srt
-        srts.sort((a, b) => (b.path.match(/whisper_(\d+)/) || [0, 0])[1] - (a.path.match(/whisper_(\d+)/) || [0, 0])[1]);
-        const pick = srts[0];
-        try {
-            const parsed = parseSRT(fs.readFileSync(pick.path, "utf8"));
-            if (parsed.length) {
-                _loadPulledSegments(parsed.map(s => ({ start: s.seqStart, end: s.seqEnd, text: s.text })),
-                    (settings.uiLang === "tr" ? "kaynak: " : "source: ") + pick.name);
-                return;
+        // 2) Fallback: .srt files referenced by the project (incl. our own sends)
+        let f = null;
+        try { f = await evalScript("findProjectSRTs()"); } catch (e2) { console.warn("findProjectSRTs:", e2); }
+        const srts = (f && f.items) || [];
+        if (srts.length) {
+            srts.sort((a, b) => (b.path.match(/whisper_(\d+)/) || [0, 0])[1] - (a.path.match(/whisper_(\d+)/) || [0, 0])[1]);
+            for (const pick of srts) {
+                try {
+                    const parsed = parseSRT(fs.readFileSync(pick.path, "utf8"));
+                    if (parsed.length) {
+                        _loadPulledSegments(parsed.map(s => ({ start: s.seqStart, end: s.seqEnd, text: s.text })),
+                            (isTr ? "kaynak: " : "source: ") + pick.name);
+                        return;
+                    }
+                } catch (e3) { console.warn("SRT read failed:", pick.path, e3); }
             }
-        } catch (e) { console.warn("SRT fallback read failed:", e); }
-    }
+        }
 
-    const why = (r && r.error) || "This Premiere version doesn't expose caption contents to extensions.";
-    setStatus("Couldn't read captions — " + why, "warning");
-    showToast((settings.uiLang === "tr"
-        ? "Çekilemedi. Çözüm: caption track'i seç → File > Export > Captions (SRT) → Load SRT ile aç. "
-        : "Couldn't pull. Workaround: select the caption track → File > Export > Captions (SRT) → open with Load SRT. ") , "warning", 8000);
+        // 3) Last resort: let the user point at an exported SRT directly.
+        const why = (r && r.error) || (isTr ? "Bu Premiere sürümü caption içeriğini eklentiye vermiyor." : "This Premiere version doesn't expose caption contents to extensions.");
+        setStatus(isTr ? "Otomatik çekilemedi — SRT seç" : "Couldn't auto-pull — pick an SRT", "warning");
+        showToast(isTr
+            ? "Otomatik çekilemedi: " + why + " Premiere'de: caption track seç → File > Export > Captions (SRT). Şimdi o dosyayı seç."
+            : "Auto-pull failed: " + why + " In Premiere: select the caption track → File > Export > Captions (SRT). Now pick that file.",
+            "warning", 9000);
+        importSRTFile();   // opens the Load-SRT picker so the user still gets there
+    } catch (e) {
+        setStatus((e && e.message) || String(e), "error");
+        showToast(isTr ? "Hata: " + e.message : "Error: " + e.message, "error", 6000);
+    } finally { showProgress(false); }
 }
 
 // ── Onboarding (first run, 3 steps) ────────────────────────────────────────
@@ -3982,6 +4046,122 @@ Object.assign(I18N, {
     nm_autoformat: "Autoformatar legendas", lbl_cpl: "Máx. de caracteres por linha",
   },
 });
+Object.assign(I18N, {
+  fr: {
+    tagline: "Sous-titres IA", status_ready: "Prêt — cliquez sur Transcrire",
+    tab_transcribe: "Sous-titres", tab_edit: "Montage", tab_audio: "Audio", tab_setup: "Réglages",
+    sub_work_tx: "Éditer", sub_settings: "Réglages", sub_actions: "Outils",
+    lbl_model: "Modèle", lbl_language: "Langue", opt_auto: "Détection auto",
+    btn_transcribe: "Transcrire", btn_loadsrt: "Charger SRT", btn_play: "Lecture", btn_pause: "Pause",
+    empty_p: "Cliquez sur Transcrire pour sous-titrer votre vidéo.",
+    empty_hint: "Clic sur un mot = couper · double-clic = éditer.",
+    act_clear: "Effacer", act_send: "Envoyer à Premiere",
+    export_title: "Exporter en…", clean_title: "Nettoyer…",
+    sec_engine: "Moteur de transcription", sec_cleanup: "Nettoyage du texte",
+    sec_quality: "Qualité des sous-titres", sec_style: "Style", sec_interface: "Interface",
+    sec_modellang: "Modèle et langue", sec_api: "IA et API", sec_timing: "Synchronisation", sec_karaoke: "Karaoké",
+    lbl_uilang: "Langue", lbl_theme: "Apparence", theme_dark: "Sombre", theme_light: "Clair", theme_auto: "Auto",
+    btn_replaceall: "Tout remplacer", btn_cancel: "Annuler", btn_close: "Fermer",
+    nm_engine: "Moteur", opt_eng_cpp: "Moteur intégré — sans installation ★",
+    nm_hwaccel: "Accélération matérielle", nm_threads: "Threads CPU",
+    nm_autoformat: "Formater automatiquement", lbl_cpl: "Caractères max par ligne",
+  },
+  ru: {
+    tagline: "ИИ-субтитры", status_ready: "Готово — нажмите «Транскрибировать»",
+    tab_transcribe: "Субтитры", tab_edit: "Монтаж", tab_audio: "Аудио", tab_setup: "Настройки",
+    sub_work_tx: "Правка", sub_settings: "Настройки", sub_actions: "Инструменты",
+    lbl_model: "Модель", lbl_language: "Язык", opt_auto: "Автоопределение",
+    btn_transcribe: "Транскрибировать", btn_loadsrt: "Загрузить SRT", btn_play: "Играть", btn_pause: "Пауза",
+    empty_p: "Нажмите «Транскрибировать», чтобы создать субтитры.",
+    empty_hint: "Клик по слову — разделить · двойной клик — правка.",
+    act_clear: "Очистить", act_send: "Отправить в Premiere",
+    export_title: "Экспорт как…", clean_title: "Очистка…",
+    sec_engine: "Движок транскрипции", sec_cleanup: "Очистка текста",
+    sec_quality: "Качество субтитров", sec_style: "Стиль", sec_interface: "Интерфейс",
+    sec_modellang: "Модель и язык", sec_api: "ИИ и API", sec_timing: "Тайминг", sec_karaoke: "Караоке",
+    lbl_uilang: "Язык", lbl_theme: "Оформление", theme_dark: "Тёмное", theme_light: "Светлое", theme_auto: "Авто",
+    btn_replaceall: "Заменить все", btn_cancel: "Отмена", btn_close: "Закрыть",
+    nm_engine: "Движок", opt_eng_cpp: "Встроенный движок — без установки ★",
+    nm_hwaccel: "Аппаратное ускорение", nm_threads: "Потоки CPU",
+    nm_autoformat: "Автоформат субтитров", lbl_cpl: "Макс. символов в строке",
+  },
+  ar: {
+    tagline: "ترجمة بالذكاء الاصطناعي", status_ready: "جاهز — اضغط تفريغ",
+    tab_transcribe: "الترجمة", tab_edit: "تحرير", tab_audio: "الصوت", tab_setup: "الإعداد",
+    sub_work_tx: "تحرير", sub_settings: "الإعدادات", sub_actions: "أدوات",
+    lbl_model: "النموذج", lbl_language: "اللغة", opt_auto: "كشف تلقائي",
+    btn_transcribe: "تفريغ", btn_loadsrt: "تحميل SRT", btn_play: "تشغيل", btn_pause: "إيقاف",
+    empty_p: "اضغط تفريغ لإنشاء ترجمة للفيديو.",
+    empty_hint: "انقر كلمة = تقسيم · نقر مزدوج = تحرير.",
+    act_clear: "مسح", act_send: "أرسل إلى Premiere",
+    export_title: "تصدير كـ…", clean_title: "تنظيف…",
+    sec_engine: "محرك التفريغ", sec_cleanup: "تنظيف النص",
+    sec_quality: "جودة الترجمة", sec_style: "النمط", sec_interface: "الواجهة",
+    sec_modellang: "النموذج واللغة", sec_api: "ذكاء اصطناعي وAPI", sec_timing: "التوقيت", sec_karaoke: "كاريوكي",
+    lbl_uilang: "اللغة", lbl_theme: "المظهر", theme_dark: "داكن", theme_light: "فاتح", theme_auto: "تلقائي",
+    btn_replaceall: "استبدال الكل", btn_cancel: "إلغاء", btn_close: "إغلاق",
+    nm_engine: "المحرك", opt_eng_cpp: "محرك مدمج — بدون تثبيت ★",
+    nm_hwaccel: "تسريع عتادي", nm_threads: "خيوط المعالج",
+    nm_autoformat: "تنسيق تلقائي للترجمة", lbl_cpl: "أقصى حروف بالسطر",
+  },
+  az: {
+    tagline: "Süni intellekt altyazı", status_ready: "Hazır — Transkript düyməsinə basın",
+    tab_transcribe: "Altyazı", tab_edit: "Montaj", tab_audio: "Səs", tab_setup: "Quraşdırma",
+    sub_work_tx: "Redaktə", sub_settings: "Parametrlər", sub_actions: "Alətlər",
+    lbl_model: "Model", lbl_language: "Dil", opt_auto: "Avtomatik",
+    btn_transcribe: "Transkript", btn_loadsrt: "SRT yüklə", btn_play: "Oynat", btn_pause: "Fasilə",
+    empty_p: "Videonuza altyazı üçün Transkript düyməsinə basın.",
+    empty_hint: "Sözə klik = böl · ikiqat klik = redaktə.",
+    act_clear: "Təmizlə", act_send: "Premiere-ə göndər",
+    export_title: "Belə ixrac et…", clean_title: "Təmizlik…",
+    sec_engine: "Transkript mühərriki", sec_cleanup: "Mətn təmizliyi",
+    sec_quality: "Altyazı keyfiyyəti", sec_style: "Üslub", sec_interface: "İnterfeys",
+    sec_modellang: "Model və dil", sec_api: "Sİ və API", sec_timing: "Zamanlama", sec_karaoke: "Karaoke",
+    lbl_uilang: "Dil", lbl_theme: "Görünüş", theme_dark: "Tünd", theme_light: "Açıq", theme_auto: "Avto",
+    btn_replaceall: "Hamısını əvəz et", btn_cancel: "Ləğv et", btn_close: "Bağla",
+    nm_engine: "Mühərrik", opt_eng_cpp: "Daxili mühərrik — quraşdırma yoxdur ★",
+    nm_hwaccel: "Aparat sürətləndirmə", nm_threads: "CPU axınları",
+    nm_autoformat: "Altyazını avto-formatla", lbl_cpl: "Sətirdə maks. simvol",
+  },
+  uz: {
+    tagline: "SI subtitrlar", status_ready: "Tayyor — Transkripsiya'ni bosing",
+    tab_transcribe: "Subtitr", tab_edit: "Tahrir", tab_audio: "Audio", tab_setup: "Sozlama",
+    sub_work_tx: "Tahrirlash", sub_settings: "Sozlamalar", sub_actions: "Vositalar",
+    lbl_model: "Model", lbl_language: "Til", opt_auto: "Avto aniqlash",
+    btn_transcribe: "Transkripsiya", btn_loadsrt: "SRT yuklash", btn_play: "Ijro", btn_pause: "Pauza",
+    empty_p: "Videoga subtitr uchun Transkripsiya'ni bosing.",
+    empty_hint: "So'zga bosing = bo'lish · ikki marta bosing = tahrir.",
+    act_clear: "Tozalash", act_send: "Premiere'ga yuborish",
+    export_title: "Sifatida eksport…", clean_title: "Tozalash…",
+    sec_engine: "Transkripsiya dvigateli", sec_cleanup: "Matn tozalash",
+    sec_quality: "Subtitr sifati", sec_style: "Uslub", sec_interface: "Interfeys",
+    sec_modellang: "Model va til", sec_api: "SI va API", sec_timing: "Vaqt", sec_karaoke: "Karaoke",
+    lbl_uilang: "Til", lbl_theme: "Ko'rinish", theme_dark: "Qorong'i", theme_light: "Yorug'", theme_auto: "Avto",
+    btn_replaceall: "Hammasini almashtirish", btn_cancel: "Bekor", btn_close: "Yopish",
+    nm_engine: "Dvigatel", opt_eng_cpp: "O'rnatilgan dvigatel — o'rnatishsiz ★",
+    nm_hwaccel: "Apparat tezlashtirish", nm_threads: "CPU oqimlari",
+    nm_autoformat: "Subtitrni avto-format", lbl_cpl: "Qatordagi maks. belgi",
+  },
+  kk: {
+    tagline: "ЖИ субтитрлер", status_ready: "Дайын — «Транскрипциялау» басыңыз",
+    tab_transcribe: "Субтитр", tab_edit: "Өңдеу", tab_audio: "Аудио", tab_setup: "Баптау",
+    sub_work_tx: "Өңдеу", sub_settings: "Баптаулар", sub_actions: "Құралдар",
+    lbl_model: "Модель", lbl_language: "Тіл", opt_auto: "Авто анықтау",
+    btn_transcribe: "Транскрипциялау", btn_loadsrt: "SRT жүктеу", btn_play: "Ойнату", btn_pause: "Кідірту",
+    empty_p: "Видеоға субтитр үшін «Транскрипциялау» басыңыз.",
+    empty_hint: "Сөзге басу = бөлу · қос басу = өңдеу.",
+    act_clear: "Тазалау", act_send: "Premiere-ге жіберу",
+    export_title: "Былай экспорттау…", clean_title: "Тазалау…",
+    sec_engine: "Транскрипция қозғалтқышы", sec_cleanup: "Мәтінді тазалау",
+    sec_quality: "Субтитр сапасы", sec_style: "Стиль", sec_interface: "Интерфейс",
+    sec_modellang: "Модель мен тіл", sec_api: "ЖИ және API", sec_timing: "Уақыт", sec_karaoke: "Караоке",
+    lbl_uilang: "Тіл", lbl_theme: "Көрінісі", theme_dark: "Қараңғы", theme_light: "Ашық", theme_auto: "Авто",
+    btn_replaceall: "Барлығын алмастыру", btn_cancel: "Болдырмау", btn_close: "Жабу",
+    nm_engine: "Қозғалтқыш", opt_eng_cpp: "Кірістірілген қозғалтқыш — орнатусыз ★",
+    nm_hwaccel: "Аппараттық жеделдету", nm_threads: "CPU ағындары",
+    nm_autoformat: "Субтитрді авто-пішімдеу", lbl_cpl: "Жолдағы макс. таңба",
+  },
+});
 
 // ── Profanity ranges (word-timing based, for audio beeping) ────────────────
 function computeProfanityRanges() {
@@ -3993,12 +4173,26 @@ function computeProfanityRanges() {
         for (const w of (seg.words || [])) {
             if (w.start == null || w.end == null) continue;
             const clean = (w.word || "").toLowerCase().replace(/[.,!?;:"'()\[\]{}…*-]/g, "");
-            if (clean && set.has(clean)) {
+            if (!clean) continue;
+            // Exact hit → beep the whole word. Stem hit (kanın ⊃ kan) → beep only
+            // the root's share of the word, so the suffix stays audible.
+            let ratio = 0;
+            if (set.has(clean)) ratio = 1;
+            else if (settings.profStem !== false) {
+                for (const root of set) {
+                    if (root.length >= 3 && clean.length > root.length &&
+                        clean.length - root.length <= 6 && clean.startsWith(root)) {
+                        ratio = root.length / clean.length; break;
+                    }
+                }
+            }
+            if (ratio > 0) {
                 const off = seg.seqStart - seg.start;
                 const shift = (settings.beepShift || 0) / 1000;
                 const pad   = (settings.beepPad ?? 40) / 1000;
+                const rootEnd = w.start + (w.end - w.start) * ratio;
                 ranges.push({ start: Math.max(0, off + w.start + shift - pad),
-                              end:   Math.max(0.05, off + w.end + shift + pad) });
+                              end:   Math.max(0.05, off + rootEnd + shift + pad) });
             }
         }
     }
@@ -4175,25 +4369,33 @@ function beepProfanityAction() {
     if (!segments.length) { showToast("Transcribe first — beeping needs word timings", "info", 3000); return; }
     const ranges = computeProfanityRanges();
     if (!ranges.length) { showToast(settings.uiLang === "tr" ? "Küfür bulunamadı — Ayarlar'daki küfür listesi + kelime zamanları kullanılır" : "No profanity found (uses the Settings profanity list + word timings)", "info", 4000); return; }
-    showRangePreview(settings.uiLang === "tr" ? "Küfürleri biple" : "Beep profanity", ranges, async (chosen) => {
+    const mute = (settings.beepMode === "mute");
+    const title = settings.uiLang === "tr" ? (mute ? "Küfürleri sustur" : "Küfürleri biple") : (mute ? "Mute profanity" : "Beep profanity");
+    showRangePreview(title, ranges, async (chosen) => {
         if (IS_DESKTOP_APP) {
-            if (window.beepProfanityDesktop) window.beepProfanityDesktop(chosen);
+            if (window.beepProfanityDesktop) window.beepProfanityDesktop(chosen, mute);
             return;
         }
         const W = wcpp();
         if (!W || !W.beepTrackWav) { showToast("Engine unavailable", "error"); return; }
         try {
-            setStatus(settings.uiLang === "tr" ? "Bip sesi üretiliyor…" : "Generating beep track…", "info");
-            showProgress(true);
-            const wav = path.join(os.tmpdir(), `subsper_beep_${Date.now()}.wav`);
-            await W.beepTrackWav(extDir(), chosen, wav, { spawnOpts: { env: spawnEnv() } });
-            await loadHostJSX();
-            const r = await evalScript(`insertAudioAtStart('${wav.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')`);
+            // Mute mode: no beep track — just duck the speech to 0 during the ranges.
+            let r = { success: true, track: -1 };
+            if (!mute) {
+                setStatus(settings.uiLang === "tr" ? "Bip sesi üretiliyor…" : "Generating beep track…", "info");
+                showProgress(true);
+                const wav = path.join(os.tmpdir(), `subsper_beep_${Date.now()}.wav`);
+                await W.beepTrackWav(extDir(), chosen, wav, { spawnOpts: { env: spawnEnv() } });
+                await loadHostJSX();
+                r = await evalScript(`insertAudioAtStart('${wav.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')`);
+            } else {
+                await loadHostJSX();
+            }
             // Duck (or mute) ONLY the transcribed speech clips during the beeped
             // ranges — never music beds, never the beep track we just inserted.
             let ducked = null;
             try {
-                const duckLevel = Math.max(0, Math.min(1, (settings.beepDuck || 0) / 100));
+                const duckLevel = mute ? 0 : Math.max(0, Math.min(1, (settings.beepDuck || 0) / 100));
                 let paths = [];
                 try {
                     const si = await evalScript("getSequenceInfo()");
@@ -4208,13 +4410,23 @@ function beepProfanityAction() {
             } catch (eD) {}
             if (r && r.success) {
                 const duckedOk = ducked && ducked.success && ducked.keyed > 0;
-                setStatus(settings.uiLang === "tr"
-                    ? `✓ Bip A${(r.track || 0) + 1} kanalında${duckedOk ? " + orijinal ses kısıldı" : ""} (${chosen.length} nokta)`
-                    : `✓ Beep on A${(r.track || 0) + 1}${duckedOk ? " + original audio ducked" : ""} (${chosen.length} spot(s))`, "success");
-                showToast(duckedOk
-                    ? (settings.uiLang === "tr" ? "Bip + ses kısma uygulandı ✓ (geri almak: Premiere'de Cmd+Z)" : "Beep + ducking applied ✓ (undo in Premiere: Cmd+Z)")
-                    : (settings.uiLang === "tr" ? "Bip eklendi. Ses kısma bu Premiere sürümünde otomatik olamadı — klibin sesini elle kıs" : "Beep added. Auto-ducking not possible on this Premiere build — lower the clip audio manually"),
-                    "success", 7000);
+                if (mute) {
+                    setStatus(settings.uiLang === "tr"
+                        ? `✓ ${chosen.length} küfür ${duckedOk ? "susturuldu" : "işaretlendi (ses kısma otomatik olamadı)"}`
+                        : `✓ ${chosen.length} word(s) ${duckedOk ? "muted" : "flagged (auto-mute unavailable)"}`, duckedOk ? "success" : "warning");
+                    showToast(duckedOk
+                        ? (settings.uiLang === "tr" ? "Küfürler susturuldu ✓ (geri al: Cmd+Z)" : "Profanity muted ✓ (undo: Cmd+Z)")
+                        : (settings.uiLang === "tr" ? "Bu Premiere sürümünde otomatik susturulamadı — klibin sesini elle kıs" : "Auto-mute not possible on this Premiere build — lower the clip audio manually"),
+                        "success", 7000);
+                } else {
+                    setStatus(settings.uiLang === "tr"
+                        ? `✓ Bip A${(r.track || 0) + 1} kanalında${duckedOk ? " + orijinal ses kısıldı" : ""} (${chosen.length} nokta)`
+                        : `✓ Beep on A${(r.track || 0) + 1}${duckedOk ? " + original audio ducked" : ""} (${chosen.length} spot(s))`, "success");
+                    showToast(duckedOk
+                        ? (settings.uiLang === "tr" ? "Bip + ses kısma uygulandı ✓ (geri almak: Premiere'de Cmd+Z)" : "Beep + ducking applied ✓ (undo in Premiere: Cmd+Z)")
+                        : (settings.uiLang === "tr" ? "Bip eklendi. Ses kısma bu Premiere sürümünde otomatik olamadı — klibin sesini elle kıs" : "Beep added. Auto-ducking not possible on this Premiere build — lower the clip audio manually"),
+                        "success", 7000);
+                }
             } else {
                 setStatus((r && r.error) || "Beep placement failed", "error");
             }
@@ -4292,7 +4504,8 @@ setTimeout(function initV110() {
         // Language options: extend the Settings dropdown beyond EN/TR
         const uiSel = $("set-uilang");
         if (uiSel && !uiSel.querySelector('option[value="es"]')) {
-            [["es", "Español"], ["de", "Deutsch"], ["pt", "Português"]].forEach(([v, label]) => {
+            [["es", "Español"], ["de", "Deutsch"], ["fr", "Français"], ["pt", "Português"],
+             ["ru", "Русский"], ["ar", "العربية"], ["az", "Azərbaycan"], ["uz", "Oʻzbek"], ["kk", "Қазақша"]].forEach(([v, label]) => {
                 const o = document.createElement("option"); o.value = v; o.textContent = label; uiSel.appendChild(o);
             });
             uiSel.value = settings.uiLang;

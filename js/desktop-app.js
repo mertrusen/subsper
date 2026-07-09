@@ -677,20 +677,68 @@
   };
 
   // Waveform strip under the preview player (peaks via bundled ffmpeg PCM dump)
+  // Zoomable waveform: scroll-wheel over the strip zooms in/out (was too tiny).
+  let _waveSamples = null, _waveZoom = 1;
+  function _drawWave() {
+    const canvas = document.getElementById("waveform-canvas");
+    const scroll = document.getElementById("waveform-scroll");
+    if (!canvas || !scroll || !_waveSamples) return;
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = Math.max(scroll.clientWidth, Math.round(scroll.clientWidth * _waveZoom));
+    canvas.style.width = cssW + "px";
+    const W = canvas.width = Math.round(cssW * dpr);
+    const H = canvas.height = 44 * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "rgba(80,140,255,.75)";
+    const per = Math.max(1, Math.floor(_waveSamples.length / W));
+    for (let x = 0; x < W; x++) {
+      let peak = 0;
+      for (let i = x * per; i < (x + 1) * per && i < _waveSamples.length; i++) {
+        const v = Math.abs(_waveSamples[i]); if (v > peak) peak = v;
+      }
+      const h = Math.max(1, (peak / 32768) * H);
+      ctx.fillRect(x, (H - h) / 2, 1, h);
+    }
+    if (typeof drawSegmentBoxes === "function") try { drawSegmentBoxes(); } catch (e) {}
+  }
   async function buildWaveform() {
     if (!WCPP || !mediaPath || !mediaEl) return;
+    let scroll = document.getElementById("waveform-scroll");
     let canvas = document.getElementById("waveform-canvas");
-    if (!canvas) {
+    if (!scroll) {
+      scroll = document.createElement("div");
+      scroll.id = "waveform-scroll";
+      scroll.style.cssText = "position:relative;width:100%;overflow-x:auto;overflow-y:hidden;background:var(--bg3,#111);border-radius:6px;margin-bottom:10px";
+      scroll.title = "Scroll to zoom · click to seek";
       canvas = document.createElement("canvas");
       canvas.id = "waveform-canvas";
-      canvas.height = 44;
-      canvas.style.cssText = "width:100%;height:44px;background:var(--bg3,#111);border-radius:6px;margin-bottom:10px;cursor:pointer;display:block";
-      mediaEl.insertAdjacentElement("afterend", canvas);
+      canvas.style.cssText = "height:44px;display:block;cursor:pointer";
+      scroll.appendChild(canvas);
+      mediaEl.insertAdjacentElement("afterend", scroll);
       canvas.onclick = (e) => {
         if (!mediaEl.duration) return;
-        const frac = e.offsetX / canvas.clientWidth;
-        mediaEl.currentTime = frac * mediaEl.duration;
+        const frac = (scroll.scrollLeft + e.offsetX) / canvas.clientWidth;
+        mediaEl.currentTime = Math.max(0, Math.min(1, frac)) * mediaEl.duration;
       };
+      scroll.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        const before = (scroll.scrollLeft + e.offsetX) / Math.max(1, canvas.clientWidth);
+        _waveZoom = Math.max(1, Math.min(40, _waveZoom * (e.deltaY < 0 ? 1.25 : 0.8)));
+        _drawWave();
+        // keep the point under the cursor stable
+        const after = before * canvas.clientWidth - e.offsetX;
+        scroll.scrollLeft = after;
+      }, { passive: false });
+      // playhead marker
+      const ph = document.createElement("div");
+      ph.id = "waveform-ph";
+      ph.style.cssText = "position:absolute;top:0;bottom:0;width:2px;background:#fff;pointer-events:none";
+      scroll.appendChild(ph);
+      canvas._phTimer = setInterval(() => {
+        if (!mediaEl.duration || !scroll.isConnected) return;
+        ph.style.left = (mediaEl.currentTime / mediaEl.duration * canvas.clientWidth - scroll.scrollLeft) + "px";
+      }, 100);
     }
     try {
       const raw = pathD.join(osD.tmpdir(), "subsper_wave_" + Date.now() + ".pcm");
@@ -702,40 +750,9 @@
       });
       const buf = fsD.readFileSync(raw);
       try { fsD.unlinkSync(raw); } catch (e) {}
-      const samples = new Int16Array(buf.buffer, buf.byteOffset, Math.floor(buf.length / 2));
-      const W = canvas.width = canvas.clientWidth * (window.devicePixelRatio || 1);
-      const H = canvas.height = 44 * (window.devicePixelRatio || 1);
-      const ctx = canvas.getContext("2d");
-      ctx.clearRect(0, 0, W, H);
-      ctx.fillStyle = "rgba(80,140,255,.75)";
-      const per = Math.max(1, Math.floor(samples.length / W));
-      for (let x = 0; x < W; x++) {
-        let peak = 0;
-        for (let i = x * per; i < (x + 1) * per && i < samples.length; i++) {
-          const v = Math.abs(samples[i]); if (v > peak) peak = v;
-        }
-        const h = Math.max(1, (peak / 32768) * H);
-        ctx.fillRect(x, (H - h) / 2, 1, h);
-      }
-      // playhead line
-      if (!canvas._phTimer) {
-        canvas._phTimer = setInterval(() => {
-          if (!mediaEl.duration || !canvas.isConnected) return;
-          const overlay = canvas;
-          // redraw just the playhead by compositing is overkill — draw thin marker via CSS
-          let ph = document.getElementById("waveform-ph");
-          if (!ph) {
-            ph = document.createElement("div");
-            ph.id = "waveform-ph";
-            ph.style.cssText = "position:absolute;top:0;bottom:0;width:2px;background:#fff;pointer-events:none";
-            const wrap = document.createElement("div");
-            wrap.style.cssText = "position:relative";
-            overlay.parentNode.insertBefore(wrap, overlay);
-            wrap.appendChild(overlay); wrap.appendChild(ph);
-          }
-          ph.style.left = (mediaEl.currentTime / mediaEl.duration * 100) + "%";
-        }, 120);
-      }
+      _waveSamples = new Int16Array(buf.buffer, buf.byteOffset, Math.floor(buf.length / 2));
+      _waveZoom = 1;
+      _drawWave();
     } catch (e) { console.warn("waveform failed:", e); }
   }
   const _origLoadMedia = loadMedia;
@@ -784,20 +801,21 @@
   /* ── v1.10 desktop: beep · hook clips · native project open · waveform boxes ── */
 
   // Beep profanity → exports a beeped copy (video stream copied, audio filtered)
-  window.beepProfanityDesktop = async function (ranges) {
+  window.beepProfanityDesktop = async function (ranges, mute) {
     if (!mediaPath || !WCPP) { showToast("Open a file first", "info", 2000); return; }
     const inExt = (mediaPath.split(".").pop() || "mp4").toLowerCase();
     const isAudio = ["mp3","wav","m4a","aac","flac","ogg"].includes(inExt);
     const outExt = isAudio ? "wav" : "mp4";
     const res = await ipcRenderer.invoke("dialog:saveFile",
-      { defaultName: baseName() + "_beeped." + outExt, ext: outExt });
+      { defaultName: baseName() + (mute ? "_muted." : "_beeped.") + outExt, ext: outExt });
     if (!res || !res.filePath) return;
-    setStatus(`Beeping ${ranges.length} range(s)…`, "info"); showProgress(true);
+    setStatus(`${mute ? "Muting" : "Beeping"} ${ranges.length} range(s)…`, "info"); showProgress(true);
     try {
       await WCPP.beepRanges(extDir(), mediaPath, res.filePath, ranges,
-        { video: !isAudio, duck: (settings.beepDuck || 0) / 100 });
-      setStatus(`✓ Beeped file → ${res.filePath}`, "success");
-      showToast("Beeped copy saved", "success", 5000);
+        { video: !isAudio, mode: mute ? "mute" : "beep",
+          duck: mute ? 0 : (settings.beepDuck || 0) / 100 });
+      setStatus(`✓ ${mute ? "Muted" : "Beeped"} file → ${res.filePath}`, "success");
+      showToast(`${mute ? "Muted" : "Beeped"} copy saved`, "success", 5000);
     } catch (e) { setStatus(e.message, "error"); showToast(e.message, "error", 6000); }
     finally { showProgress(false); }
   };

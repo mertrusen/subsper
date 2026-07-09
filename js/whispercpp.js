@@ -615,7 +615,16 @@ async function detectSilence(appDir, inputPath, thresholdDb, minDur, spawnOpts) 
  * normalize to −16 LUFS (optional). Writes a 16-bit WAV. */
 async function enhanceMedia(appDir, inputPath, outPath, denoise, normalize, spawnOpts) {
     const chain = [];
-    if (denoise)   { chain.push("highpass=f=80", "afftdn=nf=-25"); }
+    if (denoise) {
+        // Gentle, voice-preserving cleanup for phone-mic material (was too
+        // aggressive — afftdn=nf=-25 choked the voice). Light rumble cut,
+        // MODERATE FFT denoise (nr=12 dB), a touch of de-ess, then compand to
+        // tame room/echo peaks without gating the speech.
+        chain.push("highpass=f=90");
+        chain.push("afftdn=nr=12:nf=-30:tn=1");
+        chain.push("deesser=i=0.4");
+        chain.push("compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-27/-18|0/-6:soft-knee=6");
+    }
     if (normalize) { chain.push("loudnorm=I=-16:TP=-1.5:LRA=11"); }
     if (!chain.length) chain.push("anull");
     const args = ["-y", "-i", normalizePath(inputPath), "-af", chain.join(","),

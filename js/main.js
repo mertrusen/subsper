@@ -133,7 +133,7 @@ const I18N = {
   en: {
     // header / tabs
     tagline: "AI Subtitles", status_ready: "Ready — set In/Out points and click Transcribe",
-    tab_transcribe: "Subtitles", tab_silence: "Silence", tab_setup: "Setup",
+    tab_transcribe: "Subtitles", tab_silence: "Silence", tab_setup: "Settings",
     sub_work_tx: "Edit", sub_settings: "Settings", sub_detect: "Detect",
     // transcribe controls
     lbl_model: "Model", lbl_language: "Language", opt_auto: "Auto detect",
@@ -310,7 +310,7 @@ const I18N = {
   },
   tr: {
     tagline: "Yapay Zekâ Altyazı", status_ready: "Hazır — Transcribe'a bas (In/Out istersen aralık seçer)",
-    tab_transcribe: "Altyazı", tab_silence: "Sessizlik", tab_setup: "Kurulum",
+    tab_transcribe: "Altyazı", tab_silence: "Sessizlik", tab_setup: "Ayarlar",
     sub_work_tx: "Düzenle", sub_settings: "Ayarlar", sub_detect: "Tespit",
     lbl_model: "Model", lbl_language: "Dil", opt_auto: "Otomatik algıla",
     btn_transcribe: "In/Out Aralığını Yazıya Dök", btn_loadsrt: "SRT Yükle",
@@ -953,7 +953,10 @@ function switchMainTab(name) {
         if (bar) bar.style.display = name === t ? "flex" : "none";
     });
     showCurrentPanel();
-    if (name === "setup") runDiagnostics();
+    if (name === "setup") {
+        runDiagnostics();
+        try { initSettingsUI(); initEditSettingsUI(); initAudioSettingsUI(); } catch (e) {}
+    }
     if (name === "edit"  && currentSubTab.edit  === "settings") initEditSettingsUI();
     if (name === "audio" && currentSubTab.audio === "settings") initAudioSettingsUI();
     if (name === "transcribe" && currentSubTab.transcribe === "settings") initSettingsUI();
@@ -3389,8 +3392,14 @@ function initTooltips() {
         // the pointer enters or clicks the panel (fixes "Space does nothing until I
         // cmd-tab away and back"). We do NOT blur <select> on click (that closed
         // dropdowns on mouse-up).
-        const _grabFocus = () => { try { window.focus(); } catch (e) {} };
-        document.addEventListener("mouseenter", _grabFocus, true);
+        const _grabFocus = () => {
+            const el = document.activeElement, tag = el && el.tagName;
+            if (tag === "SELECT" || tag === "INPUT" || tag === "TEXTAREA") return;   // never steal from an open control
+            try { window.focus(); } catch (e) {}
+        };
+        // documentElement only, NO capture: fires once when the pointer enters
+        // the panel — not on every child (that killed open dropdowns).
+        document.documentElement.addEventListener("mouseenter", _grabFocus, false);
         document.addEventListener("mousedown", (e) => {
             const el = e.target;
             const tag = el && el.tagName;
@@ -3475,7 +3484,7 @@ function initTooltips() {
    files (and the extension↔desktop footer sync) stay untouched.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION = "1.15.0";
+const APP_VERSION = "1.16.0";
 const GH_REPO = "mertrusen/subsper";
 const IS_DESKTOP_APP = (typeof window !== "undefined" && window.IS_DESKTOP === true);
 
@@ -3985,6 +3994,44 @@ setTimeout(function initFeaturePack() {
         const origRenderModels = window.renderModels;
         if (typeof origRenderModels === "function") window.renderModels = function () { renderModelManager(); };
         renderModelManager();
+
+        // ── One Settings hub: move Subtitle/Edit/Audio settings into the (renamed)
+        //    Settings tab as titled sections; System/Install stays at the bottom.
+        try {
+            const dst = document.querySelector("#panel-setup .setup-scroll");
+            if (dst) {
+                const isTr = settings.uiLang === "tr";
+                const sections = [
+                    ["panel-tx-settings", isTr ? "📝 Altyazı Ayarları" : "📝 Subtitle Settings"],
+                    ["panel-ed-settings", isTr ? "✂️ Düzen Ayarları" : "✂️ Edit Settings"],
+                    ["panel-au-settings", isTr ? "🔊 Ses Ayarları" : "🔊 Audio Settings"],
+                ];
+                const frag = document.createDocumentFragment();
+                for (const [srcId, label] of sections) {
+                    const src = document.querySelector("#" + srcId + " .setup-scroll") || $(srcId);
+                    if (!src) continue;
+                    const h = document.createElement("div");
+                    h.className = "setup-section-title";
+                    h.style.cssText = "font-size:13px;margin:18px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--accent)";
+                    if (frag.childNodes.length === 0) h.style.marginTop = "0";
+                    h.textContent = label;
+                    frag.appendChild(h);
+                    while (src.firstChild) frag.appendChild(src.firstChild);
+                }
+                const sys = document.createElement("div");
+                sys.className = "setup-section-title";
+                sys.style.cssText = "font-size:13px;margin:18px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--accent)";
+                sys.textContent = isTr ? "🔧 Kurulum & Sistem" : "🔧 Setup & System";
+                dst.insertBefore(sys, dst.firstChild);
+                dst.insertBefore(frag, dst.firstChild);
+                // hide the now-empty per-tab Settings sub-tabs (work view remains)
+                ["sub-tab-tx-settings", "sub-tab-ed-settings", "sub-tab-au-settings"].forEach(id => {
+                    const b = $(id); if (b) b.style.display = "none";
+                });
+                ["sub-tabs-edit", "sub-tabs-audio"].forEach(id => { const b = $(id); if (b) b.dataset.singles = "1"; });
+                const st = $("sub-tabs-transcribe"); if (st) st.style.display = "none";
+            }
+        } catch (eMig) { console.error("[Subsper] settings migration failed:", eMig); }
 
         maybeShowOnboarding();
         checkForUpdates();

@@ -65,17 +65,36 @@
             for (let j = i + 1; j <= Math.min(i + 2, segs.length - 1); j++) {
                 const B = tokens(segs[j].text);
                 if (B.length < 3) continue;
-                if (jaccard(A, B) >= 0.65) {
+                if (jaccard(A, B) >= 0.55) {
                     if (keep === "fastest") {
                         const di = segs[i].seqEnd - segs[i].seqStart;
                         const dj = segs[j].seqEnd - segs[j].seqStart;
                         cut.add(di > dj ? i : j);
-                    } else cut.add(i); // keep the LAST take
+                    } else cut.add(i); // keep the LAST take → cut the EARLIER one
                 }
             }
         }
         return [...cut].sort((a, b) => a - b);
     }
+    // AI sometimes returns the FINAL take's range despite the prompt — remap
+    // any cut that lands on the last of a duplicate pair back to the earlier one
+    function fixKeepLast(ranges, segs) {
+        const segAt = t => segs.findIndex(s => t >= s.seqStart - 0.2 && t <= s.seqEnd + 0.2);
+        return ranges.map(r => {
+            const k = segAt((r.start + r.end) / 2);
+            if (k < 0) return r;
+            const K = tokens(segs[k].text);
+            const similar = i => i >= 0 && i < segs.length && jaccard(K, tokens(segs[i].text)) >= 0.55;
+            const hasLater = similar(k + 1) || similar(k + 2);
+            if (hasLater) return r; // cutting an earlier take — correct
+            for (const i of [k - 1, k - 2]) {
+                if (similar(i)) return { start: segs[i].seqStart, end: segs[i].seqEnd,
+                                         dur: +(segs[i].seqEnd - segs[i].seqStart).toFixed(1) };
+            }
+            return r;
+        }).filter((r, idx, arr) => arr.findIndex(x => Math.abs(x.start - r.start) < 0.3) === idx);
+    }
+    window.__fixKeepLast = fixKeepLast; // unit-test hook
     window.__detectRepeats = detectRepeats; // unit-test hook
 
     async function findRepeats() {
@@ -92,11 +111,15 @@
                 showToast(L("Cihaz içi eşleşme yok — AI ile aranıyor…", "No on-device match — asking AI…"), "info", 3000);
                 try {
                     const text = await aiComplete(
-`You are a video editor. Below is a transcript with line numbers and [MM:SS] start times. Find RE-TAKES: places where the speaker repeats nearly the same sentence (a failed take followed by a corrected one) or clear slips of the tongue. For each bad take that should be DELETED (keep the ${keep === "fastest" ? "shortest, most fluent" : "last"} version), output one line "MM:SS-MM:SS reason". If there are none, output "NONE".
+`You are a video editor. Below is a transcript with line numbers and [MM:SS] start times. Find RE-TAKES: places where the speaker repeats nearly the same sentence (a failed take followed by a corrected one) or clear slips of the tongue. ${keep === "fastest"
+    ? "Keep the shortest, most fluent read; the other takes get deleted."
+    : "CRITICAL: the FINAL (last) occurrence always stays in the video — output ONLY the EARLIER failed attempts for deletion, NEVER the last one."}
+For each take to DELETE output one line "MM:SS-MM:SS reason". If there are none, output "NONE".
 
 Transcript:
 ${_plainTranscript()}`);
                     ranges = parseAiClipRanges(text).map(r => ({ start: r.start, end: r.end, dur: +(r.end - r.start).toFixed(1) }));
+                    if (keep === "last") ranges = fixKeepLast(ranges, segments);
                     via = "AI";
                 } catch (e) { showToast("AI: " + e.message, "warning", 4000); }
             }
@@ -106,7 +129,7 @@ ${_plainTranscript()}`);
             }
             showRangePreview(L(`Tekrarları kes (${via})`, `Remove repeats (${via})`), ranges, async chosen => {
                 await loadHostJSX();
-                const sel = trackSel();   // honors the Silence page's track picks
+                const sel = await ensureTrackSel();   // shared with the Silence page's track picks
                 const arg = JSON.stringify(sel ? { ranges: chosen, v: sel.v, a: sel.a } : chosen).replace(/'/g, "\\'");
                 const r = await evalScript(`rippleDeleteRanges('${arg}')`);
                 if (r && r.success && r.removed > 0)
@@ -434,7 +457,24 @@ ${_plainTranscript()}`);
             });
             return { v, a };
         }
-        return settings.silTrkSel || null;   // saved selection, or null = all tracks
+        return settings.silTrkSel || null;
+    }
+    // Guarantee a selection BEFORE any cut, even if the user never opened the
+    // track list: default = every video track + A1 only, so music beds and FX
+    // audio survive out of the box. Saved once, reused everywhere.
+    async function ensureTrackSel() {
+        const cur = trackSel();
+        if (cur && (cur.v || cur.a)) return cur;
+        try {
+            await loadHostJSX();
+            const r = await evalScript("wsListAllTracks()");
+            if (r && r.success) {
+                const def = { v: r.video.map(t => t.i), a: [0] };
+                onSettingChange("silTrkSel", def);
+                return def;
+            }
+        } catch (e) {}
+        return null; // couldn't read tracks — fall back to old all-tracks behavior
     }
 
     // Cut with track targeting (the stock cutSilences razors EVERY track —
@@ -452,7 +492,7 @@ ${_plainTranscript()}`);
                 setSilenceStatus(L("Kesilecek boşluk yok — eşiği yükseltmeyi dene", "Nothing to cut — try raising the threshold"), "warning");
                 return;
             }
-            const sel = trackSel();
+            const sel = await ensureTrackSel();
             const selNote = sel && (sel.v || sel.a)
                 ? L(` (${(sel.v || []).length} video + ${(sel.a || []).length} ses kanalı)`, ` (${(sel.v || []).length} video + ${(sel.a || []).length} audio track(s))`)
                 : "";
@@ -491,7 +531,7 @@ ${_plainTranscript()}`);
             }
             showRangePreview(L("Sessizlikleri sustur (silmeden)", "Mute silences (keep timing)"), padded, async chosen => {
                 await loadHostJSX();
-                const sel = trackSel();
+                const sel = await ensureTrackSel();
                 const payload = JSON.stringify({ ranges: chosen, level: 0, tracks: sel ? sel.a : null }).replace(/'/g, "\\'");
                 const r = await evalScript(`duckAudioRanges('${payload}')`);
                 if (r && r.success)
@@ -947,7 +987,35 @@ ${_plainTranscript()}`);
         if (settings.spokenLang) sel.value = settings.spokenLang;
     }
 
+    // ── live elapsed counter on Pro/Python transcription status ───────────
+    // WhisperX/openai-whisper run batched and report no incremental progress,
+    // so a real % is only possible on the bundled engine — show a ticking
+    // elapsed clock instead of the frozen "Transcribing with X…" line.
+    function patchStatusTimer() {
+        if (typeof window.setStatus !== "function") return;
+        const _set = window.setStatus;
+        let timer = null;
+        window.setStatus = function (msg, type) {
+            const m = String(msg || "");
+            if (/Transcribing with .*(Pro|Python)/.test(m)) {
+                if (!timer) {
+                    const t0 = Date.now();
+                    const base = m.replace(/…\s*$/, "");
+                    timer = setInterval(() => {
+                        const s = Math.floor((Date.now() - t0) / 1000);
+                        _set(`${base}… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`, "info");
+                    }, 1000);
+                }
+                _set(m, type);
+                return;
+            }
+            if (timer) { clearInterval(timer); timer = null; }
+            _set(msg, type);
+        };
+    }
+
     function stylePro() {
+        patchStatusTimer();
         if (typeof window.buildASSStyle === "function" && typeof assColor === "function")
             window.buildASSStyle = (p, k) => styleLineV2(p, k, assColor, settings.karaokeHi);
         buildStyleTabs();
@@ -1111,7 +1179,7 @@ ${_plainTranscript()}`);
             </select>
           </div>
           <button class="btn-transcribe btn-compact" id="repeat-btn" style="margin-top:8px">${L("Tekrarları Bul ve Kes", "Find & Cut Repeats")}</button>
-          <div class="setting-hint" style="margin-top:8px">${L("Kesmeden önce liste gösterilir, onaylarsın. Cihaz içi çalışır; AI anahtarı varsa dil sürçmelerini de yakalar.", "You review the list before anything is cut. Works on-device; with an AI key it also catches slips.")}</div>`);
+          <div class="setting-hint" style="margin-top:8px">${L("Kesmeden önce liste gösterilir, onaylarsın. Kesim sadece seçili kanallara dokunur (varsayılan: videolar + A1 — müzik kanalları güvende; listeyi Sessizlik sayfasında düzenlersin). AI anahtarı varsa dil sürçmelerini de yakalar.", "You review the list before anything is cut. Cutting only touches selected tracks (default: video + A1 — music tracks are safe; edit the list on the Silence page). With an AI key it also catches slips.")}</div>`);
         sc.appendChild(rep); $id("repeat-btn").onclick = findRepeats;
 
         const ch = card(`

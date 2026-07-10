@@ -1090,6 +1090,17 @@ function createResizedSequence(optJson) {
                     try { cur = parseFloat(scale.getValue()); if (isNaN(cur)) cur = 100; } catch (eG) {}
                     scale.setValue(cur * factor, true);
                     count++;
+                    // optional anchor (0-8 grid): shift Position so the chosen
+                    // corner/edge of the (now overflowing) picture stays in frame
+                    if (opt.anchor != null && opt.anchor !== 4) {
+                        var posP = _wsFindMotionProp(clip, ["Position", "Konum"]);
+                        if (posP) {
+                            var ax = (opt.anchor % 3) * 0.5, ay = Math.floor(opt.anchor / 3) * 0.5;
+                            var ox = Math.max(0, (oldW * factor) / w - 1);
+                            var oy = Math.max(0, (oldH * factor) / h - 1);
+                            try { posP.setValue([0.5 + (0.5 - ax) * ox, 0.5 + (0.5 - ay) * oy], true); } catch (ePos) {}
+                        }
+                    }
                 } catch (eV) { if (count === 0) diag.push("scale set: " + eV.toString()); }
             }
         }
@@ -1236,6 +1247,72 @@ function wsZoomPro(optJson) {
         }
         return JSON.stringify({ success: applied > 0, count: applied, keys: keys,
                                 error: applied ? undefined : "Could not apply any zoom (see diag)", diag: diag });
+    } catch (e) {
+        return JSON.stringify({ success: false, error: e.toString(), diag: diag });
+    }
+}
+
+// ── Podcast multicam: disable video-track clips while their speaker is
+//    not talking. payload = { segs:[{start,end,spk}], videoMap:{trackIndex:spk} }
+//    Only razors + disables the mapped video tracks — nothing is deleted.
+function wsMulticamApply(payloadJson) {
+    var diag = [];
+    try { app.enableQE(); } catch (eQE) {
+        return JSON.stringify({ success: false, error: "enableQE failed: " + eQE.toString() });
+    }
+    var seq = app.project.activeSequence;
+    var qeSeq = null;
+    try { qeSeq = qe.project.getActiveSequence(); } catch (eS) {}
+    if (!seq || !qeSeq) return JSON.stringify({ success: false, error: "No active QE sequence" });
+    try {
+        var data = JSON.parse(payloadJson);
+        var segs = data.segs || [];
+        var map = data.videoMap || {};
+        if (!segs.length) return JSON.stringify({ success: false, error: "No switch segments." });
+
+        function tcAt(secs) {
+            var ticks = Math.round(secs * TICKS_PER_SECOND);
+            try { seq.setPlayerPosition(ticks.toString()); } catch (e) {}
+            try { return qeSeq.CTI.timecode; } catch (e2) { return null; }
+        }
+
+        var disabled = 0, tracksDone = 0;
+        for (var key in map) {
+            if (!map.hasOwnProperty(key)) continue;
+            var T = parseInt(key, 10);
+            var S = map[key];
+            if (isNaN(T) || T < 0 || T >= seq.videoTracks.numTracks) continue;
+
+            // merge consecutive foreign segments into cut ranges
+            var foreign = [], cur = null;
+            for (var i = 0; i < segs.length; i++) {
+                if (segs[i].spk === S) { cur = null; continue; }
+                if (cur && Math.abs(segs[i].start - cur.end) < 0.01) cur.end = segs[i].end;
+                else { cur = { start: segs[i].start, end: segs[i].end }; foreign.push(cur); }
+            }
+            var qet = null;
+            try { qet = qeSeq.getVideoTrackAt(T); } catch (eT) {}
+            for (var f = 0; f < foreign.length; f++) {
+                if (!qet) break;
+                var tc1 = tcAt(foreign[f].start), tc2 = tcAt(foreign[f].end);
+                try { if (tc1) qet.razor(tc1); } catch (eR1) { if (diag.length < 3) diag.push("razor: " + eR1.toString()); }
+                try { if (tc2) qet.razor(tc2); } catch (eR2) {}
+            }
+            var trk = seq.videoTracks[T];
+            for (var c = 0; c < trk.clips.numItems; c++) {
+                var clip = trk.clips[c];
+                var cs, ce;
+                try { cs = ticksToSeconds(clip.start.ticks); ce = ticksToSeconds(clip.end.ticks); } catch (e0) { continue; }
+                for (var f2 = 0; f2 < foreign.length; f2++) {
+                    if (cs >= foreign[f2].start - 0.05 && ce <= foreign[f2].end + 0.05) {
+                        try { clip.disabled = true; disabled++; } catch (eD) { if (diag.length < 3) diag.push("disable: " + eD.toString()); }
+                        break;
+                    }
+                }
+            }
+            tracksDone++;
+        }
+        return JSON.stringify({ success: tracksDone > 0, tracks: tracksDone, disabled: disabled, diag: diag });
     } catch (e) {
         return JSON.stringify({ success: false, error: e.toString(), diag: diag });
     }

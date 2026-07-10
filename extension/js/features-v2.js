@@ -278,10 +278,12 @@ ${_plainTranscript()}`);
         const sel = $id("resize-format");
         const [w, h] = (sel ? sel.value : "1080x1920").split("x").map(Number);
         const label = sel ? sel.options[sel.selectedIndex].text : "9:16";
+        const aBtn = document.querySelector("#rs-anchor button.active");
+        const anchor = aBtn ? +aBtn.getAttribute("data-a") : 4;
         const btn = $id("resize-btn"); if (btn) btn.disabled = true;
         try {
             await loadHostJSX();
-            const r = await evalScript(`createResizedSequence('${JSON.stringify({ w, h, label }).replace(/'/g, "\\'")}')`);
+            const r = await evalScript(`createResizedSequence('${JSON.stringify({ w, h, label, anchor }).replace(/'/g, "\\'")}')`);
             if (r && r.success)
                 showToast(L(`✓ "${r.name}" oluşturuldu — ${r.count} klip ölçeklendi`, `✓ Created "${r.name}" — scaled ${r.count} clip(s)`), "success", 6000);
             else showToast((r && r.error) || L("Dönüştürülemedi", "Resize failed"), "error", 6000);
@@ -867,6 +869,132 @@ ${_plainTranscript()}`);
         extendLangList();
     }
 
+    // ── Podcast Multicam ───────────────────────────────────────────────────
+    // No AI/diarization needed: each mapped audio track is rendered to a
+    // timeline-length WAV (extractClipsToWav places clips at their offsets),
+    // speech intervals come from inverting silence detection per track, a
+    // switch timeline is built with a minimum shot hold, and host
+    // wsMulticamApply razors + disables the other speakers' video clips.
+    function mcInvert(silences, dur) {
+        const speech = []; let t = 0;
+        for (const s of silences) {
+            if (s.start > t + 0.05) speech.push({ start: t, end: s.start });
+            t = Math.max(t, s.end);
+        }
+        if (dur > t + 0.05) speech.push({ start: t, end: dur });
+        return speech;
+    }
+    function mcSwitch(speech, dur, hold) {
+        const spks = Object.keys(speech);
+        const pts = new Set([0, dur]);
+        spks.forEach(k => speech[k].forEach(r => { pts.add(r.start); pts.add(r.end); }));
+        const times = [...pts].filter(t => t >= 0 && t <= dur).sort((a, b) => a - b);
+        const talking = (k, t) => speech[k].some(r => t >= r.start - 0.01 && t < r.end);
+        let cur = spks[0] || null;
+        const raw = [];
+        for (let i = 0; i + 1 < times.length; i++) {
+            const mid = (times[i] + times[i + 1]) / 2;
+            const active = spks.filter(k => talking(k, mid));
+            let spk = cur;
+            if (active.length && !active.includes(cur)) spk = active[0];
+            else if (active.includes(cur)) spk = cur;
+            cur = spk;
+            if (raw.length && raw[raw.length - 1].spk === spk) raw[raw.length - 1].end = times[i + 1];
+            else raw.push({ start: times[i], end: times[i + 1], spk });
+        }
+        // enforce minimum shot length by absorbing short shots into the previous one
+        const out = [];
+        for (const s of raw) {
+            if (out.length && (s.end - s.start) < hold) { out[out.length - 1].end = s.end; continue; }
+            if (out.length && out[out.length - 1].spk === s.spk) { out[out.length - 1].end = s.end; continue; }
+            out.push({ ...s });
+        }
+        return out;
+    }
+    window.__mcInvert = mcInvert; window.__mcSwitch = mcSwitch; // unit-test hooks
+
+    let _mcInfo = null;
+    async function mcScan() {
+        const btn = $id("mc-scan"); if (btn) btn.disabled = true;
+        try {
+            await loadHostJSX();
+            const info = await evalScript("getSequenceInfo()");
+            if (!info.success) throw new Error(info.error || "Error reading timeline");
+            if (!info.clips || !info.clips.length) throw new Error(L("Timeline'da klip yok", "No clips on the timeline"));
+            _mcInfo = info;
+            const labels = [...new Set(info.clips.map(c => c.track))];
+            const auds = labels.filter(l => /^a/i.test(String(l)));
+            const vids = labels.filter(l => /^v/i.test(String(l)));
+            if (auds.length < 2 || vids.length < 2)
+                throw new Error(L("En az 2 ses ve 2 video kanalı gerekir (her konuşmacının kendi mikrofonu + kamerası)",
+                                  "Needs at least 2 audio and 2 video tracks (each speaker on their own mic + camera)"));
+            const spkOpts = n => [0, 1, 2, 3].map(i =>
+                `<option value="${i === 0 ? "" : "S" + i}"${("S" + n) === ("S" + i) ? " selected" : ""}>${i === 0 ? L("— kullanma", "— unused") : L("Konuşmacı ", "Speaker ") + i}</option>`).join("");
+            const rows = (arr, cls) => arr.map((l, i) =>
+                `<div class="setting-row" style="min-height:36px; padding:6px 0">
+                   <div class="setting-info"><div class="setting-name" style="font-weight:500">${l}</div></div>
+                   <select class="${cls}" data-track="${l}" style="max-width:150px">${spkOpts(Math.min(i + 1, 3))}</select>
+                 </div>`).join("");
+            $id("mc-map").innerHTML =
+                `<div class="ui2-row-label">${L("Ses kanalları", "Audio tracks")}</div>${rows(auds, "mc-a")}
+                 <div class="ui2-row-label">${L("Video kanalları", "Video tracks")}</div>${rows(vids, "mc-v")}`;
+            $id("mc-run").style.display = "";
+        } catch (e) { showToast(e.message, "error", 5500); }
+        finally { if (btn) btn.disabled = false; }
+    }
+    async function mcRun() {
+        const btn = $id("mc-run"); if (btn) btn.disabled = true;
+        try {
+            const info = _mcInfo;
+            if (!info) throw new Error(L("Önce kanalları tara", "Scan tracks first"));
+            const pick = cls => {
+                const m = {};
+                document.querySelectorAll("select." + cls).forEach(s => { if (s.value) m[s.getAttribute("data-track")] = s.value; });
+                return m;
+            };
+            const aMap = pick("mc-a"), vMap = pick("mc-v");
+            const spks = [...new Set(Object.values(aMap))];
+            if (spks.length < 2 || !Object.keys(vMap).length)
+                throw new Error(L("En az 2 konuşmacıya ses VE video kanalı eşleştir", "Map audio AND video tracks to at least 2 speakers"));
+            const W = wcpp();
+            if (!W) throw new Error(L("Yerleşik motor bulunamadı — Kurulum sekmesine bak", "Bundled engine not found — see Setup"));
+            const speech = {};
+            let n = 0;
+            for (const spk of spks) {
+                n++;
+                setSilenceStatus(L(`Konuşmacı ${n}/${spks.length} sesi analiz ediliyor…`, `Analyzing speaker ${n}/${spks.length}…`), "info");
+                const clips = info.clips.filter(c => aMap[c.track] === spk);
+                if (!clips.length) continue;
+                const tmp = path.join(os.tmpdir(), `subsper_mc_${spk}_${Date.now()}.wav`);
+                await W.extractClipsToWav(extDir(), { clips, duration: info.duration }, tmp, { env: spawnEnv() });
+                const sil = await W.detectSilence(extDir(), tmp, -38, 0.35, { env: spawnEnv() });
+                try { fs.unlinkSync(tmp); } catch (e) {}
+                speech[spk] = mcInvert(sil, info.duration);
+            }
+            const segs = mcSwitch(speech, info.duration, 1.2)
+                .map(s => ({ start: s.start + info.inTime, end: s.end + info.inTime, spk: s.spk }));
+            const videoMap = {};
+            Object.keys(vMap).forEach(l => {
+                const idx = parseInt(String(l).replace(/\D/g, ""), 10) - 1;
+                if (idx >= 0) videoMap[idx] = vMap[l];
+            });
+            setSilenceStatus(L("Kamera geçişleri uygulanıyor…", "Applying camera switches…"), "info");
+            await loadHostJSX();
+            const payload = JSON.stringify({ segs, videoMap }).replace(/'/g, "\\'");
+            const r = await evalScript(`wsMulticamApply('${payload}')`);
+            if (r && r.success)
+                setSilenceStatus(L(`✓ ${r.tracks} kamera kanalında ${r.disabled} klip kapatıldı — Cmd/Ctrl+Z geri alır`,
+                                   `✓ Disabled ${r.disabled} clip(s) across ${r.tracks} camera track(s) — undo with Cmd/Ctrl+Z`), "success");
+            else {
+                setSilenceStatus((r && r.error) || L("Uygulanamadı", "Could not apply"), "error");
+                if (r && r.diag && r.diag.length) console.log("[Subsper] multicam diag:", r.diag);
+            }
+        } catch (e) {
+            setSilenceStatus(e.message, "error");
+            showToast(e.message, "error", 5500);
+        } finally { if (btn) btn.disabled = false; }
+    }
+
     // ── Card injection into panel-ed-work (ui-v2 isolates them per page) ──
     function card(html) {
         const d = document.createElement("div");
@@ -950,18 +1078,30 @@ ${_plainTranscript()}`);
               <option value="1080x1350">4:5 — Instagram</option>
             </select>
           </div>
-          <button class="btn-transcribe btn-compact" id="resize-btn" style="margin-top:8px">${L("Kopya Sekans Oluştur", "Create Resized Copy")}</button>
+          <div class="ui2-row-label">${L("Kadraj merkezi", "Framing anchor")}</div>
+          <div class="ui2-anchor" id="rs-anchor">${[0,1,2,3,4,5,6,7,8].map(a =>
+              `<button data-a="${a}" class="${a === 4 ? "active" : ""}"></button>`).join("")}</div>
+          <button class="btn-transcribe btn-compact" id="resize-btn" style="margin-top:10px">${L("Kopya Sekans Oluştur", "Create Resized Copy")}</button>
           <div class="setting-hint" style="margin-top:8px">${L("Deneysel — Premiere 2019+ gerekir. Orijinal sekans değişmez.", "Experimental — needs Premiere 2019+. The original sequence is untouched.")}</div>`);
         sc.appendChild(rs); $id("resize-btn").onclick = resizeRun;
+        const rsGrid = $id("rs-anchor");
+        rsGrid.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+            rsGrid.querySelectorAll("button").forEach(x => x.classList.remove("active"));
+            b.classList.add("active");
+        }));
 
         const mc = card(`
           <div class="setting-row"><div class="setting-info">
             <div class="setting-name">Podcast Multicam</div>
-            <div class="setting-desc">${L("Kim konuşuyorsa görüntüyü ona geçirir: ses kanallarını konuşmacılarla eşleştir, gerisini Subsper yapar.", "Switches the picture to whoever is talking: map audio tracks to speakers, Subsper does the rest.")}</div>
+            <div class="setting-desc">${L("Kim konuşuyorsa görüntüyü ona geçirir. Her konuşmacının kendi mikrofon kanalı ve kamerası olmalı. Hiçbir şey silinmez — diğer kameralar kapatılır (disable), Cmd/Ctrl+Z geri alır.", "Switches the picture to whoever is talking. Each speaker needs their own mic track and camera. Nothing is deleted — other cameras are disabled; Cmd/Ctrl+Z undoes.")}</div>
           </div></div>
+          <button class="btn-load-srt" id="mc-scan" style="width:100%; margin-top:4px">${L("1 · Kanalları Tara", "1 · Scan Tracks")}</button>
+          <div id="mc-map"></div>
           <div id="multicam-btn"></div>
-          <button class="btn-transcribe btn-compact" disabled style="margin-top:4px; margin-bottom:6px">${L("Yakında — bir sonraki güncellemede", "Coming in the next update")}</button>`);
+          <button class="btn-transcribe btn-compact" id="mc-run" style="display:none; margin-top:10px; margin-bottom:6px">${L("2 · Kamerayı Otomatik Kes", "2 · Auto-Switch Cameras")}</button>`);
         sc.appendChild(mc);
+        $id("mc-scan").onclick = mcScan;
+        $id("mc-run").onclick = mcRun;
     }
 
     setTimeout(() => { try { injectAll(); } catch (e) { console.error("[Subsper] features-v2 init:", e); } }, 40);

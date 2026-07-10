@@ -68,7 +68,7 @@
         zoom:      { cat: "edit", tab: "edit", view: "#zoom-btn", badge: "beta", color: "#7d7aff",
                      name: () => L("Otomatik Zoom", "Auto Zoom"),
                      desc: () => L("Kliplere enerji katan yumuşak yakınlaşmalar ekler", "Adds smooth push-ins that energize your clips") },
-        multicam:  { cat: "edit", tab: "edit", view: "#multicam-btn", badge: "soon", color: "#ffd60a",
+        multicam:  { cat: "edit", tab: "edit", view: "#mc-scan", badge: "new", color: "#ffd60a",
                      name: () => "Podcast Multicam",
                      desc: () => L("Kim konuşuyorsa kamerayı ona geçirir", "Switches cameras to whoever is talking") },
         resize:    { cat: "edit", tab: "edit", view: "#resize-btn", badge: "new", color: "#30d158",

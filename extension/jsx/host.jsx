@@ -1361,3 +1361,86 @@ function wsListAllTracks() {
         return JSON.stringify({ success: false, error: e.toString() });
     }
 }
+
+// ── Sync-safe range cutter for TARGETED tracks ─────────────────────────────
+// QE's remove(ripple) only ripples ITS OWN track, so cutting a subset of
+// tracks desyncs any selected track that has no clip at that range. This
+// version keeps every SELECTED track in sync: content clips are ripple-
+// removed, and where a selected track only has a GAP at the range, the gap
+// item itself is ripple-removed so that track shifts by the same amount.
+// Unselected tracks are never touched. payload = { ranges, v:[idx], a:[idx] }
+function wsCutRangesSync(payloadJson) {
+    var diag = [];
+    try { app.enableQE(); } catch (eQE) {
+        return JSON.stringify({ success: false, error: "enableQE failed: " + eQE.toString() });
+    }
+    var seq = app.project.activeSequence;
+    var qeSeq = null;
+    try { qeSeq = qe.project.getActiveSequence(); } catch (eS) {}
+    if (!seq || !qeSeq) return JSON.stringify({ success: false, error: "No active QE sequence" });
+    try {
+        var data = JSON.parse(payloadJson);
+        var ranges = data.ranges || [];
+        var vSel = data.v || [];
+        var aSel = data.a || [];
+        ranges.sort(function (a, b) { return b.start - a.start; });   // last → first
+
+        var fps = _wsGetFps(seq);
+        function tcAt(secs) {
+            var ticks = Math.round(secs * TICKS_PER_SECOND);
+            try { seq.setPlayerPosition(ticks.toString()); } catch (e) {}
+            try { return qeSeq.CTI.timecode; } catch (e2) { return null; }
+        }
+        function tracksOf() {
+            var out = [];
+            var i;
+            for (i = 0; i < vSel.length; i++) { try { out.push(qeSeq.getVideoTrackAt(vSel[i])); } catch (eV) {} }
+            for (i = 0; i < aSel.length; i++) { try { out.push(qeSeq.getAudioTrackAt(aSel[i])); } catch (eA) {} }
+            return out;
+        }
+        function cutOne(s, e) {
+            var tcE = tcAt(e), tcS = tcAt(s);
+            if (!tcS || !tcE) return 0;
+            var trks = tracksOf(), t, n = 0;
+            for (t = 0; t < trks.length; t++) {
+                if (!trks[t]) continue;
+                try { trks[t].razor(tcE); } catch (e1) {}
+                try { trks[t].razor(tcS); } catch (e2) {}
+            }
+            var mid = (s + e) / 2;
+            for (t = 0; t < trks.length; t++) {
+                var track = trks[t];
+                if (!track) continue;
+                var cnt = 0;
+                try { cnt = track.numItems; } catch (eC) { continue; }
+                for (var i = 0; i < cnt; i++) {
+                    var it = null;
+                    try { it = track.getItemAt(i); } catch (eI) { continue; }
+                    if (!it) continue;
+                    var st = null, en = null;
+                    try { st = _wsQeSecs(it.start, fps); en = _wsQeSecs(it.end, fps); } catch (eT) { continue; }
+                    if (st == null || en == null) continue;
+                    if (!(mid > st + 0.002 && mid < en - 0.002)) continue;
+                    var nm = "";
+                    try { nm = it.name; } catch (eN) {}
+                    // content clip OR gap item: ripple-remove either way, so this
+                    // track shifts by exactly (e - s) like its siblings
+                    try { it.remove(true, true); n++; }
+                    catch (eR) { if (diag.length < 4) diag.push((nm ? "clip" : "gap") + " remove: " + eR.toString()); }
+                    break;
+                }
+            }
+            return n;
+        }
+
+        var removed = 0;
+        for (var r = 0; r < ranges.length; r++) {
+            var s = parseFloat(ranges[r].start), e = parseFloat(ranges[r].end);
+            if (isNaN(s) || isNaN(e) || e <= s) continue;
+            removed += cutOne(s, e);
+        }
+        return JSON.stringify({ success: true, removed: removed, diag: diag });
+    } catch (e) {
+        return JSON.stringify({ success: false, error: e.toString(), diag: diag });
+    }
+}

@@ -130,8 +130,7 @@ ${_plainTranscript()}`);
             showRangePreview(L(`Tekrarları kes (${via})`, `Remove repeats (${via})`), ranges, async chosen => {
                 await loadHostJSX();
                 const sel = await ensureTrackSel();   // shared with the Silence page's track picks
-                const arg = JSON.stringify(sel ? { ranges: chosen, v: sel.v, a: sel.a } : chosen).replace(/'/g, "\\'");
-                const r = await evalScript(`rippleDeleteRanges('${arg}')`);
+                const r = await hostCut(chosen, sel);
                 if (r && r.success && r.removed > 0)
                     showToast(L(`✓ ${r.removed} tekrar kesildi — Cmd/Ctrl+Z ile geri al`, `✓ Cut ${r.removed} repeat(s) — undo with Cmd/Ctrl+Z`), "success", 5000);
                 else {
@@ -467,6 +466,19 @@ ${_plainTranscript()}`);
         if (cur && (cur.v || cur.a)) return cur;
         try {
             await loadHostJSX();
+            // default video selection = only tracks that carry real MEDIA clips
+            // (adjustment layers / graphics tracks have no media path and are
+            // skipped by getSequenceInfo, so overlays stay untouched by default)
+            const info = await evalScript("getSequenceInfo()");
+            if (info && info.success && info.clips && info.clips.length) {
+                const v = [...new Set(info.clips
+                    .filter(c => /^video/i.test(String(c.track)))
+                    .map(c => parseInt(String(c.track).replace(/\D/g, ""), 10))
+                    .filter(n => !isNaN(n)))].sort((x, y) => x - y);
+                const def = { v, a: [0] };
+                onSettingChange("silTrkSel", def);
+                return def;
+            }
             const r = await evalScript("wsListAllTracks()");
             if (r && r.success) {
                 const def = { v: r.video.map(t => t.i), a: [0] };
@@ -475,6 +487,13 @@ ${_plainTranscript()}`);
             }
         } catch (e) {}
         return null; // couldn't read tracks — fall back to old all-tracks behavior
+    }
+    // cut through host: sync-safe targeted cutter when a selection exists,
+    // the battle-tested all-tracks ripple otherwise
+    async function hostCut(chosen, sel) {
+        const fn = sel ? "wsCutRangesSync" : "rippleDeleteRanges";
+        const arg = JSON.stringify(sel ? { ranges: chosen, v: sel.v, a: sel.a } : chosen).replace(/'/g, "\\'");
+        return evalScript(`${fn}('${arg}')`);
     }
 
     // Cut with track targeting (the stock cutSilences razors EVERY track —
@@ -501,8 +520,7 @@ ${_plainTranscript()}`);
                 showSilenceProgress(true);
                 try {
                     await evalScript("clearSilenceMarkers()");
-                    const payload = JSON.stringify(sel ? { ranges: chosen, v: sel.v, a: sel.a } : chosen).replace(/'/g, "\\'");
-                    const r = await evalScript(`rippleDeleteRanges('${payload}')`);
+                    const r = await hostCut(chosen, sel);
                     if (r && r.success && r.removed > 0)
                         setSilenceStatus(L(`✓ ${r.removed} parça kesildi — Cmd/Ctrl+Z geri alır`, `✓ Cut ${r.removed} item(s) — undo with Cmd/Ctrl+Z`), "success");
                     else {
@@ -1084,9 +1102,11 @@ ${_plainTranscript()}`);
                                   "Needs at least 2 audio and 2 video tracks (each speaker on their own mic + camera)"));
             const spkOpts = n => [0, 1, 2, 3].map(i =>
                 `<option value="${i === 0 ? "" : "S" + i}"${("S" + n) === ("S" + i) ? " selected" : ""}>${i === 0 ? L("— kullanma", "— unused") : L("Konuşmacı ", "Speaker ") + i}</option>`).join("");
+            const pretty = l => String(l).replace(/^video(\d+)$/i, (m, n) => "V" + (+n + 1))
+                                         .replace(/^audio(\d+)$/i, (m, n) => "A" + (+n + 1));
             const rows = (arr, cls) => arr.map((l, i) =>
                 `<div class="setting-row" style="min-height:36px; padding:6px 0">
-                   <div class="setting-info"><div class="setting-name" style="font-weight:500">${l}</div></div>
+                   <div class="setting-info"><div class="setting-name" style="font-weight:500">${pretty(l)}</div></div>
                    <select class="${cls}" data-track="${l}" style="max-width:150px">${spkOpts(Math.min(i + 1, 3))}</select>
                  </div>`).join("");
             $id("mc-map").innerHTML =
@@ -1129,8 +1149,8 @@ ${_plainTranscript()}`);
                 .map(s => ({ start: s.start + info.inTime, end: s.end + info.inTime, spk: s.spk }));
             const videoMap = {};
             Object.keys(vMap).forEach(l => {
-                const idx = parseInt(String(l).replace(/\D/g, ""), 10) - 1;
-                if (idx >= 0) videoMap[idx] = vMap[l];
+                const idx = parseInt(String(l).replace(/\D/g, ""), 10);   // labels are 0-based ("video0")
+                if (!isNaN(idx) && idx >= 0) videoMap[idx] = vMap[l];
             });
             setSilenceStatus(L("Kamera geçişleri uygulanıyor…", "Applying camera switches…"), "info");
             await loadHostJSX();

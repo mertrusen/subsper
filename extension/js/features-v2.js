@@ -427,23 +427,23 @@ ${_plainTranscript()}`);
     // A2+). Selection persists in settings.silTrkSel = {v:[..], a:[..]}.
     async function loadTrackChecks(force) {
         const wrap = $id("sil-tracks"); if (!wrap) return;
-        if (wrap.childElementCount && !force) return;
+        if (wrap.querySelector(".sil-trk") && !force) return;   // real checkboxes, not the hint
+        const sel = await ensureTrackSel();                     // media-aware default / saved picks
         await loadHostJSX();
         const r = await evalScript("wsListAllTracks()");
         if (!(r && r.success)) { wrap.innerHTML = `<div class="setting-hint">${(r && r.error) || "?"}</div>`; return; }
-        const saved = settings.silTrkSel || null;
-        const row = (t, kind) => {
-            const on = saved ? (saved[kind] || []).includes(t.i)
-                             : (kind === "v" ? true : t.i === 0);
-            return `<label class="ui2-check" style="opacity:${t.clips ? 1 : .45}">
-              <input type="checkbox" class="sil-trk" data-kind="${kind}" data-i="${t.i}"${on ? " checked" : ""}>
+        const on = (kind, i) => sel ? ((kind === "v" ? sel.v : sel.a) || []).includes(i)
+                                    : (kind === "v" || i === 0);
+        const row = (t, kind) => `
+            <label class="ui2-check" style="opacity:${t.clips ? 1 : .45}">
+              <input type="checkbox" class="sil-trk" data-kind="${kind}" data-i="${t.i}"${on(kind, t.i) ? " checked" : ""}>
               <span>${t.label}${t.clips ? "" : L(" (boş)", " (empty)")}</span></label>`;
-        };
         wrap.innerHTML =
             `<div class="ui2-checks" style="grid-template-columns:1fr 1fr">` +
-            r.video.map(t => row(t, "v")).join("") + r.audio.map(t => row(t, "a")).join("") + `</div>`;
+            r.video.map(t => row(t, "v")).join("") + r.audio.map(t => row(t, "a")).join("") + `</div>` +
+            `<div class="setting-hint" style="margin-top:6px">${L("İşaretli kanallar kesilir/susturulur; işaretsizlere (müzik, overlay, efekt katmanları) dokunulmaz.", "Checked tracks get cut/muted; unchecked ones (music, overlays, FX layers) are never touched.")}</div>`;
         wrap.querySelectorAll(".sil-trk").forEach(c => c.addEventListener("change", () => {
-            onSettingChange("silTrkSel", trackSel());
+            onSettingChange("silTrkSel", Object.assign({ ver: 2 }, trackSel()));
         }));
     }
     function trackSel() {
@@ -462,26 +462,30 @@ ${_plainTranscript()}`);
     // track list: default = every video track + A1 only, so music beds and FX
     // audio survive out of the box. Saved once, reused everywhere.
     async function ensureTrackSel() {
-        const cur = trackSel();
-        if (cur && (cur.v || cur.a)) return cur;
+        // live checkboxes are the source of truth once rendered
+        if (document.querySelector(".sil-trk")) return trackSel();
+        // saved picks count only if made by the working UI (ver 2) — older
+        // auto-saves came from a broken list that selected every video track
+        const saved = settings.silTrkSel;
+        if (saved && saved.ver === 2 && (saved.v || saved.a)) return saved;
         try {
             await loadHostJSX();
             // default video selection = only tracks that carry real MEDIA clips
-            // (adjustment layers / graphics tracks have no media path and are
-            // skipped by getSequenceInfo, so overlays stay untouched by default)
+            // (adjustment layers / titles / graphic overlays have no media path
+            // and are skipped by getSequenceInfo, so they stay untouched)
             const info = await evalScript("getSequenceInfo()");
             if (info && info.success && info.clips && info.clips.length) {
                 const v = [...new Set(info.clips
                     .filter(c => /^video/i.test(String(c.track)))
                     .map(c => parseInt(String(c.track).replace(/\D/g, ""), 10))
                     .filter(n => !isNaN(n)))].sort((x, y) => x - y);
-                const def = { v, a: [0] };
+                const def = { v, a: [0], ver: 2 };
                 onSettingChange("silTrkSel", def);
                 return def;
             }
             const r = await evalScript("wsListAllTracks()");
             if (r && r.success) {
-                const def = { v: r.video.map(t => t.i), a: [0] };
+                const def = { v: r.video.map(t => t.i), a: [0], ver: 2 };
                 onSettingChange("silTrkSel", def);
                 return def;
             }
@@ -618,6 +622,8 @@ ${_plainTranscript()}`);
         $id("sil-analyze").onclick = silAnalyze;
         $id("sil-run").onclick = silRun;
         $id("sil-tracks").addEventListener("click", () => loadTrackChecks(false));
+        // ui-v2 calls this when the Silence page opens → list is there instantly
+        window.__silPageOpen = () => { loadTrackChecks(false).catch(() => {}); };
         document.body.classList.add("ui2-silpro");   // hides the two legacy buttons
     }
 

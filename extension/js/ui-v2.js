@@ -221,7 +221,6 @@
     // init after main.js settings load + feature packs (0/10/20) + features-v2 (40)
     setTimeout(() => {
         buildAdv("panel-ed-work", "silence", "#set-silthr");
-        buildAdv("panel-ed-work", "zoom",    "#set-zoomamt");
         buildAdv("panel-au-work", "enhance", "#set-audio-denoise");
         buildAdv("panel-au-work", "beep",    "#set-beepmode");
         try { if (typeof initEditSettingsUI  === "function") initEditSettingsUI(); }  catch (e) {}

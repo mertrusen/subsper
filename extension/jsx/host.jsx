@@ -1113,3 +1113,130 @@ function wsSelectWholeRange() {
         return JSON.stringify({ success: false, error: e.toString() });
     }
 }
+
+// ── Zoom Pro: trigger-based zooms with anchor, style and handheld ──────────
+// payload = { times:[sec], useCuts, amount(105-150), anchor(0-8),
+//             style:"smooth"|"jump"|"snap", handheld:bool }
+function _wsFindMotionProp(clip, names) {
+    try {
+        var comps = clip.components;
+        for (var i = 0; i < comps.numItems; i++) {
+            var dn = ""; try { dn = comps[i].displayName; } catch (e) {}
+            if (dn === "Motion" || dn === "Hareket") {
+                var mo = comps[i];
+                for (var p = 0; p < mo.properties.numItems; p++) {
+                    var pn = ""; try { pn = mo.properties[p].displayName; } catch (e2) {}
+                    for (var n = 0; n < names.length; n++) if (pn === names[n]) return mo.properties[p];
+                }
+            }
+        }
+    } catch (e3) {}
+    return null;
+}
+function _wsZoomEvent(clip, t0, t1, opt, diag) {
+    var scale = _wsFindMotionProp(clip, ["Scale", "Ölçek"]);
+    if (!scale) return 0;
+    var pos = (opt.anchor !== 4) ? _wsFindMotionProp(clip, ["Position", "Konum"]) : null;
+    var target = opt.amount || 120;
+    var ax = (opt.anchor % 3) * 0.5, ay = Math.floor(opt.anchor / 3) * 0.5;
+    function posFor(v) {
+        var f = v / 100 - 1;
+        return [0.5 + (0.5 - ax) * f, 0.5 + (0.5 - ay) * f];
+    }
+    var keys = 0;
+    function key(t, v) {
+        try {
+            scale.addKey(t); scale.setValueAtKey(t, v, true); keys++;
+            if (pos) { try { pos.addKey(t); pos.setValueAtKey(t, posFor(v), true); } catch (eP) {} }
+        } catch (eK) { if (diag.length < 3) diag.push("key@" + t.toFixed(2) + ": " + eK.toString()); }
+    }
+    try { scale.setTimeVarying(true); } catch (eTV) {}
+    if (pos) { try { pos.setTimeVarying(true); } catch (eTV2) {} }
+
+    var ramp = opt.style === "smooth" ? 0.6 : 0.25;
+    key(Math.max(t0 - 0.04, 0), 100);
+    if (opt.style === "jump") {
+        key(t0, target);
+    } else if (opt.style === "snap") {
+        key(t0 + ramp * 0.7, Math.min(target * 1.04, target + 6));
+        key(t0 + ramp, target);
+    } else {
+        var STEPS = 4;
+        for (var s = 1; s <= STEPS; s++) {
+            var p = s / STEPS;
+            key(t0 + ramp * p, 100 + (target - 100) * (1 - Math.pow(1 - p, 2)));
+        }
+    }
+    // hold (with optional handheld jitter on Position), then settle back
+    var back = 0.35, holdEnd = t1 - back;
+    if (opt.handheld && pos && holdEnd > t0 + ramp + 0.4) {
+        var jt = t0 + ramp + 0.4, jn = 0;
+        while (jt < holdEnd && jn < 14) {
+            try {
+                pos.addKey(jt);
+                var b = posFor(target);
+                pos.setValueAtKey(jt, [b[0] + (Math.random() - 0.5) * 0.006, b[1] + (Math.random() - 0.5) * 0.006], true);
+            } catch (eJ) {}
+            jt += 0.45; jn++;
+        }
+    }
+    key(Math.max(holdEnd, t0 + ramp + 0.05), target);
+    key(t1, 100);
+    return keys;
+}
+function wsZoomPro(optJson) {
+    var diag = [];
+    try {
+        var opt = JSON.parse(optJson);
+        var seq = app.project.activeSequence;
+        if (!seq) return JSON.stringify({ success: false, error: "No active sequence." });
+        var inS = readPointSecs(seq, "in"), outS = readPointSecs(seq, "out");
+        if (isNaN(inS) || isNaN(outS) || outS <= inS) { inS = 0; outS = seqContentEnd(seq); }
+        if (!outS || outS <= 0) return JSON.stringify({ success: false, error: "Timeline is empty." });
+
+        var times = [];
+        var given = opt.times || [];
+        for (var g = 0; g < given.length; g++) {
+            var tv = parseFloat(given[g]);
+            if (!isNaN(tv) && tv >= inS && tv < outS) times.push(tv);
+        }
+        // collect topmost video clips (and cut-trigger times)
+        var clips = [];
+        for (var v = seq.videoTracks.numTracks - 1; v >= 0; v--) {
+            var trk = seq.videoTracks[v];
+            for (var c = 0; c < trk.clips.numItems; c++) {
+                var clip = trk.clips[c];
+                var cs = ticksToSeconds(clip.start.ticks), ce = ticksToSeconds(clip.end.ticks);
+                if (ce <= inS || cs >= outS) continue;
+                clips.push({ clip: clip, cs: cs, ce: ce });
+                if (opt.useCuts && cs > inS + 0.2) times.push(cs);
+            }
+        }
+        if (!clips.length) return JSON.stringify({ success: false, error: "No video clips in the range." });
+        if (!times.length) times.push(inS);   // at least one zoom at range start
+
+        times.sort(function (a, b) { return a - b; });
+        var evs = [];
+        for (var i = 0; i < times.length; i++)
+            if (!evs.length || times[i] - evs[evs.length - 1] >= 1.5) evs.push(times[i]);
+
+        var applied = 0, keys = 0;
+        for (var e2 = 0; e2 < evs.length; e2++) {
+            var t = evs[e2];
+            var host = null;
+            for (var k = 0; k < clips.length; k++)
+                if (t >= clips[k].cs - 0.05 && t < clips[k].ce) { host = clips[k]; break; }
+            if (!host) continue;
+            var tEnd = Math.min(
+                (e2 + 1 < evs.length) ? evs[e2 + 1] - 0.2 : t + 4,
+                host.ce - 0.05, outS, t + 5);
+            if (tEnd - t < 0.6) continue;
+            var kk = _wsZoomEvent(host.clip, Math.max(t, host.cs + 0.02), tEnd, opt, diag);
+            if (kk > 0) { applied++; keys += kk; }
+        }
+        return JSON.stringify({ success: applied > 0, count: applied, keys: keys,
+                                error: applied ? undefined : "Could not apply any zoom (see diag)", diag: diag });
+    } catch (e) {
+        return JSON.stringify({ success: false, error: e.toString(), diag: diag });
+    }
+}

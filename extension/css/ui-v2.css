@@ -172,6 +172,41 @@ body.ui2-silpro #silence-btn,
 body.ui2-silpro #silence-cut-btn,
 body.ui2-silpro #silence-btn ~ .setting-hint { display: none; }
 
+/* legacy zoom button/intro replaced by the Pro block */
+body.ui2-zoompro #zoom-btn,
+body.ui2-zoompro #zoom-btn ~ .setting-hint { display: none; }
+body.ui2-zoompro #panel-ed-work .tool-card > .panel-intro { display: none; }
+
+/* big trigger checkboxes */
+.ui2-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ui2-check {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 10px; background: var(--bg3);
+  border: 1px solid var(--border); border-radius: 9px;
+  font-size: 11.5px; font-weight: 500; color: var(--text);
+  cursor: pointer; user-select: none;
+}
+.ui2-check:hover { background: var(--bg-hover); }
+.ui2-check input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; flex-shrink: 0; }
+
+/* 3x3 anchor grid */
+#zp-anchor {
+  display: grid; grid-template-columns: repeat(3, 26px); gap: 4px;
+  width: max-content; padding: 6px; background: var(--bg3);
+  border: 1px solid var(--border); border-radius: 9px;
+}
+#zp-anchor button {
+  width: 26px; height: 22px; border: 1px solid var(--border);
+  border-radius: 5px; background: var(--bg2); cursor: pointer; position: relative;
+}
+#zp-anchor button::after {
+  content: ""; position: absolute; inset: 0; margin: auto;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--text-lo);
+}
+#zp-anchor button:hover { background: var(--bg-hover); }
+#zp-anchor button.active { border-color: var(--accent); background: var(--accent-bg); }
+#zp-anchor button.active::after { background: var(--accent); }
+
 /* ── Collapsed per-tool settings box (<details class="ui2-adv">) ──── */
 details.ui2-adv {
   margin-top: 4px; margin-bottom: 16px;

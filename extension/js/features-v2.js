@@ -475,6 +475,134 @@ ${_plainTranscript()}`);
         document.body.classList.add("ui2-silpro");   // hides the two legacy buttons
     }
 
+    // ── Zoom Pro ───────────────────────────────────────────────────────────
+    // Triggers (cuts / speech starts / emotion / emphasis) produce moments;
+    // host wsZoomPro keyframes Scale+Position per moment with anchor, style
+    // (smooth/jump/snap) and optional handheld jitter. Emotion & emphasis use
+    // AI when available, otherwise on-device transcript cues.
+    const EMO = /(!|inanılmaz|şok|asla|kimse|müthiş|harika|delice|çılgın|insane|crazy|amazing|unbelievable|wow|never|nobody)/i;
+    function emphasisTimes(kind) {
+        const out = [];
+        segments.forEach((s, i) => {
+            const t = s.text || "";
+            const pause = i > 0 && (s.seqStart - segments[i - 1].seqEnd) > 0.8;
+            if (kind === "emotion" ? EMO.test(t) : (pause || /\?/.test(t)))
+                out.push(s.seqStart);
+        });
+        return out;
+    }
+    window.__emphasisTimes = emphasisTimes; // unit-test hook
+
+    async function aiMomentTimes(kind) {
+        const text = await aiComplete(
+`From this transcript list the ${kind === "emotion" ? "emotionally charged moments (excitement, surprise, tension)" : "moments where something important is emphasized or a key point lands"}. Output ONLY one "MM:SS" per line, 3-12 lines.
+
+Transcript:
+${_plainTranscript()}`);
+        const out = [];
+        (text || "").split(/\n/).forEach(l => {
+            const m = l.match(/(?:(\d{1,2}):)?(\d{1,2}):(\d{2})/);
+            if (m) out.push((m[1] ? +m[1] * 3600 : 0) + (+m[2]) * 60 + (+m[3]));
+        });
+        return out;
+    }
+    async function zoomProRun() {
+        const btn = $id("zoompro-run"); if (btn) btn.disabled = true;
+        try {
+            const on = id => { const e = $id(id); return !!(e && e.checked); };
+            const useCuts = on("zp-cut"), useSpeech = on("zp-speech"),
+                  useEmotion = on("zp-emotion"), useEmph = on("zp-emph");
+            if (!useCuts && !useSpeech && !useEmotion && !useEmph) {
+                showToast(L("En az bir tetikleyici seç", "Pick at least one trigger"), "info"); return;
+            }
+            if ((useSpeech || useEmotion || useEmph) && !(segments && segments.length)) {
+                showToast(L("Konuşma/Duygu/Vurgu tetikleyicileri transcript ister — önce Transcribe (ya da sadece Kesim'i kullan)",
+                            "Speech/Emotion/Emphasis triggers need a transcript — Transcribe first (or use Cuts only)"), "info", 5000);
+                return;
+            }
+            let times = [], via = null;
+            if (useSpeech) times = times.concat(segments.map(s => s.seqStart));
+            for (const [flag, kind] of [[useEmotion, "emotion"], [useEmph, "emphasis"]]) {
+                if (!flag) continue;
+                let got = [];
+                if (aiAvailable()) { try { got = await aiMomentTimes(kind); via = "AI"; } catch (e) { showToast("AI: " + e.message, "warning", 3500); } }
+                if (!got.length) { got = emphasisTimes(kind); via = via || L("cihaz içi", "on-device"); }
+                times = times.concat(got);
+            }
+            try { await applyTargetOf("zp-target"); } catch (e) { showToast(e.message, "error", 4000); return; }
+            const anchorBtn = document.querySelector("#zp-anchor button.active");
+            const styleBtn = document.querySelector("#zp-style button.active");
+            const opt = {
+                times, useCuts,
+                amount: +($id("zp-amount") || {}).value || 120,
+                anchor: anchorBtn ? +anchorBtn.getAttribute("data-a") : 4,
+                style: styleBtn ? styleBtn.getAttribute("data-v") : "smooth",
+                handheld: on("zp-hand"),
+            };
+            await loadHostJSX();
+            const r = await evalScript(`wsZoomPro('${JSON.stringify(opt).replace(/'/g, "\\'")}')`);
+            if (r && r.success)
+                showToast(L(`✓ ${r.count} noktaya zoom eklendi${via ? ` (${via})` : ""} — Cmd/Ctrl+Z geri alır`,
+                            `✓ Zoomed at ${r.count} moment(s)${via ? ` (${via})` : ""} — undo with Cmd/Ctrl+Z`), "success", 5000);
+            else {
+                showToast((r && r.error) || L("Zoom uygulanamadı", "Zoom failed"), "error", 5000);
+                if (r && r.diag && r.diag.length) console.log("[Subsper] zoom diag:", r.diag);
+            }
+        } finally { if (btn) btn.disabled = false; }
+    }
+    async function applyTargetOf(segId) {
+        const seg = $id(segId);
+        const b = seg && seg.querySelector("button.active");
+        if (!b || b.getAttribute("data-v") !== "all") return;
+        await loadHostJSX();
+        const r = await evalScript("wsSelectWholeRange()");
+        if (!(r && r.success)) throw new Error((r && r.error) || L("Timeline okunamadı", "Could not read the timeline"));
+    }
+
+    function injectZoomPro() {
+        const oldBtn = $id("zoom-btn");
+        const item = oldBtn && oldBtn.closest(".setting-item");
+        if (!item || $id("zoompro-run")) return;
+        const chk = (id, label, checked) => `
+          <label class="ui2-check"><input type="checkbox" id="${id}"${checked ? " checked" : ""}>
+            <span>${label}</span></label>`;
+        const box = document.createElement("div");
+        box.innerHTML = `
+          <div class="ui2-row-label">${L("Hedef", "Target")}</div>
+          ${segControl("zp-target", [["inout", "In/Out"], ["all", L("Tüm Timeline", "Whole timeline")]])}
+          <div class="ui2-row-label">${L("Ne zaman zoom yapılsın", "When to zoom")}</div>
+          <div class="ui2-checks">
+            ${chk("zp-cut", L("Kesimlerde", "On cuts"), true)}
+            ${chk("zp-speech", L("Konuşma başlarında", "On speech starts"), false)}
+            ${chk("zp-emotion", L("Duygusal anlarda", "On emotional moments"), false)}
+            ${chk("zp-emph", L("Vurgu anlarında", "On emphasis"), false)}
+          </div>
+          <div class="setting-slider-header" style="margin-top:12px">
+            <span>${L("Zoom miktarı", "Zoom amount")}</span><span class="setting-value" id="zp-amount-val">120%</span>
+          </div>
+          <input type="range" class="setting-slider" id="zp-amount" min="105" max="150" step="1" value="120">
+          <div class="ui2-row-label">${L("Merkez", "Anchor")}</div>
+          <div id="zp-anchor">${[0,1,2,3,4,5,6,7,8].map(a =>
+              `<button data-a="${a}" class="${a === 4 ? "active" : ""}"></button>`).join("")}</div>
+          <div class="ui2-row-label">${L("Stil", "Style")}</div>
+          ${segControl("zp-style", [["smooth", L("Yumuşak", "Smooth")], ["jump", L("Anında", "Jump")], ["snap", L("Vuruşlu", "Snap")]])}
+          <label class="ui2-check" style="margin-top:10px"><input type="checkbox" id="zp-hand">
+            <span>${L("El kamerası hissi (hafif titreme)", "Handheld feel (subtle shake)")}</span></label>
+          <button class="btn-transcribe btn-compact" id="zoompro-run" style="margin-top:12px">${L("Zoom'ları Uygula", "Apply Zooms")}</button>
+          <div class="setting-hint" style="margin-top:8px">${L("Duygu/Vurgu: AI anahtarı varsa AI, yoksa cihaz içi ipuçları. Cmd/Ctrl+Z geri alır.", "Emotion/Emphasis: AI when a key is set, on-device cues otherwise. Undo with Cmd/Ctrl+Z.")}</div>`;
+        item.appendChild(box);
+        wireSeg("zp-target"); wireSeg("zp-style");
+        const amt = $id("zp-amount");
+        amt.oninput = () => { $id("zp-amount-val").textContent = amt.value + "%"; };
+        const grid = $id("zp-anchor");
+        grid.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+            grid.querySelectorAll("button").forEach(x => x.classList.remove("active"));
+            b.classList.add("active");
+        }));
+        $id("zoompro-run").onclick = zoomProRun;
+        document.body.classList.add("ui2-zoompro");   // hides the legacy zoom button/intro
+    }
+
     // ── Card injection into panel-ed-work (ui-v2 isolates them per page) ──
     function card(html) {
         const d = document.createElement("div");
@@ -489,6 +617,7 @@ ${_plainTranscript()}`);
         if (!sc || $id("repeat-btn")) return;
 
         injectSilencePro();
+        injectZoomPro();
 
         const rep = card(`
           <div class="setting-row"><div class="setting-info">

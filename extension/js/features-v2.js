@@ -106,7 +106,8 @@ ${_plainTranscript()}`);
             }
             showRangePreview(L(`Tekrarları kes (${via})`, `Remove repeats (${via})`), ranges, async chosen => {
                 await loadHostJSX();
-                const arg = JSON.stringify(chosen).replace(/'/g, "\\'");
+                const sel = trackSel();   // honors the Silence page's track picks
+                const arg = JSON.stringify(sel ? { ranges: chosen, v: sel.v, a: sel.a } : chosen).replace(/'/g, "\\'");
                 const r = await evalScript(`rippleDeleteRanges('${arg}')`);
                 if (r && r.success && r.removed > 0)
                     showToast(L(`✓ ${r.removed} tekrar kesildi — Cmd/Ctrl+Z ile geri al`, `✓ Cut ${r.removed} repeat(s) — undo with Cmd/Ctrl+Z`), "success", 5000);
@@ -385,6 +386,7 @@ ${_plainTranscript()}`);
             const txt = (id, v) => { const e = $id(id); if (e) e.textContent = v; };
             set("set-silthr", best); txt("silthr-val", best + " dB");
             drawStrip((bestSil || []).map(s => ({ start: s.start, end: s.end, dur: s.dur })), seqInfo);
+            try { await loadTrackChecks(false); } catch (e2) {}
             setSilenceStatus(L(`✓ Eşik ${best} dB olarak ayarlandı — önizleme hazır`, `✓ Threshold set to ${best} dB — preview ready`), "success");
         } catch (e) {
             setSilenceStatus(e.message, "error");
@@ -394,6 +396,82 @@ ${_plainTranscript()}`);
             if (btn) btn.disabled = false;
         }
     }
+    // ── track targeting: which tracks the cut/mute is allowed to touch ────
+    // Defaults: every video track ON, only A1 ON (music beds usually live on
+    // A2+). Selection persists in settings.silTrkSel = {v:[..], a:[..]}.
+    async function loadTrackChecks(force) {
+        const wrap = $id("sil-tracks"); if (!wrap) return;
+        if (wrap.childElementCount && !force) return;
+        await loadHostJSX();
+        const r = await evalScript("wsListAllTracks()");
+        if (!(r && r.success)) { wrap.innerHTML = `<div class="setting-hint">${(r && r.error) || "?"}</div>`; return; }
+        const saved = settings.silTrkSel || null;
+        const row = (t, kind) => {
+            const on = saved ? (saved[kind] || []).includes(t.i)
+                             : (kind === "v" ? true : t.i === 0);
+            return `<label class="ui2-check" style="opacity:${t.clips ? 1 : .45}">
+              <input type="checkbox" class="sil-trk" data-kind="${kind}" data-i="${t.i}"${on ? " checked" : ""}>
+              <span>${t.label}${t.clips ? "" : L(" (boş)", " (empty)")}</span></label>`;
+        };
+        wrap.innerHTML =
+            `<div class="ui2-checks" style="grid-template-columns:1fr 1fr">` +
+            r.video.map(t => row(t, "v")).join("") + r.audio.map(t => row(t, "a")).join("") + `</div>`;
+        wrap.querySelectorAll(".sil-trk").forEach(c => c.addEventListener("change", () => {
+            onSettingChange("silTrkSel", trackSel());
+        }));
+    }
+    function trackSel() {
+        const boxes = document.querySelectorAll(".sil-trk");
+        if (boxes.length) {
+            const v = [], a = [];
+            boxes.forEach(c => {
+                if (!c.checked) return;
+                (c.getAttribute("data-kind") === "v" ? v : a).push(+c.getAttribute("data-i"));
+            });
+            return { v, a };
+        }
+        return settings.silTrkSel || null;   // saved selection, or null = all tracks
+    }
+
+    // Cut with track targeting (the stock cutSilences razors EVERY track —
+    // music beds and graphics included; this one only touches selected ones)
+    async function cutSilencesPro() {
+        setSilenceStatus(L("Kesilecek boşluklar aranıyor…", "Finding gaps to cut…"), "info");
+        showSilenceProgress(true);
+        try {
+            const { ranges } = await findSilenceRanges();
+            const pad = Math.max(0, parseFloat(settings.silencePad) || 0);
+            const padded = ranges
+                .map(r => ({ start: r.start + pad, end: r.end - pad, dur: +(r.end - r.start - 2 * pad).toFixed(2) }))
+                .filter(r => r.dur > 0.05);
+            if (!padded.length) {
+                setSilenceStatus(L("Kesilecek boşluk yok — eşiği yükseltmeyi dene", "Nothing to cut — try raising the threshold"), "warning");
+                return;
+            }
+            const sel = trackSel();
+            const selNote = sel && (sel.v || sel.a)
+                ? L(` (${(sel.v || []).length} video + ${(sel.a || []).length} ses kanalı)`, ` (${(sel.v || []).length} video + ${(sel.a || []).length} audio track(s))`)
+                : "";
+            showRangePreview(L("Sessizlikleri kes", "Cut silences") + selNote, padded, async chosen => {
+                setSilenceStatus(L(`${chosen.length} boşluk kesiliyor…`, `Cutting ${chosen.length} gap(s)…`), "info");
+                showSilenceProgress(true);
+                try {
+                    await evalScript("clearSilenceMarkers()");
+                    const payload = JSON.stringify(sel ? { ranges: chosen, v: sel.v, a: sel.a } : chosen).replace(/'/g, "\\'");
+                    const r = await evalScript(`rippleDeleteRanges('${payload}')`);
+                    if (r && r.success && r.removed > 0)
+                        setSilenceStatus(L(`✓ ${r.removed} parça kesildi — Cmd/Ctrl+Z geri alır`, `✓ Cut ${r.removed} item(s) — undo with Cmd/Ctrl+Z`), "success");
+                    else {
+                        await evalScript(`addSilenceMarkers('${JSON.stringify(chosen).replace(/'/g, "\\'")}')`);
+                        setSilenceStatus(L("Kesilemedi — marker olarak işaretlendi", "Couldn't cut — marked instead"), "warning");
+                    }
+                } finally { showSilenceProgress(false); }
+            });
+        } catch (e) {
+            setSilenceStatus(e.message, "error");
+        } finally { showSilenceProgress(false); }
+    }
+
     async function muteSilencesPro() {
         setSilenceStatus(L("Susturulacak boşluklar aranıyor…", "Finding gaps to mute…"), "info");
         showSilenceProgress(true);
@@ -409,7 +487,8 @@ ${_plainTranscript()}`);
             }
             showRangePreview(L("Sessizlikleri sustur (silmeden)", "Mute silences (keep timing)"), padded, async chosen => {
                 await loadHostJSX();
-                const payload = JSON.stringify({ ranges: chosen, level: 0 }).replace(/'/g, "\\'");
+                const sel = trackSel();
+                const payload = JSON.stringify({ ranges: chosen, level: 0, tracks: sel ? sel.a : null }).replace(/'/g, "\\'");
                 const r = await evalScript(`duckAudioRanges('${payload}')`);
                 if (r && r.success)
                     setSilenceStatus(L(`✓ ${chosen.length} boşluk susturuldu (keyframe) — Cmd/Ctrl+Z geri alır`, `✓ Muted ${chosen.length} gap(s) with keyframes — undo with Cmd/Ctrl+Z`), "success");
@@ -426,7 +505,7 @@ ${_plainTranscript()}`);
         try { await applyTarget(); } catch (e) { showToast(e.message, "error", 4000); return; }
         if (mode === "mark") return detectSilences();
         if (mode === "mute") return muteSilencesPro();
-        return cutSilences();
+        return cutSilencesPro();
     }
     function segControl(id, items, activeIdx) {
         return `<div class="ui2-seg" id="${id}">` + items.map((it, i) =>
@@ -458,6 +537,8 @@ ${_plainTranscript()}`);
             <div id="sil-strip"></div>
             <div id="sil-strip-info" class="setting-hint" style="margin-top:4px"></div>
           </div>
+          <div class="ui2-row-label">${L("Dokunulacak kanallar", "Tracks to touch")}</div>
+          <div id="sil-tracks"><div class="setting-hint">${L("Analiz Et'e basınca ya da buraya tıklayınca kanallar listelenir — müzik/efekt kanallarının işaretini kaldır, onlara dokunulmaz.", "Tracks appear after Analyze (or click here) — untick music/FX tracks and they won't be touched.")}</div></div>
           <div class="ui2-row-label">${L("İşlem", "Action")}</div>
           ${segControl("sil-action", [
             ["cut", L("Kes", "Cut")], ["mark", L("İşaretle", "Mark")], ["mute", L("Sustur", "Mute")]])}
@@ -474,6 +555,7 @@ ${_plainTranscript()}`);
         });
         $id("sil-analyze").onclick = silAnalyze;
         $id("sil-run").onclick = silRun;
+        $id("sil-tracks").addEventListener("click", () => loadTrackChecks(false));
         document.body.classList.add("ui2-silpro");   // hides the two legacy buttons
     }
 

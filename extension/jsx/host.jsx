@@ -285,12 +285,18 @@ function duckAudioRanges(payloadJson) {
             for (var ps = 0; ps < data.paths.length; ps++) pathSet[String(data.paths[ps])] = true;
         }
         var skipTrack = (typeof data.skipTrack === "number") ? data.skipTrack : -1;
+        var allowTracks = data.tracks || null;
+        function trackAllowed(ti) {
+            if (!allowTracks) return true;
+            for (var q = 0; q < allowTracks.length; q++) if (allowTracks[q] === ti) return true;
+            return false;
+        }
         var seq = app.project.activeSequence;
         if (!seq) return JSON.stringify({ success: false, error: "No active sequence." });
         var EDGE = 0.03;   // seconds of ramp on each side
 
         for (var t = 0; t < seq.audioTracks.numTracks; t++) {
-            if (t === skipTrack) continue;
+            if (t === skipTrack || !trackAllowed(t)) continue;
             var trk = seq.audioTracks[t];
             for (var c = 0; c < trk.clips.numItems; c++) {
                 var clip = trk.clips[c];
@@ -791,8 +797,17 @@ function rippleDeleteRanges(rangesJson) {
     try { qeSeq = qe.project.getActiveSequence(); } catch (eS) {}
     if (!seq || !qeSeq) return JSON.stringify({ success: false, error: "No active QE sequence" });
 
-    var ranges;
-    try { ranges = JSON.parse(rangesJson); } catch (eP) { return JSON.stringify({ success: false, error: "Bad ranges JSON" }); }
+    var ranges, vSel = null, aSel = null;
+    try {
+        var parsed = JSON.parse(rangesJson);
+        if (parsed && parsed.ranges) { ranges = parsed.ranges; vSel = parsed.v || null; aSel = parsed.a || null; }
+        else ranges = parsed;
+    } catch (eP) { return JSON.stringify({ success: false, error: "Bad ranges JSON" }); }
+    function inSel(list, idx) {
+        if (!list) return true;
+        for (var q = 0; q < list.length; q++) if (list[q] === idx) return true;
+        return false;
+    }
     // Process from LAST to FIRST so earlier timeline positions stay valid after each ripple
     ranges.sort(function (a, b) { return b.start - a.start; });
 
@@ -811,8 +826,8 @@ function rippleDeleteRanges(rangesJson) {
         var vN = 0, aN = 0;
         try { vN = qeSeq.numVideoTracks; } catch (e) {}
         try { aN = qeSeq.numAudioTracks; } catch (e) {}
-        for (var v = 0; v < vN; v++) { try { qeSeq.getVideoTrackAt(v).razor(tc); } catch (e3) {} }
-        for (var a = 0; a < aN; a++) { try { qeSeq.getAudioTrackAt(a).razor(tc); } catch (e4) {} }
+        for (var v = 0; v < vN; v++) { if (!inSel(vSel, v)) continue; try { qeSeq.getVideoTrackAt(v).razor(tc); } catch (e3) {} }
+        for (var a = 0; a < aN; a++) { if (!inSel(aSel, a)) continue; try { qeSeq.getAudioTrackAt(a).razor(tc); } catch (e4) {} }
     }
     function removeMid(midSecs) {
         var n = 0;
@@ -840,8 +855,8 @@ function rippleDeleteRanges(rangesJson) {
         var vN = 0, aN = 0;
         try { vN = qeSeq.numVideoTracks; } catch (e) {}
         try { aN = qeSeq.numAudioTracks; } catch (e) {}
-        for (var v = 0; v < vN; v++) scan(qeSeq.getVideoTrackAt(v));
-        for (var a = 0; a < aN; a++) scan(qeSeq.getAudioTrackAt(a));
+        for (var v = 0; v < vN; v++) { if (!inSel(vSel, v)) continue; scan(qeSeq.getVideoTrackAt(v)); }
+        for (var a = 0; a < aN; a++) { if (!inSel(aSel, a)) continue; scan(qeSeq.getAudioTrackAt(a)); }
         return n;
     }
 
@@ -1315,5 +1330,28 @@ function wsMulticamApply(payloadJson) {
         return JSON.stringify({ success: tracksDone > 0, tracks: tracksDone, disabled: disabled, diag: diag });
     } catch (e) {
         return JSON.stringify({ success: false, error: e.toString(), diag: diag });
+    }
+}
+
+
+// ── Track inventory for track-targeted cutting ─────────────────────────────
+function wsListAllTracks() {
+    try {
+        var seq = app.project.activeSequence;
+        if (!seq) return JSON.stringify({ success: false, error: "No active sequence." });
+        var out = { success: true, video: [], audio: [] };
+        for (var v = 0; v < seq.videoTracks.numTracks; v++) {
+            var vt = seq.videoTracks[v], vn = "";
+            try { vn = vt.name || ""; } catch (eV) {}
+            out.video.push({ i: v, label: "V" + (v + 1) + (vn ? " \u00b7 " + vn : ""), clips: vt.clips.numItems });
+        }
+        for (var a = 0; a < seq.audioTracks.numTracks; a++) {
+            var at = seq.audioTracks[a], an = "";
+            try { an = at.name || ""; } catch (eA) {}
+            out.audio.push({ i: a, label: "A" + (a + 1) + (an ? " \u00b7 " + an : ""), clips: at.clips.numItems });
+        }
+        return JSON.stringify(out);
+    } catch (e) {
+        return JSON.stringify({ success: false, error: e.toString() });
     }
 }

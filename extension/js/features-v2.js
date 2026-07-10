@@ -603,6 +603,270 @@ ${_plainTranscript()}`);
         document.body.classList.add("ui2-zoompro");   // hides the legacy zoom button/intro
     }
 
+    // ── Style Pro + Preset Gallery ─────────────────────────────────────────
+    // Extends the caption style system with italic, vertical position
+    // (MarginV), glow (outline alpha halo) and box color/opacity controls in
+    // a tabbed editor; adds a built-in preset gallery with share codes.
+    // main.js's buildASSStyle is replaced (same signature) so every .ass /
+    // burn-in export picks the new fields up; .ass has no corner radius or
+    // true glow — the halo is an honest approximation.
+    function styleLineV2(p, karaoke, colorFn, karaokeHi) {
+        const base = colorFn(p.primary, 0);
+        const highlight = colorFn(karaokeHi || "FFE000", 0);
+        const outlineCol = colorFn(p.outline, p.glow ? Math.min(200, +p.glow) : 0);
+        const back = colorFn(p.boxColor, p.box ? p.boxAlpha : 0);
+        const border = p.box ? 3 : 1;
+        const marginV = (p.marginV != null && p.marginV !== "") ? +p.marginV : ((p.align === 5) ? 0 : 50);
+        const primaryCol = karaoke ? highlight : base;
+        const secondaryCol = karaoke ? base : "&H000000FF";
+        return `Style: Default,${p.font},${p.size},${primaryCol},${secondaryCol},${outlineCol},${back},${p.bold ? -1 : 0},${p.italic ? -1 : 0},0,0,100,100,0,0,${border},${p.outlineW},${p.shadow},${p.align},60,60,${marginV},1`;
+    }
+    window.__styleLineV2 = styleLineV2; // unit-test hook
+
+    const GALLERY = [
+        { name: "Klasik Beyaz",  s: { font: "Arial", size: 54, primary: "FFFFFF", outline: "000000", outlineW: 3, shadow: 1, bold: false, italic: false, align: 2, box: false, boxColor: "000000", boxAlpha: 96, glow: 0 } },
+        { name: "Kalın Sosyal",  s: { font: "Arial", size: 66, primary: "FFFFFF", outline: "000000", outlineW: 6, shadow: 0, bold: true,  italic: false, align: 2, box: false, boxColor: "000000", boxAlpha: 96, glow: 0 } },
+        { name: "Sarı Vurgu",    s: { font: "Arial", size: 60, primary: "FFE000", outline: "000000", outlineW: 4, shadow: 1, bold: true,  italic: false, align: 2, box: false, boxColor: "000000", boxAlpha: 96, glow: 0 } },
+        { name: "Kutu Siyah",    s: { font: "Arial", size: 58, primary: "FFFFFF", outline: "000000", outlineW: 0, shadow: 0, bold: true,  italic: false, align: 2, box: true,  boxColor: "000000", boxAlpha: 40, glow: 0 } },
+        { name: "Kutu Beyaz",    s: { font: "Arial", size: 56, primary: "111111", outline: "FFFFFF", outlineW: 0, shadow: 0, bold: true,  italic: false, align: 2, box: true,  boxColor: "FFFFFF", boxAlpha: 30, glow: 0 } },
+        { name: "Sarı Kutu",     s: { font: "Arial", size: 56, primary: "111111", outline: "FFE000", outlineW: 0, shadow: 0, bold: true,  italic: false, align: 2, box: true,  boxColor: "FFE000", boxAlpha: 20, glow: 0 } },
+        { name: "Neon Yeşil",    s: { font: "Arial", size: 58, primary: "FFFFFF", outline: "00FF7F", outlineW: 4, shadow: 0, bold: true,  italic: false, align: 2, box: false, boxColor: "000000", boxAlpha: 96, glow: 120 } },
+        { name: "Neon Pembe",    s: { font: "Arial", size: 58, primary: "FFFFFF", outline: "FF2D95", outlineW: 4, shadow: 0, bold: true,  italic: false, align: 2, box: false, boxColor: "000000", boxAlpha: 96, glow: 120 } },
+        { name: "Buz Mavisi",    s: { font: "Arial", size: 56, primary: "66D4FF", outline: "003355", outlineW: 3, shadow: 1, bold: true,  italic: false, align: 2, box: false, boxColor: "000000", boxAlpha: 96, glow: 0 } },
+        { name: "Kırmızı Enerji",s: { font: "Arial", size: 60, primary: "FF453A", outline: "1A0000", outlineW: 4, shadow: 1, bold: true,  italic: false, align: 2, box: false, boxColor: "000000", boxAlpha: 96, glow: 0 } },
+        { name: "Sinematik",     s: { font: "Georgia", size: 48, primary: "F5F5DC", outline: "000000", outlineW: 2, shadow: 2, bold: false, italic: false, align: 2, box: false, boxColor: "000000", boxAlpha: 96, glow: 0 } },
+        { name: "Retro Krem",    s: { font: "Georgia", size: 50, primary: "F5E6C8", outline: "3A2A10", outlineW: 2, shadow: 1, bold: false, italic: true,  align: 2, box: false, boxColor: "000000", boxAlpha: 96, glow: 0 } },
+        { name: "Minimal İnce",  s: { font: "Arial", size: 44, primary: "FFFFFF", outline: "000000", outlineW: 1, shadow: 0, bold: false, italic: false, align: 2, box: false, boxColor: "000000", boxAlpha: 96, glow: 0 } },
+        { name: "Gölgeli",       s: { font: "Arial", size: 56, primary: "FFFFFF", outline: "000000", outlineW: 0, shadow: 3, bold: true,  italic: false, align: 2, box: false, boxColor: "000000", boxAlpha: 96, glow: 0 } },
+        { name: "Üst Başlık",    s: { font: "Arial", size: 50, primary: "FFFFFF", outline: "000000", outlineW: 3, shadow: 1, bold: true,  italic: false, align: 8, box: false, boxColor: "000000", boxAlpha: 96, glow: 0 } },
+        { name: "Alt Bant",      s: { font: "Arial", size: 46, primary: "FFFFFF", outline: "000000", outlineW: 0, shadow: 0, bold: false, italic: false, align: 2, box: true,  boxColor: "101014", boxAlpha: 60, glow: 0, marginV: 24 } },
+    ];
+
+    function styleCode(s) { return "SUBSTYLE1." + btoa(unescape(encodeURIComponent(JSON.stringify(s)))); }
+    function parseStyleCode(code) {
+        const m = String(code || "").trim().match(/^SUBSTYLE1\.(.+)$/);
+        if (!m) return null;
+        try {
+            const o = JSON.parse(decodeURIComponent(escape(atob(m[1]))));
+            return (o && typeof o === "object" && o.primary && o.size) ? o : null;
+        } catch (e) { return null; }
+    }
+    window.__styleCode = styleCode; window.__parseStyleCode = parseStyleCode; // unit-test hooks
+
+    function applyGalleryStyle(s) {
+        settings.stylePreset = "custom";
+        settings.customStyle = { ...s };
+        saveSettings();
+        renderStyleChips();
+        updateStylePreview();
+    }
+    function chipPreviewSpan(s, small) {
+        const sh = [];
+        const ow = Math.max(1, Math.min(3, s.outlineW));
+        if (s.outlineW > 0 || s.glow) {
+            const g = s.glow ? 5 : 0;
+            for (const [dx, dy] of [[-ow, 0], [ow, 0], [0, -ow], [0, ow]])
+                sh.push(`${dx}px ${dy}px ${g}px #${s.outline}`);
+        }
+        if (s.shadow) sh.push(`2px 2px 3px rgba(0,0,0,.9)`);
+        const bg = s.box ? `background:#${s.boxColor}${Math.round(255 - s.boxAlpha).toString(16).padStart(2, "0")}; padding:2px 8px; border-radius:3px;` : "";
+        return `<span style="font-family:${s.font},sans-serif; font-size:${small ? 15 : 20}px; line-height:1.3;
+            font-weight:${s.bold ? 700 : 400}; font-style:${s.italic ? "italic" : "normal"};
+            color:#${s.primary}; ${bg} text-shadow:${sh.join(",") || "none"}">Örnek altyazı</span>`;
+    }
+    function openGallery() {
+        if ($id("ui2-gal-ov")) return;
+        const ov = document.createElement("div");
+        ov.id = "ui2-gal-ov";
+        ov.innerHTML = `
+          <div class="ui2-gal-card">
+            <div class="ui2-gal-head">
+              <span>${L("Preset Galerisi", "Preset Gallery")}</span>
+              <button class="btn-secondary" id="ui2-gal-close">${L("Kapat", "Close")}</button>
+            </div>
+            <div class="ui2-gal-grid">
+              ${GALLERY.map((g, i) => `
+                <button class="ui2-gal-chip" data-i="${i}">
+                  <span class="ui2-gal-prev">${chipPreviewSpan(g.s, true)}</span>
+                  <span class="ui2-gal-name">${g.name}</span>
+                </button>`).join("")}
+            </div>
+            <div class="ui2-gal-share">
+              <button class="btn-secondary" id="ui2-gal-copy">${L("Aktif stilin kodunu kopyala", "Copy current style code")}</button>
+              <div style="display:flex; gap:6px; flex:1; min-width:200px">
+                <input type="text" id="ui2-gal-paste" class="settings-textarea" style="height:30px; flex:1; margin:0"
+                       placeholder="${L("Stil kodu yapıştır (SUBSTYLE1.…)", "Paste a style code (SUBSTYLE1.…)")}">
+                <button class="btn-secondary" id="ui2-gal-import">${L("İçe aktar", "Import")}</button>
+              </div>
+            </div>
+          </div>`;
+        document.body.appendChild(ov);
+        ov.addEventListener("click", e => { if (e.target === ov) ov.remove(); });
+        $id("ui2-gal-close").onclick = () => ov.remove();
+        ov.querySelectorAll(".ui2-gal-chip").forEach(b => b.addEventListener("click", () => {
+            applyGalleryStyle(GALLERY[+b.getAttribute("data-i")].s);
+            ov.querySelectorAll(".ui2-gal-chip").forEach(x => x.classList.remove("active"));
+            b.classList.add("active");
+            showToast(L("Stil uygulandı — favorilere de kaydedebilirsin", "Style applied — you can also save it as a favorite"), "success", 3000);
+        }));
+        $id("ui2-gal-copy").onclick = () => copyText(styleCode({ ...DEFAULT_CUSTOM_STYLE, ...(settings.customStyle || {}) }));
+        $id("ui2-gal-import").onclick = () => {
+            const s = parseStyleCode(($id("ui2-gal-paste") || {}).value);
+            if (!s) { showToast(L("Kod çözülemedi", "Couldn't read that code"), "error"); return; }
+            applyGalleryStyle(s);
+            showToast(L("Stil içe aktarıldı ve uygulandı", "Style imported and applied"), "success");
+        };
+    }
+
+    function buildStyleTabs() {
+        const form = $id("custom-style-form");
+        if (!form || $id("stab-bar")) return;
+        const cs = () => ({ ...DEFAULT_CUSTOM_STYLE, glow: 0, italic: false, marginV: null, ...(settings.customStyle || {}) });
+        const bar = document.createElement("div");
+        bar.className = "ui2-seg"; bar.id = "stab-bar"; bar.style.marginBottom = "10px";
+        const tabs = [["text", L("Yazı", "Text")], ["stroke", L("Kontur", "Stroke")], ["box", L("Kutu", "Box")], ["pos", L("Konum", "Position")]];
+        bar.innerHTML = tabs.map(([v, l], i) => `<button data-v="${v}" class="${i === 0 ? "active" : ""}">${l}</button>`).join("");
+        const panes = {};
+        tabs.forEach(([v]) => {
+            const d = document.createElement("div");
+            d.className = "stab-pane"; d.setAttribute("data-pane", v);
+            d.style.display = v === "text" ? "block" : "none";
+            panes[v] = d;
+        });
+        // move existing controls into their tabs (IDs & listeners survive)
+        const grab = sel => { const e = form.querySelector(sel); return e; };
+        const moveWithHeader = (inputSel, pane) => {
+            const inp = grab(inputSel); if (!inp) return;
+            const head = inp.previousElementSibling;
+            if (head && head.classList.contains("setting-slider-header")) pane.appendChild(head);
+            pane.appendChild(inp);
+        };
+        const pf = grab("#cust-primary"); if (pf) panes.text.appendChild(pf.closest(".custom-field"));
+        const of = grab("#cust-outline"); if (of) panes.stroke.appendChild(of.closest(".custom-field"));
+        moveWithHeader("#cust-size", panes.text);
+        moveWithHeader("#cust-ow", panes.stroke);
+        const bold = grab("#cust-bold"); if (bold) panes.text.appendChild(bold.closest("label"));
+        const box = grab("#cust-box"); if (box) panes.box.appendChild(box.closest("label"));
+        const align = grab("#cust-align"); if (align) panes.pos.appendChild(align);
+        // clear leftovers, then assemble
+        form.querySelectorAll(".custom-row").forEach(r => { if (!r.querySelector("input,select")) r.remove(); });
+        form.insertBefore(bar, form.firstChild);
+        tabs.forEach(([v]) => form.appendChild(panes[v]));
+        wireSeg("stab-bar", v => {
+            form.querySelectorAll(".stab-pane").forEach(p =>
+                p.style.display = p.getAttribute("data-pane") === v ? "block" : "none");
+        });
+        // new fields
+        panes.text.insertAdjacentHTML("beforeend", `
+          <div class="setting-slider-header" style="margin-top:10px"><span>${L("Yazı tipi", "Font")}</span></div>
+          <input type="text" id="cust-font" class="settings-textarea" style="height:30px; font-family:var(--font)"
+                 placeholder="Arial">
+          <label class="ui2-check" style="margin-top:8px"><input type="checkbox" id="cust-italic"><span>${L("İtalik", "Italic")}</span></label>`);
+        panes.stroke.insertAdjacentHTML("beforeend", `
+          <div class="setting-slider-header" style="margin-top:10px"><span>${L("Parlama (glow — yaklaşık)", "Glow (approximate)")}</span><span class="setting-value" id="cust-glow-val">0</span></div>
+          <input type="range" class="setting-slider" id="cust-glow" min="0" max="200" step="10" value="0">
+          <div class="setting-slider-header" style="margin-top:10px"><span>${L("Gölge", "Shadow")}</span><span class="setting-value" id="cust-shadow-val">1</span></div>
+          <input type="range" class="setting-slider" id="cust-shadow" min="0" max="4" step="1" value="1">`);
+        panes.box.insertAdjacentHTML("beforeend", `
+          <div class="custom-row" style="margin-top:10px">
+            <div class="custom-field">
+              <label class="custom-label">${L("Kutu rengi", "Box color")}</label>
+              <input type="color" id="cust-boxcolor" value="#000000">
+            </div>
+          </div>
+          <div class="setting-slider-header" style="margin-top:10px"><span>${L("Kutu şeffaflığı", "Box transparency")}</span><span class="setting-value" id="cust-boxalpha-val">96</span></div>
+          <input type="range" class="setting-slider" id="cust-boxalpha" min="0" max="220" step="4" value="96">
+          <div class="setting-hint">${L("0 = tam opak. Not: .ass köşe yuvarlama desteklemez.", "0 = fully opaque. Note: .ass has no corner radius.")}</div>`);
+        panes.pos.insertAdjacentHTML("beforeend", `
+          <div class="setting-slider-header" style="margin-top:10px"><span>${L("Dikey konum (kenardan)", "Vertical offset (from edge)")}</span><span class="setting-value" id="cust-mv-val">50</span></div>
+          <input type="range" class="setting-slider" id="cust-mv" min="0" max="320" step="5" value="50">`);
+        const wire = (id, key, valId, fmt) => {
+            const e = $id(id); if (!e) return;
+            e.addEventListener(e.type === "checkbox" || e.type === "color" || e.type === "text" ? "change" : "input", () => {
+                const v = e.type === "checkbox" ? e.checked
+                        : e.type === "color" ? e.value.slice(1).toUpperCase()
+                        : e.type === "text" ? (e.value.trim() || "Arial")
+                        : +e.value;
+                updateCustomStyle(key, v);
+                if (valId) { const ve = $id(valId); if (ve) ve.textContent = fmt ? fmt(v) : v; }
+            });
+        };
+        wire("cust-font", "font");
+        wire("cust-italic", "italic");
+        wire("cust-glow", "glow", "cust-glow-val");
+        wire("cust-shadow", "shadow", "cust-shadow-val");
+        wire("cust-boxcolor", "boxColor");
+        wire("cust-boxalpha", "boxAlpha", "cust-boxalpha-val");
+        wire("cust-mv", "marginV", "cust-mv-val");
+        // keep new fields in sync when the form is (re)populated
+        const _pop = window.populateCustomForm;
+        window.populateCustomForm = function () {
+            _pop();
+            const s = cs();
+            const set = (id, v) => { const e = $id(id); if (e) e.value = v; };
+            set("cust-font", s.font); set("cust-glow", s.glow || 0);
+            set("cust-shadow", s.shadow); set("cust-boxcolor", "#" + s.boxColor);
+            set("cust-boxalpha", s.boxAlpha); set("cust-mv", s.marginV != null ? s.marginV : 50);
+            const chk = $id("cust-italic"); if (chk) chk.checked = !!s.italic;
+            ["glow", "shadow", "boxalpha"].forEach(k => {
+                const ve = $id("cust-" + k + "-val"); if (ve) ve.textContent = s[k === "boxalpha" ? "boxAlpha" : k] || 0;
+            });
+            const mv = $id("cust-mv-val"); if (mv) mv.textContent = s.marginV != null ? s.marginV : 50;
+        };
+        // italic reflected in the live preview
+        const _upd = window.updateStylePreview;
+        window.updateStylePreview = function () {
+            _upd();
+            const t = $id("style-preview-text");
+            if (t) t.style.fontStyle = getActivePreset().italic ? "italic" : "normal";
+        };
+    }
+
+    function injectGalleryButton() {
+        const chips = $id("style-chips");
+        if (!chips || $id("ui2-gal-btn")) return;
+        const b = document.createElement("button");
+        b.id = "ui2-gal-btn";
+        b.className = "btn-load-srt";
+        b.style.cssText = "width:100%; margin-top:8px";
+        b.textContent = L("Preset Galerisi — 16 hazır stil + kod paylaşımı", "Preset Gallery — 16 styles + share codes");
+        b.onclick = openGallery;
+        chips.parentNode.insertBefore(b, chips.nextSibling);
+    }
+
+    const EXTRA_LANGS = [
+        ["az", "Azərbaycanca"], ["uk", "Українська"], ["cs", "Čeština"], ["sv", "Svenska"],
+        ["da", "Dansk"], ["no", "Norsk"], ["fi", "Suomi"], ["el", "Ελληνικά"], ["he", "עברית"],
+        ["hi", "हिन्दी"], ["id", "Bahasa Indonesia"], ["ms", "Bahasa Melayu"], ["vi", "Tiếng Việt"],
+        ["th", "ไทย"], ["ro", "Română"], ["hu", "Magyar"], ["bg", "Български"], ["sr", "Srpski"],
+        ["hr", "Hrvatski"], ["sk", "Slovenčina"], ["sl", "Slovenščina"], ["lt", "Lietuvių"],
+        ["lv", "Latviešu"], ["et", "Eesti"], ["ka", "ქართული"], ["hy", "Հայերեն"], ["fa", "فارسی"],
+        ["ur", "اردو"], ["bn", "বাংলা"], ["ta", "தமிழ்"], ["te", "తెలుగు"], ["ml", "മലയാളം"],
+        ["kn", "ಕನ್ನಡ"], ["mr", "मराठी"], ["pa", "ਪੰਜਾਬੀ"], ["gu", "ગુજરાતી"], ["sw", "Kiswahili"],
+        ["af", "Afrikaans"], ["ca", "Català"], ["eu", "Euskara"], ["gl", "Galego"], ["is", "Íslenska"],
+        ["mk", "Македонски"], ["sq", "Shqip"], ["bs", "Bosanski"], ["kk", "Қазақша"], ["uz", "Oʻzbekcha"],
+        ["mn", "Монгол"], ["ne", "नेपाली"], ["si", "සිංහල"], ["km", "ខ្មែរ"], ["my", "မြန်မာ"],
+    ];
+    function extendLangList() {
+        const sel = $id("lang-select"); if (!sel) return;
+        const have = new Set([...sel.options].map(o => o.value));
+        EXTRA_LANGS.forEach(([code, name]) => {
+            if (have.has(code)) return;
+            const o = document.createElement("option");
+            o.value = code; o.textContent = name;
+            sel.appendChild(o);
+        });
+        if (settings.spokenLang) sel.value = settings.spokenLang;
+    }
+
+    function stylePro() {
+        if (typeof window.buildASSStyle === "function" && typeof assColor === "function")
+            window.buildASSStyle = (p, k) => styleLineV2(p, k, assColor, settings.karaokeHi);
+        buildStyleTabs();
+        injectGalleryButton();
+        extendLangList();
+    }
+
     // ── Card injection into panel-ed-work (ui-v2 isolates them per page) ──
     function card(html) {
         const d = document.createElement("div");
@@ -618,6 +882,7 @@ ${_plainTranscript()}`);
 
         injectSilencePro();
         injectZoomPro();
+        stylePro();
 
         const rep = card(`
           <div class="setting-row"><div class="setting-info">

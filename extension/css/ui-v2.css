@@ -207,6 +207,47 @@ body.ui2-zoompro #panel-ed-work .tool-card > .panel-intro { display: none; }
 #zp-anchor button.active { border-color: var(--accent); background: var(--accent-bg); }
 #zp-anchor button.active::after { background: var(--accent); }
 
+/* ── Preset gallery modal ───────────────────────────────────────────── */
+#ui2-gal-ov {
+  position: fixed; inset: 0; z-index: 9000;
+  background: rgba(0,0,0,0.55);
+  display: flex; align-items: center; justify-content: center; padding: 18px;
+}
+.ui2-gal-card {
+  width: 100%; max-width: 560px; max-height: 86vh;
+  display: flex; flex-direction: column;
+  background: var(--bg2); border: 1px solid var(--border2);
+  border-radius: 16px; box-shadow: var(--shadow); overflow: hidden;
+}
+.ui2-gal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+  font-size: 13px; font-weight: 700; color: var(--text);
+}
+.ui2-gal-grid {
+  flex: 1; overflow-y: auto; padding: 12px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  scrollbar-width: thin;
+}
+.ui2-gal-chip {
+  display: flex; flex-direction: column; gap: 7px; padding: 0 0 9px;
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 11px; cursor: pointer; overflow: hidden;
+  font-family: var(--font); transition: border-color .15s, transform .12s;
+}
+.ui2-gal-chip:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.ui2-gal-chip.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg); }
+.ui2-gal-prev {
+  display: flex; align-items: center; justify-content: center;
+  height: 52px; background: #0c0c0e; width: 100%;
+  overflow: hidden; white-space: nowrap;
+}
+.ui2-gal-name { font-size: 11px; font-weight: 600; color: var(--text2); text-align: center; }
+.ui2-gal-share {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 12px; border-top: 1px solid var(--border);
+}
+
 /* ── Collapsed per-tool settings box (<details class="ui2-adv">) ──── */
 details.ui2-adv {
   margin-top: 4px; margin-bottom: 16px;

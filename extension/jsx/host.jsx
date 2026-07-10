@@ -1362,13 +1362,13 @@ function wsListAllTracks() {
     }
 }
 
-// ── Sync-safe range cutter for TARGETED tracks ─────────────────────────────
-// QE's remove(ripple) only ripples ITS OWN track, so cutting a subset of
-// tracks desyncs any selected track that has no clip at that range. This
-// version keeps every SELECTED track in sync: content clips are ripple-
-// removed, and where a selected track only has a GAP at the range, the gap
-// item itself is ripple-removed so that track shifts by the same amount.
-// Unselected tracks are never touched. payload = { ranges, v:[idx], a:[idx] }
+// ── Sync-safe range cutter for TARGETED tracks ────────────────────────────
+// Premiere blocks a ripple when any UNLOCKED track has content spanning the
+// gap — that is why cutting a subset of tracks left holes. So: temporarily
+// LOCK every unselected track (locked tracks neither block the ripple nor
+// shift), razor the selected tracks, delete the middles without ripple, then
+// close each hole with a single gap ripple. Locks are restored afterwards.
+// payload = { ranges, v:[idx], a:[idx] }
 function wsCutRangesSync(payloadJson) {
     var diag = [];
     try { app.enableQE(); } catch (eQE) {
@@ -1391,56 +1391,98 @@ function wsCutRangesSync(payloadJson) {
             try { seq.setPlayerPosition(ticks.toString()); } catch (e) {}
             try { return qeSeq.CTI.timecode; } catch (e2) { return null; }
         }
-        function tracksOf() {
-            var out = [];
-            var i;
-            for (i = 0; i < vSel.length; i++) { try { out.push(qeSeq.getVideoTrackAt(vSel[i])); } catch (eV) {} }
-            for (i = 0; i < aSel.length; i++) { try { out.push(qeSeq.getAudioTrackAt(aSel[i])); } catch (eA) {} }
+        function inList(list, idx) {
+            for (var q = 0; q < list.length; q++) if (list[q] === idx) return true;
+            return false;
+        }
+        function qeTrack(kind, idx) {
+            try { return kind === "v" ? qeSeq.getVideoTrackAt(idx) : qeSeq.getAudioTrackAt(idx); } catch (e) { return null; }
+        }
+        function setLock(kind, idx, state) {
+            var qt = qeTrack(kind, idx);
+            try { if (qt && qt.setLock) { qt.setLock(state); return true; } } catch (e) {}
+            return false;
+        }
+
+        // lock every track that is NOT selected; remember what we locked
+        var vN = 0, aN = 0;
+        try { vN = qeSeq.numVideoTracks; } catch (e) {}
+        try { aN = qeSeq.numAudioTracks; } catch (e) {}
+        var locked = [], lockFail = 0, k;
+        for (k = 0; k < vN; k++) if (!inList(vSel, k)) { if (setLock("v", k, true)) locked.push(["v", k]); else lockFail++; }
+        for (k = 0; k < aN; k++) if (!inList(aSel, k)) { if (setLock("a", k, true)) locked.push(["a", k]); else lockFail++; }
+        function unlockAll() {
+            for (var u = 0; u < locked.length; u++) setLock(locked[u][0], locked[u][1], false);
+        }
+        if (lockFail > 0) {
+            unlockAll();
+            return JSON.stringify({ success: false, error: "This Premiere version can't lock tracks from a script — use all-tracks cutting instead.", diag: diag });
+        }
+
+        function selTracks() {
+            var out = [], i;
+            for (i = 0; i < vSel.length; i++) { var t1 = qeTrack("v", vSel[i]); if (t1) out.push(t1); }
+            for (i = 0; i < aSel.length; i++) { var t2 = qeTrack("a", aSel[i]); if (t2) out.push(t2); }
             return out;
         }
-        function cutOne(s, e) {
-            var tcE = tcAt(e), tcS = tcAt(s);
-            if (!tcS || !tcE) return 0;
-            var trks = tracksOf(), t, n = 0;
+        function itemAtMid(track, mid) {
+            var cnt = 0;
+            try { cnt = track.numItems; } catch (e) { return null; }
+            for (var i = 0; i < cnt; i++) {
+                var it = null;
+                try { it = track.getItemAt(i); } catch (e2) { continue; }
+                if (!it) continue;
+                var st = null, en = null;
+                try { st = _wsQeSecs(it.start, fps); en = _wsQeSecs(it.end, fps); } catch (e3) { continue; }
+                if (st == null || en == null) continue;
+                if (mid > st + 0.002 && mid < en - 0.002) return it;
+            }
+            return null;
+        }
+
+        var removed = 0, holes = 0;
+        for (var r = 0; r < ranges.length; r++) {
+            var s0 = parseFloat(ranges[r].start), e0 = parseFloat(ranges[r].end);
+            if (isNaN(s0) || isNaN(e0) || e0 <= s0) continue;
+            var tcE = tcAt(e0), tcS = tcAt(s0);
+            if (!tcS || !tcE) continue;
+            var trks = selTracks(), t;
             for (t = 0; t < trks.length; t++) {
-                if (!trks[t]) continue;
                 try { trks[t].razor(tcE); } catch (e1) {}
                 try { trks[t].razor(tcS); } catch (e2) {}
             }
-            var mid = (s + e) / 2;
+            var mid = (s0 + e0) / 2;
+            // delete the middle chunks WITHOUT ripple (positions stay stable)
             for (t = 0; t < trks.length; t++) {
-                var track = trks[t];
-                if (!track) continue;
-                var cnt = 0;
-                try { cnt = track.numItems; } catch (eC) { continue; }
-                for (var i = 0; i < cnt; i++) {
-                    var it = null;
-                    try { it = track.getItemAt(i); } catch (eI) { continue; }
-                    if (!it) continue;
-                    var st = null, en = null;
-                    try { st = _wsQeSecs(it.start, fps); en = _wsQeSecs(it.end, fps); } catch (eT) { continue; }
-                    if (st == null || en == null) continue;
-                    if (!(mid > st + 0.002 && mid < en - 0.002)) continue;
-                    var nm = "";
-                    try { nm = it.name; } catch (eN) {}
-                    // content clip OR gap item: ripple-remove either way, so this
-                    // track shifts by exactly (e - s) like its siblings
-                    try { it.remove(true, true); n++; }
-                    catch (eR) { if (diag.length < 4) diag.push((nm ? "clip" : "gap") + " remove: " + eR.toString()); }
-                    break;
+                var it = itemAtMid(trks[t], mid);
+                var nm = ""; try { nm = it && it.name; } catch (eN) {}
+                if (it && nm) {
+                    try { it.remove(false, false); removed++; }
+                    catch (eR) { if (diag.length < 4) diag.push("remove: " + eR.toString()); }
                 }
             }
-            return n;
+            // close the hole once: ripple-delete the gap (unselected tracks are
+            // locked, so nothing blocks it and nothing else moves)
+            var closedHole = false;
+            for (t = 0; t < trks.length && !closedHole; t++) {
+                var gap = itemAtMid(trks[t], mid);
+                var gnm = "x"; try { gnm = gap && gap.name; } catch (eG) {}
+                if (gap && (gnm === "" || gnm == null)) {
+                    try { gap.remove(true, true); closedHole = true; }
+                    catch (eH) { if (diag.length < 4) diag.push("gap ripple: " + eH.toString()); }
+                }
+            }
+            if (!closedHole) holes++;
         }
-
-        var removed = 0;
-        for (var r = 0; r < ranges.length; r++) {
-            var s = parseFloat(ranges[r].start), e = parseFloat(ranges[r].end);
-            if (isNaN(s) || isNaN(e) || e <= s) continue;
-            removed += cutOne(s, e);
-        }
-        return JSON.stringify({ success: true, removed: removed, diag: diag });
+        unlockAll();
+        return JSON.stringify({ success: true, removed: removed, holes: holes, diag: diag });
     } catch (e) {
+        try {
+            // best-effort unlock if something blew up mid-way
+            var vN2 = qeSeq.numVideoTracks, aN2 = qeSeq.numAudioTracks, z;
+            for (z = 0; z < vN2; z++) { try { qeSeq.getVideoTrackAt(z).setLock(false); } catch (u1) {} }
+            for (z = 0; z < aN2; z++) { try { qeSeq.getAudioTrackAt(z).setLock(false); } catch (u2) {} }
+        } catch (eU) {}
         return JSON.stringify({ success: false, error: e.toString(), diag: diag });
     }
 }

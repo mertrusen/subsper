@@ -525,8 +525,12 @@ ${_plainTranscript()}`);
                 try {
                     await evalScript("clearSilenceMarkers()");
                     const r = await hostCut(chosen, sel);
-                    if (r && r.success && r.removed > 0)
-                        setSilenceStatus(L(`✓ ${r.removed} parça kesildi — Cmd/Ctrl+Z geri alır`, `✓ Cut ${r.removed} item(s) — undo with Cmd/Ctrl+Z`), "success");
+                    if (r && r.success && r.removed > 0) {
+                        const holes = r.holes
+                            ? L(` · ${r.holes} boşluk kapanamadı (timeline'a bak)`, ` · ${r.holes} gap(s) could not close (check the timeline)`)
+                            : "";
+                        setSilenceStatus(L(`✓ ${r.removed} parça kesildi — Cmd/Ctrl+Z geri alır`, `✓ Cut ${r.removed} item(s) — undo with Cmd/Ctrl+Z`) + holes, r.holes ? "warning" : "success");
+                    }
                     else {
                         await evalScript(`addSilenceMarkers('${JSON.stringify(chosen).replace(/'/g, "\\'")}')`);
                         setSilenceStatus(L("Kesilemedi — marker olarak işaretlendi", "Couldn't cut — marked instead"), "warning");

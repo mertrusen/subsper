@@ -133,6 +133,45 @@ body.ui2-home #home-screen { display: flex; }
   transition: border-color .9s ease .3s, box-shadow .9s ease .3s;
 }
 
+/* ── Tool-page building blocks (Silence Pro & friends) ─────────────── */
+.ui2-row-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text3); margin: 14px 0 6px;
+}
+.ui2-seg {
+  display: flex; gap: 2px; padding: 3px;
+  background: var(--bg3); border-radius: 9px;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.2);
+}
+.ui2-seg button {
+  flex: 1; padding: 7px 4px; border: none; border-radius: 7px;
+  background: transparent; color: var(--text2);
+  font-size: 11.5px; font-weight: 500; cursor: pointer; font-family: var(--font);
+  transition: background .15s, color .15s;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ui2-seg button:hover { color: var(--text); }
+.ui2-seg button.active {
+  color: var(--text); background: var(--seg-active); font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.12);
+}
+
+/* schematic cut preview: red blocks over a neutral strip */
+#sil-strip {
+  position: relative; height: 22px; border-radius: 6px; overflow: hidden;
+  background: repeating-linear-gradient(90deg, var(--bg3) 0 6px, var(--bg-hover) 6px 12px);
+  border: 1px solid var(--border);
+}
+#sil-strip i {
+  position: absolute; top: 0; bottom: 0;
+  background: rgba(255,69,58,0.75); border-radius: 2px;
+}
+
+/* legacy silence buttons replaced by the Pro block */
+body.ui2-silpro #silence-btn,
+body.ui2-silpro #silence-cut-btn,
+body.ui2-silpro #silence-btn ~ .setting-hint { display: none; }
+
 /* ── Collapsed per-tool settings box (<details class="ui2-adv">) ──── */
 details.ui2-adv {
   margin-top: 4px; margin-bottom: 16px;

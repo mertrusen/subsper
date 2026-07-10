@@ -1098,3 +1098,18 @@ function createResizedSequence(optJson) {
         return JSON.stringify({ success: false, error: e.toString(), diag: diag });
     }
 }
+
+// ── Select the whole sequence as the working range (In=0, Out=content end) ─
+function wsSelectWholeRange() {
+    try {
+        var seq = app.project.activeSequence;
+        if (!seq) return JSON.stringify({ success: false, error: "No active sequence." });
+        var end = seqContentEnd(seq);
+        if (!end || end <= 0) return JSON.stringify({ success: false, error: "Timeline is empty." });
+        seq.setInPoint(0);
+        seq.setOutPoint(end);
+        return JSON.stringify({ success: true, end: end });
+    } catch (e) {
+        return JSON.stringify({ success: false, error: e.toString() });
+    }
+}

@@ -288,6 +288,193 @@ ${_plainTranscript()}`);
         } finally { if (btn) btn.disabled = false; }
     }
 
+    // ── Silence Pro ────────────────────────────────────────────────────────
+    // Target selector (In/Out vs whole timeline), one-tap rhythm presets,
+    // one-click analysis (auto threshold + schematic cut preview) and a
+    // Cut / Mark / Mute action picker. Reuses main.js's pipeline:
+    // extractTimelineWav / detectSilencesOnWav / findSilenceRanges /
+    // cutSilences / detectSilences, plus host duckAudioRanges for Mute.
+    const RHYTHM = {
+        calm:      { dur: 1.2,  pad: 0.25 },
+        measured:  { dur: 0.8,  pad: 0.15 },
+        paced:     { dur: 0.5,  pad: 0.08 },
+        energetic: { dur: 0.35, pad: 0.04 },
+    };
+    let _silWav = null, _silInfo = null;   // cached analysis audio
+
+    function silTarget() {
+        const seg = $id("sil-target");
+        const b = seg && seg.querySelector("button.active");
+        return b ? b.getAttribute("data-v") : "inout";
+    }
+    async function applyTarget() {
+        if (silTarget() !== "all") return;
+        await loadHostJSX();
+        const r = await evalScript("wsSelectWholeRange()");
+        if (!(r && r.success)) throw new Error((r && r.error) || L("Timeline okunamadı", "Could not read the timeline"));
+    }
+    function applyRhythm(key) {
+        const p = RHYTHM[key]; if (!p) return;
+        onSettingChange("silenceMinDur", p.dur);
+        onSettingChange("silencePad", p.pad);
+        const set = (id, v) => { const e = $id(id); if (e) e.value = v; };
+        const txt = (id, v) => { const e = $id(id); if (e) e.textContent = v; };
+        set("set-sildur", p.dur);  txt("sildur-val", p.dur.toFixed(1) + "s");
+        set("set-silpad", p.pad);  txt("silpad-val", p.pad.toFixed(2) + "s");
+        const wrap = $id("sil-rhythm");
+        if (wrap) wrap.querySelectorAll("button").forEach(b =>
+            b.classList.toggle("active", b.getAttribute("data-v") === key));
+        if (_silWav) redrawStrip();   // instant re-preview on the cached audio
+    }
+    function drawStrip(ranges, info) {
+        const wrap = $id("sil-strip-wrap"), strip = $id("sil-strip"), lab = $id("sil-strip-info");
+        if (!wrap || !strip) return;
+        wrap.style.display = "block";
+        strip.innerHTML = "";
+        const dur = Math.max(0.001, info.duration);
+        let total = 0;
+        ranges.forEach(r => {
+            total += r.dur;
+            const d = document.createElement("i");
+            d.style.left = ((r.start / dur) * 100) + "%";
+            d.style.width = (Math.max(0.4, (r.dur / dur) * 100)) + "%";
+            strip.appendChild(d);
+        });
+        if (lab) lab.textContent = ranges.length
+            ? L(`${ranges.length} boşluk · ${total.toFixed(1)}s (%${Math.round(total / dur * 100)}) kesilecek`,
+                `${ranges.length} gap(s) · ${total.toFixed(1)}s (${Math.round(total / dur * 100)}%) to cut`)
+            : L("Bu ayarlarla boşluk bulunamadı", "No gaps at these settings");
+    }
+    async function redrawStrip() {
+        if (!_silWav || !_silInfo) return;
+        try {
+            const sil = await detectSilencesOnWav(_silWav);
+            drawStrip(sil.map(s => ({ start: s.start, end: s.end, dur: s.dur })), _silInfo);
+        } catch (e) {}
+    }
+    async function silAnalyze() {
+        const btn = $id("sil-analyze"); if (btn) { btn.disabled = true; }
+        setSilenceStatus(L("Ses analiz ediliyor…", "Analyzing audio…"), "info");
+        showSilenceProgress(true);
+        try {
+            await applyTarget();
+            await loadHostJSX();
+            const seqInfo = await evalScript("getSequenceInfo()");
+            if (!seqInfo.success) throw new Error(seqInfo.error || "Error reading timeline");
+            if (!seqInfo.clips || !seqInfo.clips.length) throw new Error(L("Timeline'da ses klibi yok", "No audio clips on the timeline"));
+            try { if (_silWav && fs.existsSync(_silWav)) fs.unlinkSync(_silWav); } catch (e) {}
+            _silWav = await extractTimelineWav(seqInfo);
+            _silInfo = seqInfo;
+            // auto threshold: try levels, pick the one whose silence share
+            // lands in a sensible band (8-40%) — no guessing dB by hand
+            const saved = settings.silenceThreshold;
+            let best = saved, bestScore = -1, bestSil = null;
+            for (const th of [-45, -40, -35, -30, -25]) {
+                settings.silenceThreshold = th;
+                let sil = [];
+                try { sil = await detectSilencesOnWav(_silWav); } catch (e) { continue; }
+                const frac = sil.reduce((a, s) => a + s.dur, 0) / Math.max(0.001, seqInfo.duration);
+                const score = (frac >= 0.08 && frac <= 0.40) ? 1 - Math.abs(frac - 0.20) : -Math.abs(frac - 0.20);
+                if (score > bestScore) { bestScore = score; best = th; bestSil = sil; }
+            }
+            settings.silenceThreshold = saved;
+            onSettingChange("silenceThreshold", best);
+            const set = (id, v) => { const e = $id(id); if (e) e.value = v; };
+            const txt = (id, v) => { const e = $id(id); if (e) e.textContent = v; };
+            set("set-silthr", best); txt("silthr-val", best + " dB");
+            drawStrip((bestSil || []).map(s => ({ start: s.start, end: s.end, dur: s.dur })), seqInfo);
+            setSilenceStatus(L(`✓ Eşik ${best} dB olarak ayarlandı — önizleme hazır`, `✓ Threshold set to ${best} dB — preview ready`), "success");
+        } catch (e) {
+            setSilenceStatus(e.message, "error");
+            showToast(e.message, "error", 5000);
+        } finally {
+            showSilenceProgress(false);
+            if (btn) btn.disabled = false;
+        }
+    }
+    async function muteSilencesPro() {
+        setSilenceStatus(L("Susturulacak boşluklar aranıyor…", "Finding gaps to mute…"), "info");
+        showSilenceProgress(true);
+        try {
+            const { ranges } = await findSilenceRanges();
+            const pad = Math.max(0, parseFloat(settings.silencePad) || 0);
+            const padded = ranges
+                .map(r => ({ start: r.start + pad, end: r.end - pad, dur: +(r.end - r.start - 2 * pad).toFixed(2) }))
+                .filter(r => r.dur > 0.05);
+            if (!padded.length) {
+                setSilenceStatus(L("Susturulacak boşluk yok", "Nothing to mute"), "warning");
+                return;
+            }
+            showRangePreview(L("Sessizlikleri sustur (silmeden)", "Mute silences (keep timing)"), padded, async chosen => {
+                await loadHostJSX();
+                const payload = JSON.stringify({ ranges: chosen, level: 0 }).replace(/'/g, "\\'");
+                const r = await evalScript(`duckAudioRanges('${payload}')`);
+                if (r && r.success)
+                    setSilenceStatus(L(`✓ ${chosen.length} boşluk susturuldu (keyframe) — Cmd/Ctrl+Z geri alır`, `✓ Muted ${chosen.length} gap(s) with keyframes — undo with Cmd/Ctrl+Z`), "success");
+                else setSilenceStatus((r && r.error) || L("Susturulamadı", "Mute failed"), "error");
+            });
+        } catch (e) {
+            setSilenceStatus(e.message, "error");
+        } finally { showSilenceProgress(false); }
+    }
+    async function silRun() {
+        const seg = $id("sil-action");
+        const mode = (seg && seg.querySelector("button.active") || {}).getAttribute
+            ? seg.querySelector("button.active").getAttribute("data-v") : "cut";
+        try { await applyTarget(); } catch (e) { showToast(e.message, "error", 4000); return; }
+        if (mode === "mark") return detectSilences();
+        if (mode === "mute") return muteSilencesPro();
+        return cutSilences();
+    }
+    function segControl(id, items, activeIdx) {
+        return `<div class="ui2-seg" id="${id}">` + items.map((it, i) =>
+            `<button data-v="${it[0]}" class="${i === (activeIdx || 0) ? "active" : ""}">${it[1]}</button>`).join("") + `</div>`;
+    }
+    function wireSeg(id, onPick) {
+        const seg = $id(id); if (!seg) return;
+        seg.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+            seg.querySelectorAll("button").forEach(x => x.classList.remove("active"));
+            b.classList.add("active");
+            if (onPick) onPick(b.getAttribute("data-v"));
+        }));
+    }
+
+    function injectSilencePro() {
+        const oldBtn = $id("silence-btn");
+        const item = oldBtn && oldBtn.closest(".setting-item");
+        if (!item || $id("sil-run")) return;
+        const box = document.createElement("div");
+        box.innerHTML = `
+          <div class="ui2-row-label">${L("Hedef", "Target")}</div>
+          ${segControl("sil-target", [["inout", "In/Out"], ["all", L("Tüm Timeline", "Whole timeline")]])}
+          <div class="ui2-row-label">${L("Ritim — kesim ne kadar sıkı olsun", "Rhythm — how tight the cut feels")}</div>
+          ${segControl("sil-rhythm", [
+            ["calm", L("Sakin", "Calm")], ["measured", L("Ölçülü", "Measured")],
+            ["paced", L("Tempolu", "Paced")], ["energetic", L("Enerjik", "Energetic")]], 1)}
+          <button class="btn-load-srt" id="sil-analyze" style="width:100%; margin-top:10px">${L("Analiz Et — eşiği otomatik ayarla", "Analyze — set the threshold automatically")}</button>
+          <div id="sil-strip-wrap" style="display:none; margin-top:8px">
+            <div id="sil-strip"></div>
+            <div id="sil-strip-info" class="setting-hint" style="margin-top:4px"></div>
+          </div>
+          <div class="ui2-row-label">${L("İşlem", "Action")}</div>
+          ${segControl("sil-action", [
+            ["cut", L("Kes", "Cut")], ["mark", L("İşaretle", "Mark")], ["mute", L("Sustur", "Mute")]])}
+          <button class="btn-transcribe btn-compact" id="sil-run" style="margin-top:10px">${L("Sessizlikleri Temizle", "Clean Up Silences")}</button>
+          <div class="setting-hint" style="margin-top:8px">${L("Kes: ripple-delete (onaylı liste) · İşaretle: sadece marker · Sustur: silmeden sesi kapatır. Geçiş efektleri (J/L-cut) yakında.", "Cut: ripple-delete with review · Mark: markers only · Mute: silences audio without deleting. Transitions (J/L-cut) coming soon.")}</div>`;
+        item.appendChild(box);
+        wireSeg("sil-target");
+        wireSeg("sil-rhythm", applyRhythm);
+        wireSeg("sil-action", v => {
+            const run = $id("sil-run");
+            if (run) run.textContent = v === "mark" ? L("Sessizlikleri İşaretle", "Mark Silences")
+                : v === "mute" ? L("Sessizlikleri Sustur", "Mute Silences")
+                : L("Sessizlikleri Temizle", "Clean Up Silences");
+        });
+        $id("sil-analyze").onclick = silAnalyze;
+        $id("sil-run").onclick = silRun;
+        document.body.classList.add("ui2-silpro");   // hides the two legacy buttons
+    }
+
     // ── Card injection into panel-ed-work (ui-v2 isolates them per page) ──
     function card(html) {
         const d = document.createElement("div");
@@ -300,6 +487,8 @@ ${_plainTranscript()}`);
     function injectAll() {
         const sc = document.querySelector("#panel-ed-work .setup-scroll");
         if (!sc || $id("repeat-btn")) return;
+
+        injectSilencePro();
 
         const rep = card(`
           <div class="setting-row"><div class="setting-info">

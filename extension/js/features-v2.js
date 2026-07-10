@@ -285,9 +285,13 @@ ${_plainTranscript()}`);
         try {
             await loadHostJSX();
             const r = await evalScript(`createResizedSequence('${JSON.stringify({ w, h, label, anchor }).replace(/'/g, "\\'")}')`);
-            if (r && r.success)
-                showToast(L(`✓ "${r.name}" oluşturuldu — ${r.count} klip ölçeklendi`, `✓ Created "${r.name}" — scaled ${r.count} clip(s)`), "success", 6000);
-            else showToast((r && r.error) || L("Dönüştürülemedi", "Resize failed"), "error", 6000);
+            if (r && r.success) {
+                const skip = r.skipped
+                    ? L(` · ${r.skipped} klip atlandı (Scale'inde keyframe var — elle ölçekle)`,
+                        ` · ${r.skipped} clip(s) skipped (keyframed Scale — resize those by hand)`)
+                    : "";
+                showToast(L(`✓ "${r.name}" oluşturuldu — ${r.count} klip ölçeklendi`, `✓ Created "${r.name}" — scaled ${r.count} clip(s)`) + skip, "success", 7000);
+            } else showToast((r && r.error) || L("Dönüştürülemedi", "Resize failed"), "error", 6000);
         } finally { if (btn) btn.disabled = false; }
     }
 

@@ -1079,10 +1079,8 @@ function createResizedSequence(optJson) {
         } catch (eS) {
             return JSON.stringify({ success: false, error: "Could not change frame size: " + eS.toString() });
         }
-        try { app.project.activeSequence = dup; } catch (eA) { diag.push("activate: " + eA.toString()); }
-
         var factor = Math.max(w / oldW, h / oldH);
-        var count = 0;
+        var count = 0, skipped = 0;
         for (var v = 0; v < dup.videoTracks.numTracks; v++) {
             var trk = dup.videoTracks[v];
             for (var c = 0; c < trk.clips.numItems; c++) {
@@ -1100,6 +1098,11 @@ function createResizedSequence(optJson) {
                     if (pn === "Scale" || pn === "Ölçek") { scale = motion.properties[p]; break; }
                 }
                 if (!scale) continue;
+                // setValue on a keyframed (time-varying) property hard-crashes
+                // Premiere — skip those clips and report them instead
+                var tv = false;
+                try { tv = scale.isTimeVarying(); } catch (eTv) {}
+                if (tv) { skipped++; continue; }
                 try {
                     var cur = 100;
                     try { cur = parseFloat(scale.getValue()); if (isNaN(cur)) cur = 100; } catch (eG) {}
@@ -1109,7 +1112,9 @@ function createResizedSequence(optJson) {
                     // corner/edge of the (now overflowing) picture stays in frame
                     if (opt.anchor != null && opt.anchor !== 4) {
                         var posP = _wsFindMotionProp(clip, ["Position", "Konum"]);
-                        if (posP) {
+                        var ptv = false;
+                        try { ptv = posP && posP.isTimeVarying(); } catch (ePtv) {}
+                        if (posP && !ptv) {
                             var ax = (opt.anchor % 3) * 0.5, ay = Math.floor(opt.anchor / 3) * 0.5;
                             var ox = Math.max(0, (oldW * factor) / w - 1);
                             var oy = Math.max(0, (oldH * factor) / h - 1);
@@ -1119,7 +1124,8 @@ function createResizedSequence(optJson) {
                 } catch (eV) { if (count === 0) diag.push("scale set: " + eV.toString()); }
             }
         }
-        return JSON.stringify({ success: true, count: count, name: dup.name, diag: diag });
+        try { app.project.activeSequence = dup; } catch (eA) { diag.push("activate: " + eA.toString()); }
+        return JSON.stringify({ success: true, count: count, skipped: skipped, name: dup.name, diag: diag });
     } catch (e) {
         return JSON.stringify({ success: false, error: e.toString(), diag: diag });
     }

@@ -91,7 +91,38 @@ def format_segments(raw_segments):
 
 # ── Engines ──────────────────────────────────────────────────────────────────
 
+def _patch_torch_load_for_whisperx():
+    """PyTorch 2.6 flipped torch.load(weights_only) to True by default, which
+    breaks WhisperX / pyannote VAD checkpoints (they embed omegaconf configs):
+      'Weights only load failed ... Unsupported global: omegaconf...ListConfig'.
+    These are official, trusted model files, so force weights_only=False and
+    allowlist the offending globals. Idempotent + best-effort."""
+    try:
+        import torch
+        if not getattr(torch, "_subsper_load_patched", False):
+            _orig_load = torch.load
+            def _safe_load(*a, **k):
+                k["weights_only"] = False
+                return _orig_load(*a, **k)
+            torch.load = _safe_load
+            torch._subsper_load_patched = True
+        try:
+            import torch.serialization as _ts
+            import omegaconf
+            _ts.add_safe_globals([
+                omegaconf.listconfig.ListConfig,
+                omegaconf.dictconfig.DictConfig,
+                omegaconf.base.ContainerMetadata,
+                omegaconf.nodes.AnyNode,
+            ])
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 def transcribe_whisperx(audio_path, model_key, language, do_diarize=False):
+    _patch_torch_load_for_whisperx()
     import whisperx
     device = "cpu"            # MPS support in whisperx is unreliable; CPU int8 is safe
     compute_type = "int8"
@@ -172,15 +203,13 @@ def run(audio_path, model_key="turbo", language=None, engine="auto", diarize=Fal
     if language in ("auto", "", None):
         language = None
 
-    # Build the ordered list of engines to try
-    if engine == "whisperx":
-        order = ["whisperx"]
-    elif engine == "mlx":
-        order = ["mlx"]
-    elif engine == "openai":
-        order = ["openai"]
+    # Preferred engine first, then the rest as fallbacks so a single broken
+    # engine never blocks the whole run (e.g. whisperx vs PyTorch version).
+    ALL = ["whisperx", "mlx", "openai"]
+    if engine in ALL:
+        order = [engine] + [e for e in ALL if e != engine]
     else:  # auto
-        order = ["whisperx", "mlx", "openai"]
+        order = ALL
 
     errors = []
     for eng in order:

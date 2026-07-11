@@ -126,7 +126,6 @@ def check():
                 "fix_cmd": pip_cmd("mlx-whisper"), "fix_label": "Install automatically",
             }
 
-
     # cached whisper models (~/.cache/whisper on all platforms)
     cached = []
     whisper_cache = os.path.expanduser("~/.cache/whisper")

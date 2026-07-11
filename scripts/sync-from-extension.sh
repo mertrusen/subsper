@@ -8,7 +8,8 @@ set -e
 EXT="${SUBSPER_EXT:-/Users/mert/Library/Application Support/Adobe/CEP/extensions/com.whisper.studio}"
 DESK="$(cd "$(dirname "$0")/.." && pwd)"
 
-for f in js/main.js js/whispercpp.js css/style.css index.html; do
+for f in js/main.js js/whispercpp.js js/features-v2.js js/ui-v2.js \
+         css/style.css css/ui-v2.css index.html; do
   cp "$EXT/$f" "$DESK/$f"
 done
 cp "$EXT"/scripts/*.py "$DESK/scripts/" 2>/dev/null || true

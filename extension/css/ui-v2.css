@@ -298,3 +298,27 @@ details.ui2-adv > .setting-item {
 .ui2-pace-row span { width: 42px; flex-shrink: 0; font-family: var(--mono); }
 .ui2-pace-row i { display: block; height: 9px; border-radius: 4px; min-width: 3px; }
 .ui2-pace-row b { width: 30px; text-align: right; color: var(--text); font-size: 10px; }
+
+/* resume shortcut on home */
+.ui2-resume {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; margin-bottom: 12px; padding: 9px 12px;
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 10px; cursor: pointer; font-family: var(--font);
+  font-size: 11.5px; color: var(--text2); text-align: left;
+  transition: border-color .15s, background .15s;
+}
+.ui2-resume:hover { border-color: var(--accent); }
+.ui2-resume b { color: var(--text); font-weight: 600; }
+.ui2-resume i { margin-left: auto; font-style: normal; color: var(--accent2); font-weight: 700; }
+
+/* consistent breathing room + keyboard focus on the new controls */
+.ui2-seg button:focus-visible, .home-card:focus-visible, .ui2-check:focus-within,
+#page-back:focus-visible, #page-gear:focus-visible, .ui2-gal-chip:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 8px;
+}
+#panel-ed-work .setting-item.tool-card, #panel-au-work .setting-item.tool-card { margin-bottom: 14px; }
+.setting-item .btn-transcribe.btn-compact { width: 100%; }
+
+/* back button hint: Esc */
+#page-back::after { content: "esc"; font-size: 8px; color: var(--text-lo); border: 1px solid var(--border2); border-radius: 3px; padding: 0 3px; margin-left: 4px; font-family: var(--mono); }

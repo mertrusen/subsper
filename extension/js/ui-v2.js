@@ -165,6 +165,7 @@
     window.ui2Open = function (key) {
         const t = TOOLS[key]; if (!t) return;
         if (t.overlay) { if (t.open) try { t.open(); } catch (e) {} return; }
+        try { localStorage.setItem("ws_lastTool", key); } catch (e) {}
         document.body.classList.remove("ui2-home");
         document.body.setAttribute("data-ui2page", key);
         if (t.tab === "setup") { switchMainTab("setup"); switchSubTab("setup", "main"); }
@@ -192,6 +193,16 @@
     function renderHome() {
         const wrap = $("home-cats"); if (!wrap) return;
         wrap.innerHTML = "";
+        // one-tap resume: last used tool right under the badge
+        const lastKey = (() => { try { return localStorage.getItem("ws_lastTool"); } catch (e) { return null; } })();
+        if (lastKey && TOOLS[lastKey] && !TOOLS[lastKey].overlay) {
+            const lt = TOOLS[lastKey];
+            const row = document.createElement("button");
+            row.className = "ui2-resume";
+            row.innerHTML = `<span>${L("Kaldığın yerden devam:", "Pick up where you left off:")}</span><b>${lt.name()}</b><i>›</i>`;
+            row.addEventListener("click", () => ui2Open(lastKey));
+            wrap.appendChild(row);
+        }
         CATS.forEach(cat => {
             const keys = Object.keys(TOOLS).filter(k => TOOLS[k].cat === cat.id);
             if (!keys.length) return;
@@ -215,6 +226,7 @@
                   <span class="hc-label">${t.name()}</span>
                   <span class="hc-desc">${t.desc()}</span>
                   ${badge}`;
+                btn.title = t.desc();   // full description on hover (desc clamps to 2 lines)
                 btn.addEventListener("click", () => ui2Open(k));
                 grid.appendChild(btn);
             });
@@ -234,6 +246,14 @@
     const _setLanguage = window.setLanguage;
     if (typeof _setLanguage === "function")
         window.setLanguage = function (lang) { _setLanguage(lang); renderHome(); };
+
+    // Escape returns to the home screen (unless typing in a field)
+    document.addEventListener("keydown", e => {
+        if (e.key !== "Escape") return;
+        const tag = (document.activeElement && document.activeElement.tagName) || "";
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        if (!document.body.classList.contains("ui2-home")) { e.preventDefault(); ui2Home(); }
+    });
 
     // init after main.js settings load + feature packs (0/10/20) + features-v2 (40)
     setTimeout(() => {

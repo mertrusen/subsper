@@ -47,6 +47,8 @@
         help:      c => `${A.frame}<circle cx="60" cy="28" r="13" fill="none" stroke="${c}" stroke-width="1.8"/><text x="60" y="33" text-anchor="middle" font-size="15" font-weight="700" fill="${c}" font-family="var(--font)">?</text>`,
         ducking:   c => `${A.frame}${A.wave(22, c)}<path d="M16 40 L44 40 Q48 40 50 36 L70 36 Q72 40 76 40 L104 40" fill="none" stroke="${c}" stroke-width="2" opacity=".55"/><text x="60" y="50" text-anchor="middle" font-size="7" fill="${c}" opacity=".8" font-family="var(--font)">${'♪'}</text>`,
         markercut: c => `${A.frame}<rect x="16" y="30" width="88" height="8" rx="4" fill="var(--border2)"/><path d="M32 30V16l7 3-7 3M64 30V16l7 3-7 3" stroke="${c}" stroke-width="1.6" fill="none"/><rect x="34" y="29" width="30" height="10" rx="3" fill="${c}" opacity=".5"/><path d="M84 20 96 44M96 20 84 44" stroke="${c}" stroke-width="1.6"/>`,
+        pace:      c => `${A.frame}<rect x="20" y="34" width="10" height="8" rx="2" fill="${c}" opacity=".5"/><rect x="34" y="28" width="10" height="14" rx="2" fill="${c}" opacity=".7"/><rect x="48" y="18" width="10" height="24" rx="2" fill="#b06a63"/><rect x="62" y="26" width="10" height="16" rx="2" fill="${c}" opacity=".7"/><rect x="76" y="32" width="10" height="10" rx="2" fill="${c}" opacity=".5"/><path d="M20 16h60" stroke="var(--border2)" stroke-dasharray="3 3"/>`,
+        social:    c => `${A.frame}<rect x="24" y="12" width="18" height="32" rx="4" fill="var(--bg-elev)" stroke="${c}"/><rect x="51" y="12" width="18" height="32" rx="4" fill="var(--bg-elev)" stroke="${c}" opacity=".7"/><rect x="78" y="12" width="18" height="32" rx="4" fill="var(--bg-elev)" stroke="${c}" opacity=".45"/><path d="M30 26l6 3-6 3z" fill="${c}"/>`,
     };
 
     // ── tool table ─────────────────────────────────────────────────────────
@@ -95,6 +97,12 @@
         viral:     { cat: "content", tab: "edit", view: "#viral-btn", badge: "new", color: "#c89a62",
                      name: () => L("Viral Klipler", "Viral Clips"),
                      desc: () => L("Kısa içerik için en güçlü anları bulur", "Finds the strongest moments for shorts") },
+        pace:      { cat: "content", tab: "edit", view: "#pace-btn", badge: "new", color: "#8f8cc9",
+                     name: () => L("Konuşma Analizi", "Speech Pace"),
+                     desc: () => L("Hız grafiği + 'çok hızlı' işaretleri", "WPM chart + 'too fast' markers") },
+        social:    { cat: "content", tab: "edit", view: "#social-btn", badge: "new", color: "#c89a62",
+                     name: () => L("Sosyal Paket", "Social Pack"),
+                     desc: () => L("Tek tık: viral anlar + SRT + 9:16 kopya", "One click: viral moments + SRTs + 9:16 copy") },
         broll:     { cat: "content", tab: "edit", view: "#broll-btn", badge: "new", color: "#7fb1c9",
                      name: () => "B-Roll",
                      desc: () => L("Anlatıma uygun ara görüntü önerileri", "Footage ideas matched to what's said") },

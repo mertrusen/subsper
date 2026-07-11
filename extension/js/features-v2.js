@@ -1773,6 +1773,197 @@ ${t}
         window.cutFillerWords = fillerCutPro;   // word-precision + preview + targeted tracks
     }
 
+    /* ═══ Faz C — analytics, packs, speakers, social ═══════════════════ */
+
+    // #8 speech pace: per-30s WPM bars + too-fast markers
+    function paceWindows() {
+        const first = segments[0].seqStart, last = segments[segments.length - 1].seqEnd;
+        const out = [];
+        for (let t = first; t < last; t += 30) {
+            let words = 0;
+            for (const sg of segments) {
+                if (sg.seqEnd <= t || sg.seqStart >= t + 30) continue;
+                const ov = Math.min(sg.seqEnd, t + 30) - Math.max(sg.seqStart, t);
+                const frac = ov / Math.max(0.1, sg.seqEnd - sg.seqStart);
+                words += tokens(sg.text).length * frac;
+            }
+            out.push({ t, wpm: Math.round(words * 2) });
+        }
+        return out;
+    }
+    window.__paceWindows = paceWindows; // unit-test hook
+    async function paceRun() {
+        if (needTranscript()) return;
+        const win = paceWindows();
+        const max = Math.max(60, ...win.map(w => w.wpm));
+        const box = $id("pace-out");
+        if (box) {
+            box.style.display = "block";
+            box.innerHTML = win.map(w => `
+              <div class="ui2-pace-row">
+                <span>${mmss(w.t)}</span>
+                <i style="width:${Math.round(w.wpm / max * 100)}%; background:${w.wpm > 180 ? "var(--red)" : w.wpm > 150 ? "var(--orange)" : "var(--accent)"}"></i>
+                <b>${w.wpm}</b>
+              </div>`).join("") +
+              `<div class="setting-hint" style="margin-top:6px">${L("Kelime/dakika. 130-160 rahat; 180+ çok hızlı.", "Words per minute. 130-160 is comfy; 180+ is rushed.")}</div>`;
+        }
+        const fast = win.filter(w => w.wpm > 180);
+        if (fast.length) {
+            const r = await namedMarkers(fast.map(w => ({ start: w.t, name: L("Çok hızlı ", "Too fast ") + w.wpm + " wpm", color: 1 })));
+            if (r && r.success) showToast(L(`${r.added} 'çok hızlı' marker'ı eklendi`, `${r.added} 'too fast' marker(s) added`), "info", 4000);
+        }
+    }
+    function injectPace() {
+        const sc = document.querySelector("#panel-ed-work .setup-scroll");
+        if (!sc || $id("pace-btn")) return;
+        const d = card(`
+          <div class="setting-row"><div class="setting-info">
+            <div class="setting-name">${L("Konuşma Analizi", "Speech Pace")}</div>
+            <div class="setting-desc">${L("30 saniyelik dilimlerde konuşma hızı grafiği; 180+ wpm bölgelerine marker koyar. Önce Transcribe.", "WPM chart in 30s slices; drops markers where you rush past 180 wpm. Transcribe first.")}</div>
+          </div></div>
+          <button class="btn-transcribe btn-compact" id="pace-btn" style="margin-top:4px">${L("Hızı Analiz Et", "Analyze Pace")}</button>
+          <div id="pace-out" style="display:none; margin-top:8px; margin-bottom:6px"></div>`);
+        sc.appendChild(d);
+        $id("pace-btn").onclick = paceRun;
+    }
+
+    // #15 one-tap template packs (silence rhythm + caption style + splitting)
+    const PACKS = [
+        { name: ["Podcast", "Podcast"], rhythm: "calm", thr: -40, style: "Alt Bant", cpl: 42 },
+        { name: ["Oyun / Yayın", "Gaming"], rhythm: "energetic", thr: -30, style: "Neon Yeşil", cpl: 32 },
+        { name: ["Eğitim", "Education"], rhythm: "measured", thr: -35, style: "Klasik Beyaz", cpl: 38 },
+        { name: ["Vlog / Sosyal", "Vlog / Social"], rhythm: "paced", thr: -32, style: "Kalın Sosyal", cpl: 30 },
+    ];
+    function applyPack(pk) {
+        applyRhythm(pk.rhythm);
+        onSettingChange("silenceThreshold", pk.thr);
+        onSettingChange("maxCharsPerLine", pk.cpl);
+        onSettingChange("autoSplit", true);
+        const g = GALLERY.find(x => x.name === pk.style);
+        if (g) applyGalleryStyle(g.s);
+        showToast(L(`✓ "${pk.name[0]}" paketi uygulandı — kesim ritmi + altyazı stili ayarlandı`,
+                    `✓ "${pk.name[1]}" pack applied — cut rhythm + caption style set`), "success", 4500);
+    }
+    function injectPacks() {
+        const sc = document.querySelector("#panel-su-main .setup-scroll");
+        if (!sc || $id("ui2-packs")) return;
+        const d = document.createElement("div");
+        d.innerHTML = `
+          <div class="setup-section-title" style="margin-top:16px">${L("Şablon Paketleri", "Template Packs")}</div>
+          <div class="setting-item" id="ui2-packs" style="padding-top:12px; padding-bottom:12px">
+            <div class="setting-desc" style="margin-bottom:8px">${L("Tek dokunuşla içerik türüne göre kesim ritmi, eşik ve altyazı stilini ayarlar.", "One tap sets cut rhythm, threshold and caption style for your content type.")}</div>
+            <div class="ui2-checks">${PACKS.map((pk, i) =>
+                `<button class="btn-load-srt ui2-pack" data-i="${i}" style="margin:0">${L(pk.name[0], pk.name[1])}</button>`).join("")}</div>
+          </div>`;
+        sc.appendChild(d);
+        d.querySelectorAll(".ui2-pack").forEach(b =>
+            b.addEventListener("click", () => applyPack(PACKS[+b.getAttribute("data-i")])));
+    }
+
+    // #18 speaker → caption color mapping (diarization output)
+    function injectSpeakerColors() {
+        const chips = $id("style-chips");
+        if (!chips || $id("ui2-spk-wrap")) return;
+        const d = document.createElement("div");
+        d.id = "ui2-spk-wrap";
+        d.style.marginTop = "10px";
+        d.innerHTML = `<button class="btn-secondary" id="ui2-spk-btn" style="width:100%">${L("Konuşmacı Renkleri (diarization)", "Speaker Colors (diarization)")}</button><div id="ui2-spk-list"></div>`;
+        const galBtn = $id("ui2-gal-btn");
+        (galBtn || chips).parentNode.insertBefore(d, (galBtn || chips).nextSibling);
+        $id("ui2-spk-btn").onclick = () => {
+            const list = $id("ui2-spk-list");
+            const spks = [...new Set(segments.map(sg => sg.speaker).filter(Boolean))];
+            if (!spks.length) {
+                list.innerHTML = `<div class="setting-hint" style="margin-top:6px">${L("Konuşmacı verisi yok — WhisperX Pro motoru + Speaker Labels ile transcribe et.", "No speaker data — transcribe with the WhisperX Pro engine + Speaker Labels.")}</div>`;
+                return;
+            }
+            const saved = settings.speakerColors || {};
+            list.innerHTML = spks.map((sp, i) => `
+              <div class="setting-row" style="min-height:34px; padding:5px 0">
+                <div class="setting-info"><div class="setting-name" style="font-weight:500">${sp}</div></div>
+                <input type="color" class="ui2-spk-col" data-sp="${sp}" value="#${saved[sp] || SPEAKER_COLORS[i % SPEAKER_COLORS.length]}" style="width:44px; height:26px">
+              </div>`).join("") +
+              `<div class="setting-hint">${L(".ass dışa aktarımda her konuşmacı kendi renginde yazılır.", "Each speaker gets their own color in .ass exports.")}</div>`;
+            list.querySelectorAll(".ui2-spk-col").forEach(inp => inp.addEventListener("change", () => {
+                const map = settings.speakerColors || {};
+                map[inp.getAttribute("data-sp")] = inp.value.slice(1).toUpperCase();
+                settings.speakerColors = map; saveSettings();
+                const order = [...new Set(segments.map(sg => sg.speaker).filter(Boolean))];
+                order.forEach((sp, i) => { if (map[sp]) SPEAKER_COLORS[i % SPEAKER_COLORS.length] = map[sp]; });
+                showToast(L("Konuşmacı rengi kaydedildi", "Speaker color saved"), "success", 2000);
+            }));
+        };
+    }
+
+    // #19 one-click social pack: viral moments → markers + per-clip SRTs + 9:16 copy
+    function srtFor(range) {
+        const inside = segments.filter(sg => sg.seqEnd > range.start && sg.seqStart < range.end);
+        const fmt = t => {
+            t = Math.max(0, t);
+            const h = String(Math.floor(t / 3600)).padStart(2, "0"),
+                  m = String(Math.floor((t % 3600) / 60)).padStart(2, "0"),
+                  x = String(Math.floor(t % 60)).padStart(2, "0"),
+                  ms = String(Math.round((t % 1) * 1000)).padStart(3, "0");
+            return `${h}:${m}:${x},${ms}`;
+        };
+        return inside.map((sg, i) =>
+            `${i + 1}
+${fmt(sg.seqStart - range.start)} --> ${fmt(Math.min(sg.seqEnd, range.end) - range.start)}
+${(sg.text || "").trim()}
+`).join("\n");
+    }
+    window.__srtFor = srtFor; // unit-test hook
+    async function socialPack() {
+        if (needTranscript()) return;
+        const btn = $id("social-btn"); if (btn) btn.disabled = true;
+        try {
+            setStatus(L("Viral anlar aranıyor…", "Finding viral moments…"), "info");
+            let ranges = [], via = L("cihaz içi", "on-device");
+            if (aiAvailable()) {
+                try {
+                    const t = await aiComplete(`Pick the top 3 most engaging 15-60s segments for short-form clips from this transcript. Output ONLY lines "MM:SS-MM:SS title".
+
+Transcript:
+${_plainTranscript()}`);
+                    ranges = parseAiClipRanges(t); via = "AI";
+                } catch (e) {}
+            }
+            if (!ranges.length) ranges = heuristicViral(segments);
+            if (!ranges.length) { showToast(L("Aday an bulunamadı", "No candidate moments"), "info"); return; }
+            await namedMarkers(ranges.map((c, i) => ({ start: c.start, name: "Social " + (i + 1), comment: mmss(c.start) + "→" + mmss(c.end), color: 2 })));
+            const dir = path.join(os.homedir(), "Desktop", "subsper_social");
+            try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
+            ranges.forEach((rg, i) => {
+                try { fs.writeFileSync(path.join(dir, `clip${i + 1}_${mmss(rg.start).replace(/:/g, "-")}.srt`), srtFor(rg), "utf8"); } catch (e) {}
+            });
+            setStatus(L("Dikey kopya sekans oluşturuluyor…", "Creating vertical copy…"), "info");
+            await loadHostJSX();
+            const rz = await evalScript(`createResizedSequence('${JSON.stringify({ w: 1080, h: 1920, label: "9:16 Social", anchor: 4 }).replace(/'/g, "\\'")}')`);
+            const rzNote = rz && rz.success ? L(` · dikey sekans: "${rz.name}"`, ` · vertical: "${rz.name}"`) : "";
+            setStatus(L(`✓ Sosyal Paket (${via}): ${ranges.length} an işaretlendi, SRT'ler Masaüstü/subsper_social`, `✓ Social Pack (${via}): ${ranges.length} moments marked, SRTs in Desktop/subsper_social`) + rzNote, "success");
+        } catch (e) { setStatus(e.message, "error"); showToast(e.message, "error", 5000); }
+        finally { if (btn) btn.disabled = false; }
+    }
+    function injectSocial() {
+        const sc = document.querySelector("#panel-ed-work .setup-scroll");
+        if (!sc || $id("social-btn")) return;
+        const d = card(`
+          <div class="setting-row"><div class="setting-info">
+            <div class="setting-name">${L("Sosyal Paket", "Social Pack")}</div>
+            <div class="setting-desc">${L("Tek tık: en güçlü 3 anı bulur → marker koyar → her klip için ayrı SRT üretir → 9:16 dikey kopya sekans açar. Önce Transcribe.", "One click: finds the 3 strongest moments → drops markers → writes a per-clip SRT → opens a 9:16 vertical copy. Transcribe first.")}</div>
+          </div></div>
+          <button class="btn-transcribe btn-compact" id="social-btn" style="margin-top:4px; margin-bottom:6px">${L("Sosyal Paketi Üret", "Build Social Pack")}</button>`);
+        sc.appendChild(d);
+        $id("social-btn").onclick = socialPack;
+    }
+
+    function fazC() {
+        injectPace();
+        injectPacks();
+        injectSpeakerColors();
+        injectSocial();
+    }
+
     function fazA() {
         patchEvalHistory();
         window.applyTextCuts = applyTextCutsPro;   // upgrade text-based editing
@@ -1782,5 +1973,5 @@ ${t}
         injectErrorCopy();
     }
 
-    setTimeout(() => { try { injectAll(); fazA(); fazB(); } catch (e) { console.error("[Subsper] features-v2 init:", e); } }, 40);
+    setTimeout(() => { try { injectAll(); fazA(); fazB(); fazC(); } catch (e) { console.error("[Subsper] features-v2 init:", e); } }, 40);
 })();

@@ -292,3 +292,9 @@ details.ui2-adv > .setting-item {
   border: none; border-top: 1px solid var(--border); border-radius: 0;
   box-shadow: none; background: transparent; margin-bottom: 0;
 }
+
+/* speech-pace bars */
+.ui2-pace-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 10.5px; color: var(--text2); }
+.ui2-pace-row span { width: 42px; flex-shrink: 0; font-family: var(--mono); }
+.ui2-pace-row i { display: block; height: 9px; border-radius: 4px; min-width: 3px; }
+.ui2-pace-row b { width: 30px; text-align: right; color: var(--text); font-size: 10px; }

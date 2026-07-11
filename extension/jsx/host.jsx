@@ -1541,3 +1541,199 @@ function wsCutRangesSync(payloadJson) {
         return JSON.stringify({ success: false, error: e.toString(), diag: diag });
     }
 }
+
+// ── List sequence markers (for marker-based cutting) ───────────────────────
+function wsListMarkers() {
+    try {
+        var seq = app.project.activeSequence;
+        if (!seq) return JSON.stringify({ success: false, error: "No active sequence." });
+        var out = [], m = null, guard = 0;
+        try { m = seq.markers.getFirstMarker(); } catch (e1) {}
+        while (m && guard < 500) {
+            var st = 0;
+            try { st = m.start.seconds; } catch (e2) {}
+            var nm = ""; try { nm = m.name || ""; } catch (e3) {}
+            out.push({ start: st, name: nm });
+            try { m = seq.markers.getNextMarker(m); } catch (e4) { m = null; }
+            guard++;
+        }
+        out.sort(function (a, b) { return a.start - b.start; });
+        return JSON.stringify({ success: true, markers: out });
+    } catch (e) {
+        return JSON.stringify({ success: false, error: e.toString() });
+    }
+}
+
+// ── Constant Power audio transitions at given cut times ────────────────────
+// payload = { times:[sec], a:[audio track idx] }. EXPERIMENTAL: QE transition
+// API is undocumented; each known call is attempted, applied count returned.
+function wsAddCPTransitions(payloadJson) {
+    var diag = [];
+    try { app.enableQE(); } catch (eQE) {
+        return JSON.stringify({ success: false, error: "enableQE failed: " + eQE.toString() });
+    }
+    var seq = app.project.activeSequence;
+    var qeSeq = null;
+    try { qeSeq = qe.project.getActiveSequence(); } catch (eS) {}
+    if (!seq || !qeSeq) return JSON.stringify({ success: false, error: "No active QE sequence" });
+    try {
+        var data = JSON.parse(payloadJson);
+        var times = data.times || [];
+        var aSel = data.a || [];
+        var trans = null;
+        try { trans = qe.project.getAudioTransitionByName("Constant Power"); } catch (eT) {}
+        if (!trans) return JSON.stringify({ success: false, error: "Constant Power transition not found in this Premiere build." });
+        var fps = _wsGetFps(seq);
+        var applied = 0;
+        for (var i = 0; i < times.length; i++) {
+            var t = parseFloat(times[i]);
+            if (isNaN(t) || t <= 0.05) continue;
+            for (var a = 0; a < aSel.length; a++) {
+                var trk = null;
+                try { trk = qeSeq.getAudioTrackAt(aSel[a]); } catch (eA) { continue; }
+                if (!trk) continue;
+                var cnt = 0; try { cnt = trk.numItems; } catch (eC) { continue; }
+                for (var c = 0; c < cnt; c++) {
+                    var it = null;
+                    try { it = trk.getItemAt(c); } catch (eI) { continue; }
+                    if (!it) continue;
+                    var st = null;
+                    try { st = _wsQeSecs(it.start, fps); } catch (eQ) { continue; }
+                    if (st == null || Math.abs(st - t) > 0.08) continue;
+                    var nm = ""; try { nm = it.name; } catch (eN) {}
+                    if (!nm) continue;
+                    var ok = false;
+                    try { it.addTransition(trans, true); ok = true; }
+                    catch (e1) {
+                        try { it.addTransition(trans); ok = true; }
+                        catch (e2) { if (diag.length < 4) diag.push("addTransition: " + e2.toString()); }
+                    }
+                    if (ok) applied++;
+                    break;
+                }
+            }
+        }
+        return JSON.stringify({ success: applied > 0, applied: applied,
+                                error: applied ? undefined : "Could not apply any transition", diag: diag });
+    } catch (e) {
+        return JSON.stringify({ success: false, error: e.toString(), diag: diag });
+    }
+}
+
+// ── Speed up ranges instead of deleting them (jump-cut alternative) ────────
+// payload = { ranges, v:[], a:[], speed:400 }. Locks unselected tracks, razors
+// the range on selected tracks, speeds the middle chunk, then closes the gap
+// the shrink leaves behind (same verified chain as wsCutRangesSync).
+function wsSpeedUpRanges(payloadJson) {
+    var diag = [];
+    try { app.enableQE(); } catch (eQE) {
+        return JSON.stringify({ success: false, error: "enableQE failed: " + eQE.toString() });
+    }
+    var seq = app.project.activeSequence;
+    var qeSeq = null;
+    try { qeSeq = qe.project.getActiveSequence(); } catch (eS) {}
+    if (!seq || !qeSeq) return JSON.stringify({ success: false, error: "No active QE sequence" });
+    try {
+        var data = JSON.parse(payloadJson);
+        var ranges = data.ranges || [];
+        var vSel = data.v || [], aSel = data.a || [];
+        var speed = parseFloat(data.speed) || 400;
+        ranges.sort(function (x, y) { return y.start - x.start; });
+        var fps = _wsGetFps(seq);
+        function tcAt(secs) {
+            var ticks = Math.round(secs * TICKS_PER_SECOND);
+            try { seq.setPlayerPosition(ticks.toString()); } catch (e) {}
+            try { return qeSeq.CTI.timecode; } catch (e2) { return null; }
+        }
+        function inList(list, idx) { for (var q = 0; q < list.length; q++) if (list[q] === idx) return true; return false; }
+        function qeTrack(kind, idx) {
+            try { return kind === "v" ? qeSeq.getVideoTrackAt(idx) : qeSeq.getAudioTrackAt(idx); } catch (e) { return null; }
+        }
+        var vN = 0, aN = 0;
+        try { vN = qeSeq.numVideoTracks; } catch (e) {}
+        try { aN = qeSeq.numAudioTracks; } catch (e) {}
+        var locked = [], lockFail = 0, k;
+        for (k = 0; k < vN; k++) if (!inList(vSel, k)) { var q1 = qeTrack("v", k); try { if (q1 && q1.setLock) { q1.setLock(true); locked.push(["v", k]); } else lockFail++; } catch (eL1) { lockFail++; } }
+        for (k = 0; k < aN; k++) if (!inList(aSel, k)) { var q2 = qeTrack("a", k); try { if (q2 && q2.setLock) { q2.setLock(true); locked.push(["a", k]); } else lockFail++; } catch (eL2) { lockFail++; } }
+        function unlockAll() {
+            for (var u = 0; u < locked.length; u++) {
+                var qt = qeTrack(locked[u][0], locked[u][1]);
+                try { if (qt && qt.setLock) qt.setLock(false); } catch (eU) {}
+            }
+        }
+        if (lockFail > 0) { unlockAll(); return JSON.stringify({ success: false, error: "This Premiere version can't lock tracks from a script." }); }
+
+        function selTracks() {
+            var out = [], i;
+            for (i = 0; i < vSel.length; i++) { var t1 = qeTrack("v", vSel[i]); if (t1) out.push(t1); }
+            for (i = 0; i < aSel.length; i++) { var t2 = qeTrack("a", aSel[i]); if (t2) out.push(t2); }
+            return out;
+        }
+        function itemSpanning(track, mid, wantGap) {
+            var cnt = 0; try { cnt = track.numItems; } catch (e) { return null; }
+            for (var i = 0; i < cnt; i++) {
+                var it = null; try { it = track.getItemAt(i); } catch (e2) { continue; }
+                if (!it) continue;
+                var st = null, en = null;
+                try { st = _wsQeSecs(it.start, fps); en = _wsQeSecs(it.end, fps); } catch (e3) { continue; }
+                if (st == null || en == null) continue;
+                if (!(mid > st + 0.002 && mid < en - 0.002)) continue;
+                var nm = ""; try { nm = it.name; } catch (e4) {}
+                var isGap = (nm === "" || nm == null);
+                if (wantGap === isGap) return it;
+            }
+            return null;
+        }
+
+        var sped = 0, holes = 0;
+        for (var r = 0; r < ranges.length; r++) {
+            var s0 = parseFloat(ranges[r].start), e0 = parseFloat(ranges[r].end);
+            if (isNaN(s0) || isNaN(e0) || e0 - s0 < 0.3) continue;
+            var tcE = tcAt(e0), tcS = tcAt(s0);
+            if (!tcS || !tcE) continue;
+            var trks = selTracks(), t;
+            for (t = 0; t < trks.length; t++) {
+                try { trks[t].razor(tcE); } catch (e1) {}
+                try { trks[t].razor(tcS); } catch (e2) {}
+            }
+            var mid = (s0 + e0) / 2, spedHere = 0;
+            for (t = 0; t < trks.length; t++) {
+                var it = itemSpanning(trks[t], mid, false);
+                if (!it) continue;
+                var ok = false;
+                try { it.setSpeed(speed, "0", false, false, false); ok = true; }
+                catch (eS1) {
+                    try { it.setSpeed(speed); ok = true; }
+                    catch (eS2) { if (diag.length < 4) diag.push("setSpeed: " + eS2.toString()); }
+                }
+                if (ok) spedHere++;
+            }
+            if (!spedHere) { holes++; continue; }
+            sped += spedHere;
+            // the chunk shrank — close the leftover gap with the verified chain
+            var newDur = (e0 - s0) * 100 / speed;
+            var gMid = e0 - ((e0 - s0) - newDur) / 2;
+            var closed = false;
+            for (t = 0; t < trks.length && !closed; t++) {
+                var attempts = 0;
+                while (attempts < 3 && !closed) {
+                    var gap = itemSpanning(trks[t], gMid, true);
+                    if (!gap) { closed = true; break; }
+                    try {
+                        if (attempts === 0 && gap.rippleDelete) gap.rippleDelete();
+                        else if (attempts === 1) gap.remove(true, true);
+                        else gap.remove(true, false);
+                    } catch (eG) { if (diag.length < 6) diag.push("gap: " + eG.toString()); }
+                    if (!itemSpanning(trks[t], gMid, true)) closed = true;
+                    attempts++;
+                }
+            }
+            if (!closed) holes++;
+        }
+        unlockAll();
+        return JSON.stringify({ success: sped > 0, sped: sped, holes: holes,
+                                error: sped ? undefined : "Could not speed any range (see diag)", diag: diag });
+    } catch (e) {
+        return JSON.stringify({ success: false, error: e.toString(), diag: diag });
+    }
+}

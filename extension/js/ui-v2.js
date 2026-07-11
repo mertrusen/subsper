@@ -45,6 +45,8 @@
         ai:        c => `${A.frame}<path d="M45 18l2.4 6.1L53 26l-5.6 1.9L45 34l-2.4-6.1L37 26l5.6-1.9z" fill="${c}"/><path d="M62 14l1.4 3.6 3.6 1.4-3.6 1.4L62 24l-1.4-3.6L57 19l3.6-1.4z" fill="${c}" opacity=".7"/><path d="M58 34h28M58 40h20" stroke="${c}" stroke-width="2" stroke-linecap="round" opacity=".5"/>`,
         settings:  c => `${A.frame}<circle cx="60" cy="28" r="7" fill="none" stroke="${c}" stroke-width="1.8"/><circle cx="60" cy="28" r="2.6" fill="${c}"/><path d="M60 15v5M60 36v5M47 28h5M68 28h5M50.5 18.5l3.5 3.5M66 32l3.5 3.5M69.5 18.5 66 22M54 32l-3.5 3.5" stroke="${c}" stroke-width="1.8"/>`,
         help:      c => `${A.frame}<circle cx="60" cy="28" r="13" fill="none" stroke="${c}" stroke-width="1.8"/><text x="60" y="33" text-anchor="middle" font-size="15" font-weight="700" fill="${c}" font-family="var(--font)">?</text>`,
+        ducking:   c => `${A.frame}${A.wave(22, c)}<path d="M16 40 L44 40 Q48 40 50 36 L70 36 Q72 40 76 40 L104 40" fill="none" stroke="${c}" stroke-width="2" opacity=".55"/><text x="60" y="50" text-anchor="middle" font-size="7" fill="${c}" opacity=".8" font-family="var(--font)">${'♪'}</text>`,
+        markercut: c => `${A.frame}<rect x="16" y="30" width="88" height="8" rx="4" fill="var(--border2)"/><path d="M32 30V16l7 3-7 3M64 30V16l7 3-7 3" stroke="${c}" stroke-width="1.6" fill="none"/><rect x="34" y="29" width="30" height="10" rx="3" fill="${c}" opacity=".5"/><path d="M84 20 96 44M96 20 84 44" stroke="${c}" stroke-width="1.6"/>`,
     };
 
     // ── tool table ─────────────────────────────────────────────────────────
@@ -72,9 +74,15 @@
         multicam:  { cat: "edit", tab: "edit", view: "#mc-scan", badge: "new", color: "#bfae6e",
                      name: () => "Podcast Multicam",
                      desc: () => L("Kim konuşuyorsa kamerayı ona geçirir", "Switches cameras to whoever is talking") },
+        markercut: { cat: "edit", tab: "edit", view: "#markercut-btn", badge: "new", color: "#bfae6e",
+                     name: () => L("Marker ile Kes", "Cut by Markers"),
+                     desc: () => L("Marker çiftleri arasını kes ya da tut", "Cut or keep between marker pairs") },
         resize:    { cat: "edit", tab: "edit", view: "#resize-btn", badge: "new", color: "#7bb389",
                      name: () => L("Dikey Kes", "Vertical Resize"),
                      desc: () => L("Sekansı TikTok/Reels formatına çevirir", "Converts the sequence to TikTok/Reels format") },
+        ducking:   { cat: "audio", tab: "audio", view: "#duck-btn", badge: "new", color: "#7aa7c2",
+                     name: () => L("Müzik Kısma", "Music Ducking"),
+                     desc: () => L("Konuşma varken müziği otomatik kısar", "Auto-lowers music while someone talks") },
         beep:      { cat: "audio", tab: "audio", view: "button[onclick^='beepProfanityAction']", color: "#c4726a",
                      name: () => L("Küfür Sansürü", "Beep Profanity"),
                      desc: () => L("Küfürleri bulur; bipler ya da susturur", "Finds profanity; beeps or mutes it") },

@@ -539,6 +539,7 @@ ${_plainTranscript()}`);
                             console.log("[Subsper] cut diag:", r.diag);
                             showToast(L("Teşhis: ", "Diag: ") + r.diag.slice(0, 2).join(" | "), "warning", 9000);
                         }
+                        await maybeAddTransitions(chosen, sel);
                     }
                     else {
                         await evalScript(`addSilenceMarkers('${JSON.stringify(chosen).replace(/'/g, "\\'")}')`);
@@ -588,6 +589,7 @@ ${_plainTranscript()}`);
         try { await applyTarget(); } catch (e) { showToast(e.message, "error", 4000); return; }
         if (mode === "mark") return detectSilences();
         if (mode === "mute") return muteSilencesPro();
+        if (mode === "speed") return speedSilencesPro();
         return cutSilencesPro();
     }
     function segControl(id, items, activeIdx) {
@@ -624,11 +626,14 @@ ${_plainTranscript()}`);
           <div id="sil-tracks"><div class="setting-hint">${L("Analiz Et'e basınca ya da buraya tıklayınca kanallar listelenir — müzik/efekt kanallarının işaretini kaldır, onlara dokunulmaz.", "Tracks appear after Analyze (or click here) — untick music/FX tracks and they won't be touched.")}</div></div>
           <div class="ui2-row-label">${L("İşlem", "Action")}</div>
           ${segControl("sil-action", [
-            ["cut", L("Kes", "Cut")], ["mark", L("İşaretle", "Mark")], ["mute", L("Sustur", "Mute")]])}
+            ["cut", L("Kes", "Cut")], ["mark", L("İşaretle", "Mark")], ["mute", L("Sustur", "Mute")], ["speed", L("Hızlandır", "Speed up")]])}
+          <div class="ui2-row-label">${L("Kesim geçişi", "Cut transition")}</div>
+          ${segControl("sil-trans", [["none", L("Yok", "None")], ["cp", "Constant Power"]])}
           <button class="btn-transcribe btn-compact" id="sil-run" style="margin-top:10px">${L("Sessizlikleri Temizle", "Clean Up Silences")}</button>
-          <div class="setting-hint" style="margin-top:8px">${L("Kes: ripple-delete (onaylı liste) · İşaretle: sadece marker · Sustur: silmeden sesi kapatır. Geçiş efektleri (J/L-cut) yakında.", "Cut: ripple-delete with review · Mark: markers only · Mute: silences audio without deleting. Transitions (J/L-cut) coming soon.")}</div>`;
+          <div class="setting-hint" style="margin-top:8px">${L("Kes: ripple-delete (onaylı liste) · İşaretle: marker · Sustur: sesi kapatır · Hızlandır: 4x (deneysel). Constant Power seçiliyse kesim noktalarına ses geçişi denenir.", "Cut: ripple-delete with review · Mark: markers · Mute: silences audio · Speed up: 4x (experimental). With Constant Power on, audio transitions are attempted at cut points.")}</div>`;
         item.appendChild(box);
         wireSeg("sil-target");
+        wireSeg("sil-trans");
         wireSeg("sil-rhythm", applyRhythm);
         wireSeg("sil-action", v => {
             const run = $id("sil-run");
@@ -1550,6 +1555,224 @@ ${t}
         };
     }
 
+    /* ═══ Faz B — audio & editing engine ═══════════════════════════════ */
+
+    // #1 Constant Power at cut points (positions shifted by earlier cuts)
+    async function maybeAddTransitions(chosen, sel) {
+        const seg = $id("sil-trans");
+        const b = seg && seg.querySelector("button.active");
+        if (!b || b.getAttribute("data-v") !== "cp") return;
+        if (!sel || !sel.a || !sel.a.length) return;
+        const sorted = chosen.slice().sort((x, y) => x.start - y.start);
+        let shift = 0;
+        const times = sorted.map(r => { const t = r.start - shift; shift += (r.end - r.start); return t; });
+        try {
+            const r = await evalScript(`wsAddCPTransitions('${JSON.stringify({ times, a: sel.a }).replace(/'/g, "\\'")}')`);
+            if (r && r.success) showToast(L(`✓ ${r.applied} kesime Constant Power eklendi`, `✓ Constant Power on ${r.applied} cut(s)`), "success", 4000);
+            else showToast(L("Geçiş eklenemedi (deneysel): ", "Transitions failed (experimental): ") + ((r && r.error) || "?"), "warning", 5000);
+        } catch (e) {}
+    }
+
+    // #11 speed up silences instead of deleting them
+    async function speedSilencesPro() {
+        setSilenceStatus(L("Hızlandırılacak boşluklar aranıyor…", "Finding gaps to speed up…"), "info");
+        showSilenceProgress(true);
+        try {
+            const { ranges } = await findSilenceRanges();
+            const pad = Math.max(0, parseFloat(settings.silencePad) || 0);
+            const padded = ranges
+                .map(r => ({ start: r.start + pad, end: r.end - pad, dur: +(r.end - r.start - 2 * pad).toFixed(2) }))
+                .filter(r => r.dur > 0.35);
+            if (!padded.length) { setSilenceStatus(L("Uygun boşluk yok (min 0.35s)", "No suitable gaps (min 0.35s)"), "warning"); return; }
+            const sel = await ensureTrackSel();
+            showRangePreview(L("Sessizlikleri 4x hızlandır (deneysel)", "Speed silences 4x (experimental)"), padded, async chosen => {
+                showSilenceProgress(true);
+                try {
+                    const payload = JSON.stringify({ ranges: chosen, v: sel ? sel.v : [], a: sel ? sel.a : [], speed: 400 }).replace(/'/g, "\\'");
+                    const r = await evalScript(`wsSpeedUpRanges('${payload}')`);
+                    if (r && r.success) {
+                        const holes = r.holes ? L(` · ${r.holes} boşluk sorunlu`, ` · ${r.holes} gap(s) had issues`) : "";
+                        setSilenceStatus(L(`✓ ${r.sped} parça 4x hızlandırıldı — Cmd/Ctrl+Z geri alır`, `✓ Sped up ${r.sped} chunk(s) 4x — undo with Cmd/Ctrl+Z`) + holes, r.holes ? "warning" : "success");
+                    } else {
+                        setSilenceStatus((r && r.error) || L("Hızlandırılamadı", "Speed-up failed"), "error");
+                        if (r && r.diag && r.diag.length) console.log("[Subsper] speed diag:", r.diag);
+                    }
+                } finally { showSilenceProgress(false); }
+            });
+        } catch (e) { setSilenceStatus(e.message, "error"); }
+        finally { showSilenceProgress(false); }
+    }
+
+    // #9 dialogue ducking: lower the music while someone is talking
+    function speechRanges() {
+        const out = [];
+        for (const s of segments) {
+            const st = s.seqStart - 0.1, en = s.seqEnd + 0.15;
+            const last = out[out.length - 1];
+            if (last && st <= last.end + 0.6) last.end = Math.max(last.end, en);
+            else out.push({ start: Math.max(0, st), end: en });
+        }
+        return out.map(r => ({ ...r, dur: +(r.end - r.start).toFixed(2) }));
+    }
+    window.__speechRanges = speechRanges; // unit-test hook
+    async function duckRun() {
+        if (needTranscript()) return;
+        const tracks = [...document.querySelectorAll(".duck-trk")].filter(c => c.checked).map(c => +c.getAttribute("data-i"));
+        if (!tracks.length) { showToast(L("Kısılacak müzik kanalını işaretle", "Tick the music track(s) to duck"), "info", 4000); return; }
+        const lvlEl = $id("duck-level");
+        const level = Math.max(0, Math.min(1, (lvlEl ? +lvlEl.value : 25) / 100));
+        const ranges = speechRanges();
+        if (!ranges.length) { showToast(L("Konuşma aralığı yok", "No speech ranges"), "info"); return; }
+        const btn = $id("duck-btn"); if (btn) btn.disabled = true;
+        try {
+            await loadHostJSX();
+            const payload = JSON.stringify({ ranges, level, tracks }).replace(/'/g, "\\'");
+            const r = await evalScript(`duckAudioRanges('${payload}')`);
+            if (r && r.success)
+                setAudioStatus(L(`✓ ${tracks.length} müzik kanalı ${ranges.length} konuşma aralığında %${Math.round(level * 100)}'e kısıldı — Cmd/Ctrl+Z geri alır`,
+                                 `✓ Ducked ${tracks.length} track(s) to ${Math.round(level * 100)}% across ${ranges.length} speech range(s) — undo with Cmd/Ctrl+Z`), "success");
+            else setAudioStatus((r && r.error) || L("Kısılamadı", "Duck failed"), "error");
+        } finally { if (btn) btn.disabled = false; }
+    }
+    async function loadDuckTracks() {
+        const wrap = $id("duck-tracks");
+        if (!wrap || wrap.querySelector(".duck-trk")) return;
+        await loadHostJSX();
+        const r = await evalScript("wsListAllTracks()");
+        if (!(r && r.success)) return;
+        wrap.innerHTML = `<div class="ui2-checks" style="grid-template-columns:1fr 1fr">` +
+            r.audio.map(t => `
+              <label class="ui2-check" style="opacity:${t.clips ? 1 : .45}">
+                <input type="checkbox" class="duck-trk" data-i="${t.i}"${t.i > 0 && t.clips ? " checked" : ""}>
+                <span>${t.label}</span></label>`).join("") + `</div>`;
+    }
+    function injectDucking() {
+        const sc = document.querySelector("#panel-au-work .setup-scroll");
+        if (!sc || $id("duck-btn")) return;
+        const d = card(`
+          <div class="setting-row"><div class="setting-info">
+            <div class="setting-name">${L("Müzik Kısma (Ducking)", "Music Ducking")}</div>
+            <div class="setting-desc">${L("Konuşma varken müziği otomatik kısar, susunca geri açar (keyframe). Önce Transcribe.", "Automatically lowers the music while someone talks, restores it in pauses (keyframes). Transcribe first.")}</div>
+          </div></div>
+          <div class="ui2-row-label">${L("Kısılacak kanallar (müzik)", "Tracks to duck (music)")}</div>
+          <div id="duck-tracks"><div class="setting-hint">${L("Tıklayınca kanallar listelenir — varsayılan: A1 hariç dolu kanallar.", "Click to list tracks — default: every non-empty track except A1.")}</div></div>
+          <div class="setting-slider-header" style="margin-top:10px">
+            <span>${L("Konuşma sırasında müzik seviyesi", "Music level during speech")}</span><span class="setting-value" id="duck-level-val">25%</span>
+          </div>
+          <input type="range" class="setting-slider" id="duck-level" min="0" max="70" step="5" value="25">
+          <button class="btn-transcribe btn-compact" id="duck-btn" style="margin-top:10px">${L("Müziği Otomatik Kıs", "Auto-Duck Music")}</button>
+          <div class="setting-hint" style="margin-top:8px">${L("Podcast/YouTube standardı: konuşurken müzik %20-30 civarı. 0% = tamamen sustur.", "Podcast/YouTube standard: music around 20-30% under speech. 0% = fully silent.")}</div>`);
+        sc.appendChild(d);
+        $id("duck-btn").onclick = duckRun;
+        $id("duck-tracks").addEventListener("click", () => loadDuckTracks().catch(() => {}));
+        const lv = $id("duck-level");
+        lv.oninput = () => { $id("duck-level-val").textContent = lv.value + "%"; };
+    }
+
+    // #12 cut between markers
+    function markerPairRanges(marks, mode, domainStart, domainEnd) {
+        const pts = marks.map(m => m.start).filter(t => t >= domainStart - 0.01 && t <= domainEnd + 0.01).sort((a, b) => a - b);
+        const pairs = [];
+        for (let i = 0; i + 1 < pts.length; i += 2) pairs.push({ start: pts[i], end: pts[i + 1] });
+        let ranges;
+        if (mode === "keep") {
+            ranges = [];
+            let cur = domainStart;
+            for (const p of pairs) {
+                if (p.start > cur + 0.05) ranges.push({ start: cur, end: p.start });
+                cur = Math.max(cur, p.end);
+            }
+            if (domainEnd > cur + 0.05) ranges.push({ start: cur, end: domainEnd });
+        } else ranges = pairs;
+        return ranges.filter(r => r.end - r.start > 0.05)
+                     .map(r => ({ ...r, dur: +(r.end - r.start).toFixed(2) }));
+    }
+    window.__markerPairRanges = markerPairRanges; // unit-test hook
+    async function markerCutRun() {
+        const btn = $id("markercut-btn"); if (btn) btn.disabled = true;
+        try {
+            await loadHostJSX();
+            const mr = await evalScript("wsListMarkers()");
+            if (!(mr && mr.success)) throw new Error((mr && mr.error) || "?");
+            if (!mr.markers || mr.markers.length < 2)
+                throw new Error(L("En az 2 marker gerekli (timeline'a M ile marker koy)", "Need at least 2 markers (press M on the timeline)"));
+            const info = await evalScript("getSequenceInfo()");
+            if (!info.success) throw new Error(info.error || "?");
+            const segEl = document.querySelector("#mk-mode button.active");
+            const mode = segEl ? segEl.getAttribute("data-v") : "cut";
+            const ranges = markerPairRanges(mr.markers, mode, info.inTime, info.inTime + info.duration);
+            if (!ranges.length) throw new Error(L("Kesilecek aralık çıkmadı", "No ranges to cut"));
+            const sel = await ensureTrackSel();
+            showRangePreview(mode === "keep" ? L("Marker çiftleri DIŞINI kes", "Cut OUTSIDE marker pairs")
+                                             : L("Marker çiftleri ARASINI kes", "Cut BETWEEN marker pairs"), ranges, async chosen => {
+                const r = await hostCut(chosen, sel);
+                if (r && r.success && r.removed > 0) {
+                    const holes = r.holes ? L(` · ${r.holes} boşluk kapanamadı`, ` · ${r.holes} gap(s) open`) : "";
+                    showToast(L(`✓ ${r.removed} parça kesildi — Cmd/Ctrl+Z geri alır`, `✓ Cut ${r.removed} item(s) — undo with Cmd/Ctrl+Z`) + holes, r.holes ? "warning" : "success", 5000);
+                } else showToast((r && r.error) || L("Kesilemedi", "Cut failed"), "error", 5000);
+            });
+        } catch (e) { showToast(e.message, "error", 5000); }
+        finally { if (btn) btn.disabled = false; }
+    }
+    function injectMarkerCut() {
+        const sc = document.querySelector("#panel-ed-work .setup-scroll");
+        if (!sc || $id("markercut-btn")) return;
+        const d = card(`
+          <div class="setting-row"><div class="setting-info">
+            <div class="setting-name">${L("Marker ile Kes", "Cut by Markers")}</div>
+            <div class="setting-desc">${L("Timeline'a M ile marker koy; çiftler (1-2, 3-4…) aralık sayılır. Arasını kes ya da sadece arasını tut.", "Drop markers with M; pairs (1-2, 3-4…) form ranges. Cut between them, or keep only what's between.")}</div>
+          </div></div>
+          <div class="ui2-row-label">${L("Mod", "Mode")}</div>
+          ${segControl("mk-mode", [["cut", L("Arasını KES", "CUT between")], ["keep", L("Arasını TUT", "KEEP between")]])}
+          <button class="btn-transcribe btn-compact" id="markercut-btn" style="margin-top:10px">${L("Markerlara Göre Kes", "Cut by Markers")}</button>
+          <div class="setting-hint" style="margin-top:8px">${L("Kanal seçimi Sessizlik sayfasındaki listeyle ortak; onaylı liste gösterilir.", "Track selection is shared with the Silence page; you review the list first.")}</div>`);
+        sc.appendChild(d);
+        wireSeg("mk-mode");
+        $id("markercut-btn").onclick = markerCutRun;
+    }
+
+    // #14 filler-word cutting with word-precision + review list
+    async function fillerCutPro() {
+        if (needTranscript()) return;
+        const fl = (typeof getFillerList === "function" ? getFillerList() : []).filter(w => !w.includes(" "));
+        const fset = new Set(fl.map(w => w.toLowerCase()));
+        if (!fset.size) { showToast(L("Dolgu listesi boş (Altyazı ayarları → dolgu kelimeleri)", "Filler list is empty (Subtitle settings → fillers)"), "info", 4500); return; }
+        const ranges = [];
+        for (const seg of segments) {
+            for (const w of (seg.words || [])) {
+                if (w.start == null || w.end == null) continue;
+                const clean = (w.word || "").toLowerCase().replace(/[.,!?;:"'()\[\]{}…*-]/g, "");
+                if (!clean || !fset.has(clean)) continue;
+                const off = seg.seqStart - seg.start;
+                ranges.push({ start: Math.max(0, off + w.start - 0.03), end: off + w.end + 0.03 });
+            }
+        }
+        if (!ranges.length) { showToast(L("Dolgu kelimesi bulunamadı ✓", "No filler words found ✓"), "success", 3500); return; }
+        ranges.sort((a, b) => a.start - b.start);
+        const merged = [];
+        for (const r of ranges) {
+            const last = merged[merged.length - 1];
+            if (last && r.start <= last.end + 0.1) last.end = Math.max(last.end, r.end);
+            else merged.push({ ...r });
+        }
+        const list = merged.map(r => ({ ...r, dur: +(r.end - r.start).toFixed(2) }));
+        const sel = await ensureTrackSel();
+        showRangePreview(L(`Dolgu kelimelerini kes (${list.length})`, `Cut filler words (${list.length})`), list, async chosen => {
+            await loadHostJSX();
+            const r = await hostCut(chosen, sel);
+            if (r && r.success && r.removed > 0) {
+                const holes = r.holes ? L(` · ${r.holes} boşluk kapanamadı`, ` · ${r.holes} gap(s) open`) : "";
+                showToast(L(`✓ ${r.removed} dolgu kesildi — metni de temizlemek için 🧹 menüsünü kullan`, `✓ Cut ${r.removed} filler(s) — use the 🧹 menu to clean the text too`) + holes, r.holes ? "warning" : "success", 6000);
+            } else showToast((r && r.error) || L("Kesilemedi", "Cut failed"), "error", 5000);
+        });
+    }
+
+    function fazB() {
+        injectDucking();
+        injectMarkerCut();
+        window.cutFillerWords = fillerCutPro;   // word-precision + preview + targeted tracks
+    }
+
     function fazA() {
         patchEvalHistory();
         window.applyTextCuts = applyTextCutsPro;   // upgrade text-based editing
@@ -1559,5 +1782,5 @@ ${t}
         injectErrorCopy();
     }
 
-    setTimeout(() => { try { injectAll(); fazA(); } catch (e) { console.error("[Subsper] features-v2 init:", e); } }, 40);
+    setTimeout(() => { try { injectAll(); fazA(); fazB(); } catch (e) { console.error("[Subsper] features-v2 init:", e); } }, 40);
 })();

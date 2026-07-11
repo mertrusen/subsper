@@ -4,9 +4,8 @@
   <meta charset="UTF-8">
   <title>Subsper</title>
   <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/ui-v2.css">
 </head>
-<body class="ui2-home">
+<body>
 
   <!-- Header -->
   <div class="header">
@@ -22,25 +21,6 @@
       <button id="theme-btn" class="icon-btn" onclick="cycleTheme()" data-i18n-tip="tip_theme"></button>
       <span class="setup-indicator" id="setup-indicator" data-i18n-tip="tip_tab_setup"></span>
     </div>
-  </div>
-
-  <!-- ── UI v2: page bar (‹ Back · Title · ⚙) ─────────────────────── -->
-  <div id="page-bar">
-    <button id="page-back" onclick="ui2Home()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-      <span id="page-back-label">Back</span>
-    </button>
-    <span id="page-title"></span>
-    <button id="page-gear" onclick="ui2Gear()" style="display:none">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-    </button>
-  </div>
-
-  <!-- ── UI v2: home screen (card grid) ───────────────────────────── -->
-  <div id="home-screen">
-    <div class="home-badge"><span class="dot"></span><span id="home-badge-text">100% offline · free</span></div>
-    <div id="home-cats"></div>
-    <div class="home-foot" id="home-foot"></div>
   </div>
 
   <!-- ── Main tabs (top level) ───────────────────────────────────────── -->
@@ -919,7 +899,5 @@
   <script src="js/desktop-shim.js"></script>
   <script src="js/main.js"></script>
   <script src="js/desktop-app.js"></script>
-  <script src="js/features-v2.js"></script>
-  <script src="js/ui-v2.js"></script>
 </body>
 </html>

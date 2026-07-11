@@ -638,6 +638,15 @@ ${_plainTranscript()}`);
         });
         $id("sil-analyze").onclick = silAnalyze;
         $id("sil-run").onclick = silRun;
+        // click the schematic strip → move the Premiere playhead there
+        $id("sil-strip").style.cursor = "pointer";
+        $id("sil-strip").addEventListener("click", ev => {
+            if (!_silInfo) return;
+            const rect = ev.currentTarget.getBoundingClientRect();
+            const frac = Math.min(1, Math.max(0, (ev.clientX - rect.left) / Math.max(1, rect.width)));
+            const t = (_silInfo.inTime || 0) + frac * _silInfo.duration;
+            loadHostJSX().then(() => evalScript(`seekToTime(${t.toFixed(3)})`)).catch(() => {});
+        });
         $id("sil-tracks").addEventListener("click", () => loadTrackChecks(false));
         // ui-v2 calls this when the Silence page opens → list is there instantly
         window.__silPageOpen = () => { loadTrackChecks(false).catch(() => {}); };
@@ -843,8 +852,12 @@ ${_plainTranscript()}`);
             font-weight:${s.bold ? 700 : 400}; font-style:${s.italic ? "italic" : "normal"};
             color:#${s.primary}; ${bg} text-shadow:${sh.join(",") || "none"}">Örnek altyazı</span>`;
     }
+    function galleryItems() {
+        return GALLERY.concat((settings.galleryMine || []).map(x => ({ name: x.name, s: x.s, mine: true })));
+    }
     function openGallery() {
-        if ($id("ui2-gal-ov")) return;
+        const prev = $id("ui2-gal-ov"); if (prev) prev.remove();
+        const items = galleryItems();
         const ov = document.createElement("div");
         ov.id = "ui2-gal-ov";
         ov.innerHTML = `
@@ -854,14 +867,16 @@ ${_plainTranscript()}`);
               <button class="btn-secondary" id="ui2-gal-close">${L("Kapat", "Close")}</button>
             </div>
             <div class="ui2-gal-grid">
-              ${GALLERY.map((g, i) => `
+              ${items.map((g, i) => `
                 <button class="ui2-gal-chip" data-i="${i}">
+                  ${g.mine ? `<span class="ui2-gal-del" data-i="${i}" title="${L("Sil", "Delete")}">✕</span>` : ""}
                   <span class="ui2-gal-prev">${chipPreviewSpan(g.s, true)}</span>
-                  <span class="ui2-gal-name">${g.name}</span>
+                  <span class="ui2-gal-name">${g.mine ? "★ " : ""}${g.name}</span>
                 </button>`).join("")}
             </div>
             <div class="ui2-gal-share">
-              <button class="btn-secondary" id="ui2-gal-copy">${L("Aktif stilin kodunu kopyala", "Copy current style code")}</button>
+              <button class="btn-secondary" id="ui2-gal-mine">${L("➕ Aktif stili galeriye kaydet", "➕ Save current style to gallery")}</button>
+              <button class="btn-secondary" id="ui2-gal-copy">${L("Stil kodunu kopyala", "Copy style code")}</button>
               <div style="display:flex; gap:6px; flex:1; min-width:200px">
                 <input type="text" id="ui2-gal-paste" class="settings-textarea" style="height:30px; flex:1; margin:0"
                        placeholder="${L("Stil kodu yapıştır (SUBSTYLE1.…)", "Paste a style code (SUBSTYLE1.…)")}">
@@ -872,12 +887,32 @@ ${_plainTranscript()}`);
         document.body.appendChild(ov);
         ov.addEventListener("click", e => { if (e.target === ov) ov.remove(); });
         $id("ui2-gal-close").onclick = () => ov.remove();
+        ov.querySelectorAll(".ui2-gal-del").forEach(x => x.addEventListener("click", ev => {
+            ev.stopPropagation();
+            const i = +x.getAttribute("data-i") - GALLERY.length;
+            const mine = settings.galleryMine || [];
+            if (i >= 0 && i < mine.length) {
+                mine.splice(i, 1);
+                settings.galleryMine = mine;
+                saveSettings();
+                openGallery();   // re-render
+            }
+        }));
         ov.querySelectorAll(".ui2-gal-chip").forEach(b => b.addEventListener("click", () => {
-            applyGalleryStyle(GALLERY[+b.getAttribute("data-i")].s);
+            applyGalleryStyle(items[+b.getAttribute("data-i")].s);
             ov.querySelectorAll(".ui2-gal-chip").forEach(x => x.classList.remove("active"));
             b.classList.add("active");
             showToast(L("Stil uygulandı — favorilere de kaydedebilirsin", "Style applied — you can also save it as a favorite"), "success", 3000);
         }));
+        $id("ui2-gal-mine").onclick = () => {
+            const name = prompt(L("Preset adı:", "Preset name:"), L("Benim Stilim", "My Style"));
+            if (!name) return;
+            const mine = settings.galleryMine || [];
+            mine.push({ name: name.slice(0, 22), s: { ...DEFAULT_CUSTOM_STYLE, glow: 0, italic: false, marginV: null, ...(settings.customStyle || {}) } });
+            settings.galleryMine = mine.slice(-12);
+            saveSettings();
+            openGallery();   // re-render with the new card
+        };
         $id("ui2-gal-copy").onclick = () => copyText(styleCode({ ...DEFAULT_CUSTOM_STYLE, ...(settings.customStyle || {}) }));
         $id("ui2-gal-import").onclick = () => {
             const s = parseStyleCode(($id("ui2-gal-paste") || {}).value);
@@ -1322,5 +1357,207 @@ ${_plainTranscript()}`);
         $id("mc-run").onclick = mcRun;
     }
 
-    setTimeout(() => { try { injectAll(); } catch (e) { console.error("[Subsper] features-v2 init:", e); } }, 40);
+    /* ═══ Faz A — quick wins ═══════════════════════════════════════════ */
+
+    // #21 session history: log every timeline-mutating host call
+    const HIST_KEYS = {
+        rippleDeleteRanges: ["Kesim (tüm kanallar)", "Cut (all tracks)"],
+        wsCutRangesSync: ["Kanal hedefli kesim", "Targeted cut"],
+        duckAudioRanges: ["Ses kısma/susturma", "Duck/mute audio"],
+        wsZoomPro: ["Otomatik zoom", "Auto zoom"],
+        applyAutoZoom: ["Otomatik zoom", "Auto zoom"],
+        wsMulticamApply: ["Multicam geçişleri", "Multicam switches"],
+        createResizedSequence: ["Dikey kopya sekans", "Resized sequence"],
+        addNamedMarkers: ["İsimli markerlar", "Named markers"],
+        addSilenceMarkers: ["Sessizlik markerları", "Silence markers"],
+        insertAudioAtStart: ["Bip kanalı eklendi", "Beep track added"],
+        importSRTToProject: ["Altyazı timeline'a gönderildi", "Captions sent to timeline"],
+    };
+    function histAll() {
+        try { return JSON.parse(localStorage.getItem("ws_hist") || "[]"); } catch (e) { return []; }
+    }
+    function histPush(key) {
+        const arr = histAll();
+        arr.push({ t: Date.now(), k: key });
+        localStorage.setItem("ws_hist", JSON.stringify(arr.slice(-15)));
+        renderHist();
+    }
+    function renderHist() {
+        const box = $id("ui2-hist-list"); if (!box) return;
+        const arr = histAll().slice().reverse();
+        box.innerHTML = arr.length ? arr.map(e => {
+            const d = new Date(e.t);
+            const hh = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+            const lab = HIST_KEYS[e.k] ? L(HIST_KEYS[e.k][0], HIST_KEYS[e.k][1]) : e.k;
+            return `<div class="ui2-hist-row"><span>${lab}</span><span>${hh}</span></div>`;
+        }).join("") : `<div class="setting-hint">${L("Henüz işlem yok.", "Nothing yet.")}</div>`;
+    }
+    function injectHistory() {
+        const sc = document.querySelector("#panel-su-main .setup-scroll");
+        if (!sc || $id("ui2-hist-list")) return;
+        const d = document.createElement("div");
+        d.innerHTML = `
+          <div class="setup-section-title" style="margin-top:16px">${L("Son İşlemler", "Recent Actions")}</div>
+          <div class="setting-item" style="padding-top:10px; padding-bottom:10px">
+            <div id="ui2-hist-list"></div>
+            <button class="btn-secondary" id="ui2-hist-clear" style="width:100%; margin-top:8px">${L("Geçmişi temizle", "Clear history")}</button>
+            <div class="setting-hint" style="margin-top:6px">${L("Timeline'ı değiştiren işlemlerin kaydı. Geri almak için Premiere'de Cmd/Ctrl+Z.", "A log of timeline-changing actions. Undo with Cmd/Ctrl+Z in Premiere.")}</div>
+          </div>`;
+        sc.appendChild(d);
+        $id("ui2-hist-clear").onclick = () => { localStorage.setItem("ws_hist", "[]"); renderHist(); };
+        renderHist();
+    }
+    function patchEvalHistory() {
+        if (typeof window.evalScript !== "function" || window.__evalPatched) return;
+        window.__evalPatched = true;
+        const _ev = window.evalScript;
+        window.evalScript = function (code) {
+            try {
+                const m = String(code).match(/^(\w+)\(/);
+                if (m && HIST_KEYS[m[1]]) histPush(m[1]);
+            } catch (e) {}
+            return _ev.apply(this, arguments);
+        };
+    }
+
+    // #13 text-based editing routed through the track-targeted cutter
+    async function applyTextCutsPro() {
+        if (!_originalSegments) { showToast(L("Önce Transcribe — sonra istemediğin satırları sil", "Transcribe first — then delete the rows you don't want"), "info", 4000); return; }
+        const removed = computeDeletedRanges();
+        if (!removed.length) { showToast(L("Silinmiş satır yok. Satır sil (✕), sonra tekrar dene", "No deleted rows yet. Delete rows (✕), then retry"), "info", 4500); return; }
+        showRangePreview(L("Silinen satırları videodan kes", "Cut deleted rows from the video"), removed, async chosen => {
+            setEditStatus(L(`${chosen.length} aralık kesiliyor…`, `Cutting ${chosen.length} range(s)…`), "info");
+            await loadHostJSX();
+            const sel = await ensureTrackSel();
+            const r = await hostCut(chosen, sel);
+            if (r && r.success) {
+                snapshotOriginalSegments();
+                const holes = r.holes ? L(` · ${r.holes} boşluk kapanamadı`, ` · ${r.holes} gap(s) open`) : "";
+                setEditStatus(L(`✓ ${r.removed} parça kesildi — video metnini takip etti`, `✓ Removed ${r.removed} item(s) — timeline follows your text`) + holes, r.holes ? "warning" : "success");
+                showToast(L("Video metnini takip etti ✂ (geri: Cmd/Ctrl+Z)", "Video follows your text ✂ (undo: Cmd/Ctrl+Z)"), "success", 5000);
+            } else setEditStatus((r && r.error) || L("Kesilemedi", "Cut failed"), "error");
+        });
+    }
+
+    // #4 chapters: save to file + YouTube description template
+    function chaptersSaveFile() {
+        const t = (($id("chapters-out") || {}).value || "").trim();
+        if (!t) { showToast(L("Önce bölümleri oluştur", "Generate chapters first"), "info"); return; }
+        try {
+            const f = path.join(os.homedir(), "Desktop", `chapters_${Date.now()}.txt`);
+            fs.writeFileSync(f, t, "utf8");
+            showToast(L("Masaüstüne kaydedildi", "Saved to Desktop"), "success");
+            try { revealInFolder(f); } catch (e) {}
+        } catch (e) { showToast(e.message, "error", 4000); }
+    }
+    function chaptersYtTemplate() {
+        const t = (($id("chapters-out") || {}).value || "").trim();
+        if (!t) { showToast(L("Önce bölümleri oluştur", "Generate chapters first"), "info"); return; }
+        copyText(L(
+`{Videonun kısa açıklaması buraya}
+
+⏱ Bölümler:
+${t}
+
+📌 Beğenmeyi ve abone olmayı unutma!
+#etiket1 #etiket2 #etiket3`,
+`{Short video description here}
+
+⏱ Chapters:
+${t}
+
+📌 Like & subscribe for more!
+#tag1 #tag2 #tag3`));
+    }
+    function injectChapterExtras() {
+        const markBtn = $id("chapters-mark");
+        if (!markBtn || $id("chapters-save")) return;
+        const row = markBtn.parentElement;
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "display:flex; gap:8px; margin-top:6px; margin-bottom:6px";
+        wrap.innerHTML = `
+          <button class="btn-secondary" id="chapters-save" style="flex:1">${L("Dosyaya kaydet (.txt)", "Save as .txt")}</button>
+          <button class="btn-secondary" id="chapters-yt" style="flex:1">${L("YouTube şablonu kopyala", "Copy YouTube template")}</button>`;
+        row.parentNode.insertBefore(wrap, row.nextSibling);
+        $id("chapters-save").onclick = chaptersSaveFile;
+        $id("chapters-yt").onclick = chaptersYtTemplate;
+    }
+
+    // #20 censorship report: timestamped list of what got beeped/muted
+    function profanityReport() {
+        if (needTranscript()) return;
+        const ranges = computeProfanityRanges();
+        if (!ranges.length) { showToast(L("Küfür bulunamadı — filtre listesi boş olabilir", "No profanity found — the filter list may be empty"), "info", 4000); return; }
+        const lineFor = r => {
+            const seg = segments.find(sg => r.start < sg.seqEnd && r.end > sg.seqStart);
+            const txt = seg ? String(seg.text || "").replace(/\s+/g, " ").trim().slice(0, 70) : "";
+            return `${mmss(r.start)} – ${mmss(r.end)}  ${txt ? "· \"" + txt + "\"" : ""}`;
+        };
+        const head = L(`SANSÜR RAPORU · ${new Date().toLocaleString()} · ${ranges.length} aralık`,
+                       `CENSORSHIP REPORT · ${new Date().toLocaleString()} · ${ranges.length} range(s)`);
+        const body = head + "\n" + "-".repeat(48) + "\n" + ranges.map(lineFor).join("\n");
+        const out = $id("prof-report-out");
+        if (out) { out.value = body; out.style.display = "block"; }
+        const btns = $id("prof-report-btns"); if (btns) btns.style.display = "flex";
+    }
+    function injectProfanityReport() {
+        const beepBtn = document.querySelector("#panel-au-work button[onclick^='beepProfanityAction']");
+        const item = beepBtn && beepBtn.closest(".setting-item");
+        if (!item || $id("prof-report-btn")) return;
+        const d = document.createElement("div");
+        d.innerHTML = `
+          <button class="btn-secondary" id="prof-report-btn" style="width:100%; margin-top:8px">${L("Sansür Raporu — ne, ne zaman biplendi", "Censorship Report — what got beeped, when")}</button>
+          <textarea id="prof-report-out" class="settings-textarea" rows="7" readonly style="display:none; margin-top:8px; font-size:11px"></textarea>
+          <div id="prof-report-btns" style="display:none; gap:8px; margin-top:6px; margin-bottom:6px">
+            <button class="btn-secondary" id="prof-report-copy" style="flex:1">${L("Kopyala", "Copy")}</button>
+            <button class="btn-secondary" id="prof-report-save" style="flex:1">${L("Dosyaya kaydet", "Save to file")}</button>
+          </div>`;
+        item.appendChild(d);
+        $id("prof-report-btn").onclick = profanityReport;
+        $id("prof-report-copy").onclick = () => copyText(($id("prof-report-out") || {}).value || "");
+        $id("prof-report-save").onclick = () => {
+            const t = ($id("prof-report-out") || {}).value || "";
+            if (!t) return;
+            try {
+                const f = path.join(os.homedir(), "Desktop", `censorship_report_${Date.now()}.txt`);
+                fs.writeFileSync(f, t, "utf8");
+                showToast(L("Masaüstüne kaydedildi", "Saved to Desktop"), "success");
+                try { revealInFolder(f); } catch (e) {}
+            } catch (e) { showToast(e.message, "error", 4000); }
+        };
+    }
+
+    // #5 one-click error report copy (support burden killer)
+    function injectErrorCopy() {
+        const header = document.querySelector("#error-panel .error-header");
+        if (!header || $id("error-copy-btn")) return;
+        const b = document.createElement("button");
+        b.id = "error-copy-btn";
+        b.className = "error-close";
+        b.textContent = "⧉";
+        b.title = L("Hata raporunu kopyala", "Copy error report");
+        b.style.marginRight = "6px";
+        header.insertBefore(b, header.lastElementChild);
+        b.onclick = () => {
+            const g = id => (($id(id) || {}).textContent || "").trim();
+            copyText([
+                "Subsper v" + (typeof APP_VERSION !== "undefined" ? APP_VERSION : "?"),
+                "OS: " + navigator.platform + " · Engine: " + (settings.engine || "cpp") + " · UI: " + settings.uiLang,
+                "What: " + g("error-what"),
+                "Why: " + g("error-why-text"),
+                "Fix: " + g("error-fix-text"),
+            ].join("\n"));
+        };
+    }
+
+    function fazA() {
+        patchEvalHistory();
+        window.applyTextCuts = applyTextCutsPro;   // upgrade text-based editing
+        injectHistory();
+        injectChapterExtras();
+        injectProfanityReport();
+        injectErrorCopy();
+    }
+
+    setTimeout(() => { try { injectAll(); fazA(); } catch (e) { console.error("[Subsper] features-v2 init:", e); } }, 40);
 })();

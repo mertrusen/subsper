@@ -245,6 +245,23 @@ body.ui2-zoompro #panel-ed-work .tool-card > .panel-intro { display: none; }
   overflow: hidden; white-space: nowrap;
 }
 .ui2-gal-name { font-size: 11px; font-weight: 600; color: var(--text2); text-align: center; }
+.ui2-gal-chip { position: relative; }
+.ui2-gal-del {
+  position: absolute; top: 4px; right: 4px; z-index: 2;
+  width: 18px; height: 18px; line-height: 18px; text-align: center;
+  font-size: 10px; color: var(--text2); background: var(--glass);
+  border: 1px solid var(--border2); border-radius: 50%; cursor: pointer;
+}
+.ui2-gal-del:hover { color: #fff; background: var(--red); border-color: var(--red); }
+
+/* recent-actions log (Settings page) */
+.ui2-hist-row {
+  display: flex; justify-content: space-between; gap: 10px;
+  padding: 6px 2px; border-bottom: 1px solid var(--border);
+  font-size: 11.5px; color: var(--text);
+}
+.ui2-hist-row span:last-child { color: var(--text3); font-family: var(--mono); font-size: 10.5px; }
+.ui2-hist-row:last-child { border-bottom: none; }
 .ui2-gal-share {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 10px 12px; border-top: 1px solid var(--border);

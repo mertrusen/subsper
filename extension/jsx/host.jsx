@@ -1497,6 +1497,36 @@ function wsCutRangesSync(payloadJson) {
                     diag.push("gap methods: " + ms.join(","));
                 }
             }
+            // attempt 4 (last resort): pull every later item on the selected
+            // tracks left by the hole width using QE item.move(), then verify
+            if (!closedHole) {
+                var delta = e0 - s0, movedAny = false;
+                for (t = 0; t < trks.length; t++) {
+                    var trk4 = trks[t];
+                    var cnt4 = 0;
+                    try { cnt4 = trk4.numItems; } catch (eC4) { continue; }
+                    // collect (index-stable) items starting at/after the hole end
+                    var later = [];
+                    for (var i4 = 0; i4 < cnt4; i4++) {
+                        var it4 = null;
+                        try { it4 = trk4.getItemAt(i4); } catch (eI4) { continue; }
+                        if (!it4) continue;
+                        var nm4 = ""; try { nm4 = it4.name; } catch (eN4) {}
+                        if (!nm4) continue;                       // skip gaps
+                        var st4 = null;
+                        try { st4 = _wsQeSecs(it4.start, fps); } catch (eT4) { continue; }
+                        if (st4 != null && st4 >= e0 - 0.01) later.push({ it: it4, st: st4 });
+                    }
+                    later.sort(function (x, y) { return x.st - y.st; });   // left → right
+                    for (var m4 = 0; m4 < later.length; m4++) {
+                        var tgt = tcAt(later[m4].st - delta);
+                        if (!tgt) continue;
+                        try { if (later[m4].it.move) { later[m4].it.move(tgt); movedAny = true; } }
+                        catch (eM4) { if (diag.length < 8) diag.push("move: " + eM4.toString()); break; }
+                    }
+                }
+                if (movedAny && trks.length && !gapStillThere(trks[0])) closedHole = true;
+            }
             if (!closedHole) holes++;
         }
         unlockAll();

@@ -131,8 +131,13 @@ ${_plainTranscript()}`);
                 await loadHostJSX();
                 const sel = await ensureTrackSel();   // shared with the Silence page's track picks
                 const r = await hostCut(chosen, sel);
-                if (r && r.success && r.removed > 0)
-                    showToast(L(`✓ ${r.removed} tekrar kesildi — Cmd/Ctrl+Z ile geri al`, `✓ Cut ${r.removed} repeat(s) — undo with Cmd/Ctrl+Z`), "success", 5000);
+                if (r && r.success && r.removed > 0) {
+                    const holes = r.holes
+                        ? L(` · ${r.holes} boşluk kapanamadı`, ` · ${r.holes} gap(s) could not close`)
+                        : "";
+                    showToast(L(`✓ ${r.removed} tekrar kesildi — Cmd/Ctrl+Z ile geri al`, `✓ Cut ${r.removed} repeat(s) — undo with Cmd/Ctrl+Z`) + holes, r.holes ? "warning" : "success", 5000);
+                    if (r.holes && r.diag && r.diag.length) console.log("[Subsper] repeat cut diag:", r.diag);
+                }
                 else {
                     await namedMarkers(chosen.map((c, i) => ({ start: c.start, name: "Repeat " + (i + 1), color: 1 })));
                     showToast(L("Kesilemedi — marker olarak işaretlendi", "Couldn't cut — marked instead"), "warning", 5000);
@@ -562,6 +567,10 @@ ${_plainTranscript()}`);
             showRangePreview(L("Sessizlikleri sustur (silmeden)", "Mute silences (keep timing)"), padded, async chosen => {
                 await loadHostJSX();
                 const sel = await ensureTrackSel();
+                if (sel && sel.a && !sel.a.length) {
+                    setSilenceStatus(L("Hiç ses kanalı seçili değil — kanal listesinden en az birini işaretle", "No audio track selected — tick at least one in the track list"), "warning");
+                    return;
+                }
                 const payload = JSON.stringify({ ranges: chosen, level: 0, tracks: sel ? sel.a : null }).replace(/'/g, "\\'");
                 const r = await evalScript(`duckAudioRanges('${payload}')`);
                 if (r && r.success)
@@ -1046,8 +1055,29 @@ ${_plainTranscript()}`);
         };
     }
 
+    // Turkish users saw English strings in the range-review modal — localize
+    // it after the stock builder runs (title is already localized by callers)
+    function patchRangePreviewI18n() {
+        if (typeof window.showRangePreview !== "function") return;
+        const _orig = window.showRangePreview;
+        window.showRangePreview = function (title, ranges, onApply) {
+            _orig(title, ranges, onApply);
+            if (settings.uiLang !== "tr") return;
+            const ov = $id("range-preview-ov"); if (!ov) return;
+            ov.querySelectorAll("div").forEach(d => {
+                if (d.children.length === 0 && /range\(s\)/.test(d.textContent)) {
+                    const total = ranges.reduce((a, r) => a + (r.end - r.start), 0);
+                    d.textContent = `${ranges.length} aralık · ~${total.toFixed(1)}s — kalmasını istediklerinin işaretini kaldır`;
+                }
+            });
+            const c = $id("rp-cancel"); if (c) c.textContent = "Vazgeç";
+            const a = $id("rp-apply"); if (a) a.textContent = "Uygula";
+        };
+    }
+
     function stylePro() {
         patchStatusTimer();
+        patchRangePreviewI18n();
         if (typeof window.buildASSStyle === "function" && typeof assColor === "function")
             window.buildASSStyle = (p, k) => styleLineV2(p, k, assColor, settings.karaokeHi);
         buildStyleTabs();

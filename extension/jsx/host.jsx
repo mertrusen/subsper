@@ -1461,15 +1461,40 @@ function wsCutRangesSync(payloadJson) {
                     catch (eR) { if (diag.length < 4) diag.push("remove: " + eR.toString()); }
                 }
             }
-            // close the hole once: ripple-delete the gap (unselected tracks are
-            // locked, so nothing blocks it and nothing else moves)
+            // close the hole once. QE's gap-removal API is undocumented and
+            // varies by build, so try each known call and VERIFY the gap is
+            // actually gone before trusting it (some calls no-op silently).
+            function gapAt(track) {
+                var g = itemAtMid(track, mid);
+                if (!g) return null;
+                var nm = "x"; try { nm = g.name; } catch (eG) {}
+                return (nm === "" || nm == null) ? g : null;   // only true gaps
+            }
+            function gapStillThere(track) { return gapAt(track) != null; }
             var closedHole = false;
             for (t = 0; t < trks.length && !closedHole; t++) {
-                var gap = itemAtMid(trks[t], mid);
-                var gnm = "x"; try { gnm = gap && gap.name; } catch (eG) {}
-                if (gap && (gnm === "" || gnm == null)) {
-                    try { gap.remove(true, true); closedHole = true; }
-                    catch (eH) { if (diag.length < 4) diag.push("gap ripple: " + eH.toString()); }
+                var track = trks[t];
+                if (!gapStillThere(track)) { closedHole = true; break; }
+                var g1 = gapAt(track);
+                if (g1) {
+                    try { if (g1.rippleDelete) g1.rippleDelete(); } catch (eH1) { if (diag.length < 6) diag.push("rippleDelete: " + eH1.toString()); }
+                    if (!gapStillThere(track)) { closedHole = true; break; }
+                }
+                var g2 = gapAt(track);
+                if (g2) {
+                    try { g2.remove(true, true); } catch (eH2) { if (diag.length < 6) diag.push("gap remove(t,t): " + eH2.toString()); }
+                    if (!gapStillThere(track)) { closedHole = true; break; }
+                }
+                var g3 = gapAt(track);
+                if (g3) {
+                    try { g3.remove(true, false); } catch (eH3) { if (diag.length < 6) diag.push("gap remove(t,f): " + eH3.toString()); }
+                    if (!gapStillThere(track)) { closedHole = true; break; }
+                }
+                if (diag.length < 6) {
+                    var ms = [], pr;
+                    var gx = gapAt(track);
+                    if (gx) { for (pr in gx) { try { if (typeof gx[pr] === "function") ms.push(pr); } catch (eP) {} } }
+                    diag.push("gap methods: " + ms.join(","));
                 }
             }
             if (!closedHole) holes++;

@@ -530,6 +530,10 @@ ${_plainTranscript()}`);
                             ? L(` · ${r.holes} boşluk kapanamadı (timeline'a bak)`, ` · ${r.holes} gap(s) could not close (check the timeline)`)
                             : "";
                         setSilenceStatus(L(`✓ ${r.removed} parça kesildi — Cmd/Ctrl+Z geri alır`, `✓ Cut ${r.removed} item(s) — undo with Cmd/Ctrl+Z`) + holes, r.holes ? "warning" : "success");
+                        if (r.holes && r.diag && r.diag.length) {
+                            console.log("[Subsper] cut diag:", r.diag);
+                            showToast(L("Teşhis: ", "Diag: ") + r.diag.slice(0, 2).join(" | "), "warning", 9000);
+                        }
                     }
                     else {
                         await evalScript(`addSilenceMarkers('${JSON.stringify(chosen).replace(/'/g, "\\'")}')`);

@@ -1999,6 +1999,55 @@ ${_plainTranscript()}`);
         injectSocial();
     }
 
+    // Word-list mirrors: edit the same profanity/filler lists right on the
+    // Beep and Filler tool pages; two-way live sync with the Subtitle
+    // settings textareas (single source of truth = settings via onSettingChange)
+    function bindMirror(orig, mirror, key) {
+        if (!mirror) return;
+        mirror.value = (orig && orig.value) || settings[key] || "";
+        mirror.addEventListener("input", () => {
+            if (orig) orig.value = mirror.value;
+            onSettingChange(key, mirror.value);
+        });
+        if (orig) orig.addEventListener("input", () => { mirror.value = orig.value; });
+    }
+    function injectListMirrors() {
+        const beepBtn = document.querySelector("#panel-au-work button[onclick^='beepProfanityAction']");
+        const beepItem = beepBtn && beepBtn.closest(".setting-item");
+        if (beepItem && !$id("beep-words-mirror")) {
+            const d = document.createElement("div");
+            d.innerHTML = `
+              <div class="setting-slider-header" style="margin-top:10px"><span>${L("Sansür listesi — ek kelimeler", "Censor list — extra words")}</span></div>
+              <textarea id="beep-words-mirror" class="settings-textarea" rows="2" placeholder="${L("kelime1, kelime2", "word1, word2")}"></textarea>
+              <div class="setting-hint">${L("Yerleşik listenin üstüne eklenir. Altyazı ayarlarındaki listeyle aynıdır — biri değişince ikisi de güncellenir.", "Added on top of the built-in list. Same list as in Subtitle settings — editing either updates both.")}</div>`;
+            beepItem.appendChild(d);
+            bindMirror($id("set-profanity"), $id("beep-words-mirror"), "profanityList");
+        }
+        const fillBtn = DESK
+            ? document.querySelector("#panel-ed-work button[onclick^='cutFillerWordsDesktop']")
+            : $id("filler-cut-btn");
+        const fillItem = fillBtn && fillBtn.closest(".setting-item");
+        if (fillItem && !$id("filler-words-mirror")) {
+            const d = document.createElement("div");
+            d.innerHTML = `
+              <label class="ui2-check" style="margin-top:10px"><input type="checkbox" id="filler-on-mirror"><span>${L("Yerleşik liste (ee, ıı, şey, um…)", "Built-in list (um, uh, like…)")}</span></label>
+              <div class="setting-slider-header" style="margin-top:8px"><span>${L("Ek dolgu kelimeleri", "Extra filler words")}</span></div>
+              <textarea id="filler-words-mirror" class="settings-textarea" rows="2" placeholder="açıkçası, aslında, bir nevi"></textarea>
+              <div class="setting-hint">${L("Altyazı ayarlarındaki listeyle aynıdır — biri değişince ikisi de güncellenir.", "Same list as in Subtitle settings — editing either updates both.")}</div>`;
+            fillItem.appendChild(d);
+            bindMirror($id("set-fillers"), $id("filler-words-mirror"), "fillerWords");
+            const mo = $id("filler-on-mirror"), oo = $id("set-filleron");
+            if (mo) {
+                mo.checked = settings.fillerOn !== false;
+                mo.addEventListener("change", () => {
+                    if (oo) oo.checked = mo.checked;
+                    onSettingChange("fillerOn", mo.checked);
+                });
+                if (oo) oo.addEventListener("change", () => { mo.checked = oo.checked; });
+            }
+        }
+    }
+
     function fazA() {
         if (!DESK) {
             patchEvalHistory();                        // history logs Premiere host calls
@@ -2010,5 +2059,5 @@ ${_plainTranscript()}`);
         injectErrorCopy();
     }
 
-    setTimeout(() => { try { injectAll(); fazA(); fazB(); fazC(); } catch (e) { console.error("[Subsper] features-v2 init:", e); } }, 40);
+    setTimeout(() => { try { injectAll(); fazA(); fazB(); fazC(); injectListMirrors(); } catch (e) { console.error("[Subsper] features-v2 init:", e); } }, 40);
 })();

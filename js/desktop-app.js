@@ -445,14 +445,10 @@
           if (wrap) {
               const nodes = wrap.querySelectorAll(".segment");
               nodes.forEach((n, i) => {
-                  if (i === activeIdx) {
-                      if (!n.classList.contains("playing")) {
-                          n.classList.add("playing");
-                          n.scrollIntoView({ behavior: "smooth", block: "center" });
-                      }
-                  } else {
-                      n.classList.remove("playing");
-                  }
+                  // highlight only — no auto-scroll; the user is watching the
+                  // video and the list must not move under them
+                  if (i === activeIdx) n.classList.add("playing");
+                  else n.classList.remove("playing");
               });
           }
       };

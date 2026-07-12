@@ -706,6 +706,7 @@
     }
     if (typeof drawSegmentBoxes === "function") try { drawSegmentBoxes(); } catch (e) {}
   }
+  window.__stripVer = "strip-v3";   // bump when the waveform strip changes (update check)
   async function buildWaveform() {
     if (!WCPP || !mediaPath || !mediaEl) return;
     let scroll = document.getElementById("waveform-scroll");
@@ -734,9 +735,11 @@
         const vx = relX(e);
         const frac = (scroll.scrollLeft + vx) / Math.max(1, canvas.clientWidth);
         // zoom scales with the actual wheel delta: trackpads fire many tiny
-        // events (a fixed 1.25x per event exploded), a mouse notch is ~±120
-        const k = e.deltaMode === 1 ? 0.05 : 0.0012;   // lines vs pixels
-        _waveZoom = Math.max(1, Math.min(40, _waveZoom * Math.exp(-e.deltaY * k)));
+        // events (a fixed 1.25x per event exploded), a mouse notch is ~±120;
+        // per-event factor is clamped so neither device over/under-shoots
+        const k = e.deltaMode === 1 ? 0.05 : 0.0025;   // lines vs pixels
+        const f = Math.max(0.8, Math.min(1.25, Math.exp(-e.deltaY * k)));
+        _waveZoom = Math.max(1, Math.min(40, _waveZoom * f));
         _drawWave();
         // keep the point under the cursor stable
         scroll.scrollLeft = frac * canvas.clientWidth - vx;
@@ -900,11 +903,40 @@
       const el = document.createElement("div");
       const l = Math.max(0, s.seqStart / D * 100), w = Math.max(0.3, (s.seqEnd - s.seqStart) / D * 100);
       el.style.cssText = `position:absolute;top:2px;bottom:2px;left:${l}%;width:${w}%;` +
-        `background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.55);border-radius:3px;pointer-events:auto;cursor:pointer`;
+        `background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.55);border-radius:3px;pointer-events:auto;cursor:grab`;
       el.title = `#${i + 1} ${s.text.slice(0, 40)}`;
       // select the row only — do NOT seek/play; the user may just be
       // inspecting the strip while watching elsewhere
       el.onclick = (ev) => { ev.stopPropagation(); selectSegment(i); };
+      // drag the box BODY to slide the whole segment left/right (duration
+      // kept, clamped to the neighbours so overlap stays impossible)
+      el.onmousedown = (ev) => {
+        if (ev.target !== el) return;            // edge handles do their own thing
+        ev.preventDefault(); ev.stopPropagation();
+        selectSegment(i);
+        const rect0 = canvas.getBoundingClientRect();
+        const startX = ev.clientX, s0 = s.seqStart, dur = s.seqEnd - s.seqStart;
+        const lo = i > 0 ? segments[i - 1].seqEnd : 0;
+        const hi = (i < segments.length - 1 ? segments[i + 1].seqStart : D) - dur;
+        if (hi < lo) return;                     // no room to move at all
+        let moved = false;
+        const move = (mv) => {
+          if (!moved && Math.abs(mv.clientX - startX) < 3) return;   // click tolerance
+          if (!moved) { pushUndo(); moved = true; el.style.cursor = "grabbing"; }
+          const dt = (mv.clientX - startX) / rect0.width * D;
+          const ns = Math.max(lo, Math.min(hi, s0 + dt));
+          s.seqStart = ns; s.seqEnd = ns + dur;
+          s.start = ns - seqInTime; s.end = s.seqEnd - seqInTime;
+          el.style.left = (ns / D * 100) + "%";
+        };
+        const up = () => {
+          document.removeEventListener("mousemove", move);
+          document.removeEventListener("mouseup", up);
+          if (moved) { renderSegments(); selectSegment(i); drawSegmentBoxes(); }
+        };
+        document.addEventListener("mousemove", move);
+        document.addEventListener("mouseup", up);
+      };
       // edge drag handles
       ["start", "end"].forEach(edge => {
         const h = document.createElement("div");

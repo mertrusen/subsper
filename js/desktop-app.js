@@ -706,7 +706,7 @@
     }
     if (typeof drawSegmentBoxes === "function") try { drawSegmentBoxes(); } catch (e) {}
   }
-  window.__stripVer = "strip-v3";   // bump when the waveform strip changes (update check)
+  window.__stripVer = "strip-v4";   // bump when the waveform strip changes (update check)
   async function buildWaveform() {
     if (!WCPP || !mediaPath || !mediaEl) return;
     let scroll = document.getElementById("waveform-scroll");
@@ -737,8 +737,8 @@
         // zoom scales with the actual wheel delta: trackpads fire many tiny
         // events (a fixed 1.25x per event exploded), a mouse notch is ~±120;
         // per-event factor is clamped so neither device over/under-shoots
-        const k = e.deltaMode === 1 ? 0.05 : 0.0025;   // lines vs pixels
-        const f = Math.max(0.8, Math.min(1.25, Math.exp(-e.deltaY * k)));
+        const k = e.deltaMode === 1 ? 0.12 : 0.006;    // lines vs pixels
+        const f = Math.max(0.67, Math.min(1.5, Math.exp(-e.deltaY * k)));
         _waveZoom = Math.max(1, Math.min(40, _waveZoom * f));
         _drawWave();
         // keep the point under the cursor stable
@@ -881,6 +881,20 @@
     } catch (e) { showToast("Save failed: " + e.message, "error"); }
   };
 
+  // Strip-local selection: mark the row + outline the clicked box, but never
+  // scroll the subtitle list — the user stays where they are
+  function stripSelect(i) {
+    document.querySelectorAll(".segment").forEach(n => n.classList.remove("selected"));
+    selectedIndex = i;
+    const row = document.querySelector(`.segment[data-idx="${i}"]`);
+    if (row) row.classList.add("selected");
+    const layer = document.getElementById("waveform-segs");
+    if (layer) [...layer.children].forEach((b, bi) => {
+      b.style.borderColor = bi === i ? "rgba(255,255,255,.95)" : "rgba(59,130,246,.55)";
+      b.style.background  = bi === i ? "rgba(59,130,246,.32)"  : "rgba(59,130,246,.18)";
+    });
+  }
+
   // Waveform segment boxes + edge-drag timing (visual editing on the strip)
   function drawSegmentBoxes() {
     const canvas = document.getElementById("waveform-canvas");
@@ -902,18 +916,21 @@
     segments.forEach((s, i) => {
       const el = document.createElement("div");
       const l = Math.max(0, s.seqStart / D * 100), w = Math.max(0.3, (s.seqEnd - s.seqStart) / D * 100);
+      const isSel = (typeof selectedIndex !== "undefined" && selectedIndex === i);
       el.style.cssText = `position:absolute;top:2px;bottom:2px;left:${l}%;width:${w}%;` +
-        `background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.55);border-radius:3px;pointer-events:auto;cursor:grab`;
+        `background:rgba(59,130,246,${isSel ? ".32" : ".18"});` +
+        `border:1px solid ${isSel ? "rgba(255,255,255,.95)" : "rgba(59,130,246,.55)"};` +
+        `border-radius:3px;pointer-events:auto;cursor:grab`;
       el.title = `#${i + 1} ${s.text.slice(0, 40)}`;
-      // select the row only — do NOT seek/play; the user may just be
-      // inspecting the strip while watching elsewhere
-      el.onclick = (ev) => { ev.stopPropagation(); selectSegment(i); };
+      // select in place — no seek, no play, no list scroll; the thin white
+      // stroke on the box shows what's selected
+      el.onclick = (ev) => { ev.stopPropagation(); stripSelect(i); };
       // drag the box BODY to slide the whole segment left/right (duration
       // kept, clamped to the neighbours so overlap stays impossible)
       el.onmousedown = (ev) => {
         if (ev.target !== el) return;            // edge handles do their own thing
         ev.preventDefault(); ev.stopPropagation();
-        selectSegment(i);
+        stripSelect(i);
         const rect0 = canvas.getBoundingClientRect();
         const startX = ev.clientX, s0 = s.seqStart, dur = s.seqEnd - s.seqStart;
         const lo = i > 0 ? segments[i - 1].seqEnd : 0;
@@ -932,7 +949,7 @@
         const up = () => {
           document.removeEventListener("mousemove", move);
           document.removeEventListener("mouseup", up);
-          if (moved) { renderSegments(); selectSegment(i); drawSegmentBoxes(); }
+          if (moved) { renderSegments(); stripSelect(i); drawSegmentBoxes(); }
         };
         document.addEventListener("mousemove", move);
         document.addEventListener("mouseup", up);
@@ -964,7 +981,7 @@
           const up = () => {
             document.removeEventListener("mousemove", move);
             document.removeEventListener("mouseup", up);
-            renderSegments(); selectSegment(i); drawSegmentBoxes();
+            renderSegments(); stripSelect(i); drawSegmentBoxes();
           };
           document.addEventListener("mousemove", move);
           document.addEventListener("mouseup", up);

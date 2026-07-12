@@ -733,7 +733,10 @@
         e.preventDefault();
         const vx = relX(e);
         const frac = (scroll.scrollLeft + vx) / Math.max(1, canvas.clientWidth);
-        _waveZoom = Math.max(1, Math.min(40, _waveZoom * (e.deltaY < 0 ? 1.25 : 0.8)));
+        // zoom scales with the actual wheel delta: trackpads fire many tiny
+        // events (a fixed 1.25x per event exploded), a mouse notch is ~±120
+        const k = e.deltaMode === 1 ? 0.05 : 0.0012;   // lines vs pixels
+        _waveZoom = Math.max(1, Math.min(40, _waveZoom * Math.exp(-e.deltaY * k)));
         _drawWave();
         // keep the point under the cursor stable
         scroll.scrollLeft = frac * canvas.clientWidth - vx;
@@ -899,7 +902,9 @@
       el.style.cssText = `position:absolute;top:2px;bottom:2px;left:${l}%;width:${w}%;` +
         `background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.55);border-radius:3px;pointer-events:auto;cursor:pointer`;
       el.title = `#${i + 1} ${s.text.slice(0, 40)}`;
-      el.onclick = (ev) => { ev.stopPropagation(); seekToSegment(i); };
+      // select the row only — do NOT seek/play; the user may just be
+      // inspecting the strip while watching elsewhere
+      el.onclick = (ev) => { ev.stopPropagation(); selectSegment(i); };
       // edge drag handles
       ["start", "end"].forEach(edge => {
         const h = document.createElement("div");
@@ -909,9 +914,18 @@
           pushUndo();
           const move = (mv) => {
             const rect = canvas.getBoundingClientRect();
-            const t = Math.max(0, Math.min(D, (mv.clientX - rect.left) / rect.width * D));
-            if (edge === "start" && t < s.seqEnd - 0.05) { s.seqStart = t; s.start = t - seqInTime; }
-            if (edge === "end"   && t > s.seqStart + 0.05) { s.seqEnd = t; s.end = t - seqInTime; }
+            let t = Math.max(0, Math.min(D, (mv.clientX - rect.left) / rect.width * D));
+            // segments may never overlap: a start can reach back only to the
+            // previous segment's end, an end forward only to the next's start
+            const lo = i > 0 ? segments[i - 1].seqEnd : 0;
+            const hi = i < segments.length - 1 ? segments[i + 1].seqStart : D;
+            if (edge === "start") {
+              t = Math.max(lo, Math.min(t, s.seqEnd - 0.05));
+              s.seqStart = t; s.start = t - seqInTime;
+            } else {
+              t = Math.min(hi, Math.max(t, s.seqStart + 0.05));
+              s.seqEnd = t; s.end = t - seqInTime;
+            }
             const li = Math.max(0, s.seqStart / D * 100), wi = Math.max(0.3, (s.seqEnd - s.seqStart) / D * 100);
             el.style.left = li + "%"; el.style.width = wi + "%";
           };

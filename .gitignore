@@ -3,6 +3,8 @@ dist/
 *.log
 .DS_Store
 .env
+__pycache__/
+*.pyc
 
 # Bundled native binaries — produced per-platform by scripts/fetch-binaries.mjs
 # (CI builds/downloads them; not committed to keep the repo small).

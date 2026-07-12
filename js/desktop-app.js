@@ -33,6 +33,7 @@
   let mediaPath = null;       // currently loaded video/audio file
   let _transcribeAbort = null;   // AbortController for cancelling transcription
   let mediaEl   = null;       // <video> used for preview + playback
+  let subOverlay = null;      // styled subtitle overlay rendered on the video
 
   const MEDIA_EXTS = ["mp4","mov","m4v","mkv","webm","avi","mp3","wav","m4a","aac","flac","ogg","wmv"];
 
@@ -426,7 +427,18 @@
       mediaEl = document.createElement("video");
       mediaEl.id = "media-preview";
       mediaEl.controls = true;
-      mediaEl.style.cssText = "width:100%;max-height:220px;background:#000;border-radius:8px;margin-bottom:10px;display:none";
+      mediaEl.style.cssText = "width:100%;max-height:220px;background:#000;border-radius:8px;display:none";
+      // wrapper so the subtitle overlay can sit ON the video
+      const vwrap = document.createElement("div");
+      vwrap.id = "video-wrap";
+      vwrap.style.cssText = "position:relative;margin-bottom:10px";
+      subOverlay = document.createElement("div");
+      subOverlay.id = "sub-overlay";
+      subOverlay.style.cssText = "position:absolute;left:0;right:0;bottom:5%;display:none;" +
+        "pointer-events:none;text-align:center;line-height:1.25;z-index:2";
+      subOverlay.innerHTML = `<span id="sub-overlay-t" style="display:inline-block;padding:.15em .4em;border-radius:4px;white-space:pre-wrap"></span>`;
+      vwrap.appendChild(mediaEl);
+      vwrap.appendChild(subOverlay);
 
       mediaEl.ontimeupdate = () => {
           const t = mediaEl.currentTime;
@@ -451,10 +463,18 @@
                   else n.classList.remove("playing");
               });
           }
+
+          // live styled subtitle on the video
+          if (subOverlay) {
+              const txt = activeIdx >= 0 ? (segments[activeIdx].text || "") : "";
+              const span = document.getElementById("sub-overlay-t");
+              if (span && span.textContent !== txt) span.textContent = txt;
+              subOverlay.style.display = txt ? "block" : "none";
+          }
       };
 
       controls.insertBefore(openBtn, controls.firstChild);
-      controls.insertBefore(mediaEl, controls.children[1]);
+      controls.insertBefore(vwrap, controls.children[1]);
       controls.insertBefore(nameRow, controls.children[2]);
     }
 
@@ -706,7 +726,57 @@
     }
     if (typeof drawSegmentBoxes === "function") try { drawSegmentBoxes(); } catch (e) {}
   }
-  window.__stripVer = "strip-v4";   // bump when the waveform strip changes (update check)
+  // Map the active ASS style (preset/gallery/custom + X/Y pin) onto the video
+  // overlay so the preview matches the .ass/burned output as closely as CSS can
+  function applyOverlayStyle() {
+    if (!subOverlay || typeof getActivePreset !== "function") return;
+    const p = getActivePreset();
+    const span = document.getElementById("sub-overlay-t");
+    if (!span) return;
+    const vh = (mediaEl && mediaEl.clientHeight) || 220;
+    const scale = vh / 1080;                       // ASS PlayResY → preview px
+    const ow = Math.max(0, (p.outlineW || 0) * scale);
+    span.style.fontFamily = `"${p.font}", Arial, sans-serif`;
+    span.style.fontSize = Math.max(9, p.size * scale) + "px";
+    span.style.fontWeight = p.bold ? "800" : "400";
+    span.style.fontStyle = p.italic ? "italic" : "normal";
+    span.style.color = "#" + (p.primary || "FFFFFF");
+    span.style.textShadow = ow
+      ? [[-ow, 0], [ow, 0], [0, -ow], [0, ow], [-ow, -ow], [ow, -ow], [-ow, ow], [ow, ow]]
+          .map(([x, y]) => `${x.toFixed(1)}px ${y.toFixed(1)}px #${p.outline || "000000"}`).join(", ")
+      : "none";
+    // ASS BackColour alpha: 0 = opaque, 255 = invisible
+    span.style.background = p.box
+      ? `rgba(${parseInt((p.boxColor || "000000").slice(0, 2), 16)},${parseInt((p.boxColor || "000000").slice(2, 4), 16)},${parseInt((p.boxColor || "000000").slice(4, 6), 16)},${(1 - (p.boxAlpha != null ? p.boxAlpha : 96) / 255).toFixed(2)})`
+      : "transparent";
+    const o = subOverlay.style;
+    if (settings.subPosX != null && settings.subPosY != null) {
+      o.left = settings.subPosX + "%"; o.right = "auto";
+      o.top = settings.subPosY + "%"; o.bottom = "auto";
+      o.transform = "translate(-50%,-50%)";
+      o.width = "max-content"; o.maxWidth = "94%";
+    } else {
+      o.left = "0"; o.right = "0"; o.width = "auto"; o.maxWidth = "none"; o.transform = "none";
+      if (p.align === 8)      { o.top = "4%";  o.bottom = "auto"; }
+      else if (p.align === 5) { o.top = "50%"; o.bottom = "auto"; o.transform = "translateY(-50%)"; }
+      else                    { o.bottom = "5%"; o.top = "auto"; }
+    }
+  }
+  // restyle whenever the style UI changes (chains after features-v2's own wrapper)
+  setTimeout(() => {
+    const _usp = window.updateStylePreview;
+    if (typeof _usp === "function")
+      window.updateStylePreview = function () {
+        const r = _usp.apply(this, arguments);
+        try { applyOverlayStyle(); } catch (e) {}
+        return r;
+      };
+    applyOverlayStyle();
+    if (mediaEl) mediaEl.addEventListener("loadedmetadata", () => setTimeout(applyOverlayStyle, 60));
+    window.addEventListener("resize", () => applyOverlayStyle());
+  }, 120);
+
+  window.__stripVer = "strip-v5";   // bump when the waveform strip changes (update check)
   async function buildWaveform() {
     if (!WCPP || !mediaPath || !mediaEl) return;
     let scroll = document.getElementById("waveform-scroll");
@@ -720,7 +790,8 @@
       canvas.id = "waveform-canvas";
       canvas.style.cssText = "height:44px;display:block;cursor:pointer";
       scroll.appendChild(canvas);
-      mediaEl.insertAdjacentElement("afterend", scroll);
+      // after the video WRAP (not the video) — the overlay must not cover the strip
+      (document.getElementById("video-wrap") || mediaEl).insertAdjacentElement("afterend", scroll);
       // Cursor x in VIEWPORT space (within the visible strip). e.offsetX is
       // content-space on the canvas — adding scrollLeft to it double-counts
       // the scroll, which threw both seek and zoom off once zoomed in.

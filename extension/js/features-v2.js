@@ -1999,6 +1999,59 @@ ${_plainTranscript()}`);
         injectSocial();
     }
 
+    // Subtitle position (X/Y sliders in the style area): when pinned, every
+    // dialogue line gets {\an5\pos(x,y)} so .ass exports AND burned-in video
+    // place the text exactly there; "auto" keeps the style's own alignment
+    function subPosPro() {
+        const _s2a = window.segmentsToASS;
+        if (typeof _s2a === "function" && !window.__s2aPosPatched) {
+            window.__s2aPosPatched = true;
+            window.segmentsToASS = function () {
+                let out = _s2a.apply(this, arguments);
+                if (settings.subPosX != null && settings.subPosY != null) {
+                    const px = Math.round(settings.subPosX * 19.2);   // % of PlayResX 1920
+                    const py = Math.round(settings.subPosY * 10.8);   // % of PlayResY 1080
+                    out = out.replace(/^(Dialogue: (?:[^,]*,){9})/gm, `$1{\\an5\\pos(${px},${py})}`);
+                }
+                return out;
+            };
+        }
+        const chips = $id("style-chips");
+        if (!chips || $id("ui2-pos-wrap")) return;
+        const d = document.createElement("div");
+        d.id = "ui2-pos-wrap";
+        d.style.marginTop = "10px";
+        const av = v => v != null ? v + "%" : L("oto", "auto");
+        d.innerHTML = `
+          <div class="setting-slider-header"><span>${L("Altyazı konumu — X (yatay)", "Subtitle position — X (horizontal)")}</span><span class="setting-value" id="subposx-val">${av(settings.subPosX)}</span></div>
+          <input type="range" class="setting-slider" id="subposx" min="0" max="100" step="1" value="${settings.subPosX != null ? settings.subPosX : 50}">
+          <div class="setting-slider-header" style="margin-top:6px"><span>${L("Altyazı konumu — Y (dikey)", "Subtitle position — Y (vertical)")}</span><span class="setting-value" id="subposy-val">${av(settings.subPosY)}</span></div>
+          <input type="range" class="setting-slider" id="subposy" min="0" max="100" step="1" value="${settings.subPosY != null ? settings.subPosY : 90}">
+          <button class="btn-secondary" id="subpos-reset" style="width:100%; margin-top:6px">${L("Konumu sıfırla (otomatik)", "Reset position (auto)")}</button>
+          <div class="setting-hint" style="margin-top:6px">${L("Kaydırınca altyazı tam bu noktaya sabitlenir — önizlemede, .ass'ta ve videoya gömmede aynı yer. Otomatikte stilin hizalaması geçerli.", "Dragging pins the subtitle to this exact point — same spot in the preview, .ass and burned video. Auto follows the style's alignment.")}</div>`;
+        const spk = $id("ui2-spk-wrap"), gal = $id("ui2-gal-btn");
+        const anchor = spk || gal || chips;
+        anchor.parentNode.insertBefore(d, anchor.nextSibling);
+        const wire = (id, key) => $id(id).addEventListener("input", () => {
+            // pin BOTH axes on first touch so \pos always has full coordinates
+            if (settings.subPosX == null) onSettingChange("subPosX", +$id("subposx").value);
+            if (settings.subPosY == null) onSettingChange("subPosY", +$id("subposy").value);
+            onSettingChange(key, +$id(id).value);
+            $id("subposx-val").textContent = settings.subPosX + "%";
+            $id("subposy-val").textContent = settings.subPosY + "%";
+            updateStylePreview();
+        });
+        wire("subposx", "subPosX");
+        wire("subposy", "subPosY");
+        $id("subpos-reset").onclick = () => {
+            onSettingChange("subPosX", null); onSettingChange("subPosY", null);
+            $id("subposx").value = 50; $id("subposy").value = 90;
+            $id("subposx-val").textContent = av(null);
+            $id("subposy-val").textContent = av(null);
+            updateStylePreview();
+        };
+    }
+
     // Word-list mirrors: edit the same profanity/filler lists right on the
     // Beep and Filler tool pages; two-way live sync with the Subtitle
     // settings textareas (single source of truth = settings via onSettingChange)
@@ -2059,5 +2112,5 @@ ${_plainTranscript()}`);
         injectErrorCopy();
     }
 
-    setTimeout(() => { try { injectAll(); fazA(); fazB(); fazC(); injectListMirrors(); } catch (e) { console.error("[Subsper] features-v2 init:", e); } }, 40);
+    setTimeout(() => { try { injectAll(); fazA(); fazB(); fazC(); injectListMirrors(); subPosPro(); } catch (e) { console.error("[Subsper] features-v2 init:", e); } }, 40);
 })();

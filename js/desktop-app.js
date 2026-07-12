@@ -724,19 +724,23 @@
       canvas.style.cssText = "height:44px;display:block;cursor:pointer";
       scroll.appendChild(canvas);
       mediaEl.insertAdjacentElement("afterend", scroll);
+      // Cursor x in VIEWPORT space (within the visible strip). e.offsetX is
+      // content-space on the canvas — adding scrollLeft to it double-counts
+      // the scroll, which threw both seek and zoom off once zoomed in.
+      const relX = e => e.clientX - scroll.getBoundingClientRect().left;
       canvas.onclick = (e) => {
         if (!mediaEl.duration) return;
-        const frac = (scroll.scrollLeft + e.offsetX) / canvas.clientWidth;
+        const frac = (scroll.scrollLeft + relX(e)) / canvas.clientWidth;
         mediaEl.currentTime = Math.max(0, Math.min(1, frac)) * mediaEl.duration;
       };
       scroll.addEventListener("wheel", (e) => {
         e.preventDefault();
-        const before = (scroll.scrollLeft + e.offsetX) / Math.max(1, canvas.clientWidth);
+        const vx = relX(e);
+        const frac = (scroll.scrollLeft + vx) / Math.max(1, canvas.clientWidth);
         _waveZoom = Math.max(1, Math.min(40, _waveZoom * (e.deltaY < 0 ? 1.25 : 0.8)));
         _drawWave();
         // keep the point under the cursor stable
-        const after = before * canvas.clientWidth - e.offsetX;
-        scroll.scrollLeft = after;
+        scroll.scrollLeft = frac * canvas.clientWidth - vx;
       }, { passive: false });
       // playhead marker
       const ph = document.createElement("div");
@@ -745,7 +749,9 @@
       scroll.appendChild(ph);
       canvas._phTimer = setInterval(() => {
         if (!mediaEl.duration || !scroll.isConnected) return;
-        ph.style.left = (mediaEl.currentTime / mediaEl.duration * canvas.clientWidth - scroll.scrollLeft) + "px";
+        // ph is absolutely positioned INSIDE the scroller, so it already moves
+        // with the content — content-space left, no scrollLeft correction
+        ph.style.left = (mediaEl.currentTime / mediaEl.duration * canvas.clientWidth) + "px";
       }, 100);
     }
     try {
@@ -883,9 +889,12 @@
       if (!host || getComputedStyle(host).position !== "relative") return;
       layer = document.createElement("div");
       layer.id = "waveform-segs";
-      layer.style.cssText = "position:absolute;inset:0;pointer-events:none";
+      layer.style.cssText = "position:absolute;left:0;top:0;bottom:0;pointer-events:none";
       host.appendChild(layer);
     }
+    // inset:0 sized the layer to the VISIBLE strip, so the % boxes drifted off
+    // the waveform when zoomed — pin it to the canvas (content) width instead
+    layer.style.width = canvas.clientWidth + "px";
     const D = mediaEl.duration;
     layer.innerHTML = "";
     segments.forEach((s, i) => {

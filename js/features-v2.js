@@ -2050,6 +2050,65 @@ ${_plainTranscript()}`);
             $id("subposy-val").textContent = av(null);
             updateStylePreview();
         };
+
+        // preview box becomes a video-ratio mock-up and the sample line
+        // follows the pinned X/Y (or the style's alignment when auto)
+        if (!window.__posPrevPatched) {
+            window.__posPrevPatched = true;
+            const _usp = window.updateStylePreview;
+            window.updateStylePreview = function () {
+                const r = _usp.apply(this, arguments);
+                try {
+                    const box = $id("style-preview"), txt = $id("style-preview-text");
+                    if (box && txt) {
+                        box.style.position = "relative";
+                        box.style.aspectRatio = String(window.__videoAR || (16 / 9));
+                        box.style.height = "auto";
+                        if (settings.subPosX != null && settings.subPosY != null) {
+                            txt.style.position = "absolute";
+                            txt.style.left = settings.subPosX + "%";
+                            txt.style.top = settings.subPosY + "%";
+                            txt.style.transform = "translate(-50%,-50%)";
+                            txt.style.maxWidth = "94%";
+                        } else {
+                            txt.style.position = ""; txt.style.left = ""; txt.style.top = "";
+                            txt.style.transform = ""; txt.style.maxWidth = "";
+                        }
+                    }
+                } catch (e) {}
+                return r;
+            };
+        }
+        // drag (or click) INSIDE the mock-up to place the subtitle
+        const prevBox = $id("style-preview");
+        if (prevBox && !prevBox.__posWired) {
+            prevBox.__posWired = true;
+            prevBox.style.cursor = "crosshair";
+            prevBox.title = L("Sürükleyerek altyazıyı konumlandır", "Drag to place the subtitle");
+            const setFromEvent = ev => {
+                const r = prevBox.getBoundingClientRect();
+                if (!r.width || !r.height) return;   // panel hidden → no geometry
+                const x = Math.round(Math.max(0, Math.min(100, (ev.clientX - r.left) / r.width * 100)));
+                const y = Math.round(Math.max(0, Math.min(100, (ev.clientY - r.top) / r.height * 100)));
+                onSettingChange("subPosX", x); onSettingChange("subPosY", y);
+                const sx = $id("subposx"), sy = $id("subposy");
+                if (sx) { sx.value = x; $id("subposx-val").textContent = x + "%"; }
+                if (sy) { sy.value = y; $id("subposy-val").textContent = y + "%"; }
+                updateStylePreview();
+            };
+            prevBox.addEventListener("mousedown", ev => {
+                ev.preventDefault();
+                setFromEvent(ev);
+                const mm = e2 => setFromEvent(e2);
+                const mu = () => {
+                    document.removeEventListener("mousemove", mm);
+                    document.removeEventListener("mouseup", mu);
+                };
+                document.addEventListener("mousemove", mm);
+                document.addEventListener("mouseup", mu);
+            });
+        }
+        updateStylePreview();   // apply the aspect/position right away
     }
 
     // Word-list mirrors: edit the same profanity/filler lists right on the

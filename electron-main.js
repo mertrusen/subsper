@@ -80,6 +80,17 @@ ipcMain.handle("dialog:openProject", async () => {
   return { filePath: res.filePaths[0] };
 });
 
+// Pick a font file to add to the user font library
+ipcMain.handle("dialog:openFont", async () => {
+  const res = await dialog.showOpenDialog(win, {
+    title: "Add font",
+    properties: ["openFile"],
+    filters: [{ name: "Fonts", extensions: ["ttf", "otf"] }],
+  });
+  if (res.canceled || !res.filePaths.length) return { filePath: null };
+  return { filePath: res.filePaths[0] };
+});
+
 // Save a file (subtitles / enhanced audio / trimmed media)
 ipcMain.handle("dialog:saveFile", async (_e, opts) => {
   opts = opts || {};

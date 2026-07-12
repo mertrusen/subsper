@@ -439,6 +439,13 @@
       subOverlay.innerHTML = `<span id="sub-overlay-t" style="display:inline-block;padding:.15em .4em;border-radius:4px;white-space:pre-wrap"></span>`;
       vwrap.appendChild(mediaEl);
       vwrap.appendChild(subOverlay);
+      // tell the style mock-up the real video aspect ratio
+      mediaEl.addEventListener("loadedmetadata", () => {
+        if (mediaEl.videoWidth && mediaEl.videoHeight) {
+          window.__videoAR = mediaEl.videoWidth / mediaEl.videoHeight;
+          try { updateStylePreview(); } catch (e) {}
+        }
+      });
 
       mediaEl.ontimeupdate = () => {
           const t = mediaEl.currentTime;
@@ -609,9 +616,10 @@
       fsD.writeFileSync(assPath, segmentsToASS(), "utf8");
       // ffmpeg subtitles filter: escape ' : \ for the filter graph
       const esc = assPath.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
+      const fdEsc = fontsDir().replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
       await new Promise((resolve, reject) => {
         const ff = spawnD(WCPP.ffmpegBin(extDir()),
-          ["-y", "-i", mediaPath, "-vf", "subtitles='" + esc + "'",
+          ["-y", "-i", mediaPath, "-vf", "subtitles='" + esc + "':fontsdir='" + fdEsc + "'",
            "-c:a", "copy", res.filePath]);
         let err = "";
         ff.stderr.on("data", d => {
@@ -726,6 +734,91 @@
     }
     if (typeof drawSegmentBoxes === "function") try { drawSegmentBoxes(); } catch (e) {}
   }
+  /* ── user fonts: add .ttf/.otf from disk, render in preview AND burn-in ── */
+  function fontsDir() {
+    const base = WCPP ? pathD.dirname(WCPP.modelsDir()) : pathD.join(osD.homedir(), ".subsper");
+    const d = pathD.join(base, "fonts");
+    try { fsD.mkdirSync(d, { recursive: true }); } catch (e) {}
+    return d;
+  }
+  // family name from the sfnt 'name' table (nameID 1) — libass matches by
+  // family, not filename, so the burned output needs the real name
+  function fontFamilyName(buf) {
+    try {
+      const u16 = o => buf.readUInt16BE(o), u32 = o => buf.readUInt32BE(o);
+      let off = 0;
+      if (u32(0) === 0x74746366) off = u32(12);          // 'ttcf' collection → first font
+      const num = u16(off + 4);
+      let nameOff = -1;
+      for (let i = 0; i < num; i++) {
+        const rec = off + 12 + i * 16;
+        if (buf.toString("ascii", rec, rec + 4) === "name") { nameOff = u32(rec + 8); break; }
+      }
+      if (nameOff < 0) return null;
+      const count = u16(nameOff + 2), strOff = nameOff + u16(nameOff + 4);
+      let best = null;
+      for (let i = 0; i < count; i++) {
+        const r = nameOff + 6 + i * 12;
+        const plat = u16(r), nameID = u16(r + 6), len = u16(r + 8), so = u16(r + 10);
+        if (nameID !== 1) continue;
+        if (plat === 3) {                                 // Windows, UTF-16BE
+          let s = "";
+          for (let j = 0; j + 1 < len; j += 2) s += String.fromCharCode(u16(strOff + so + j));
+          best = s; break;
+        }
+        if (plat === 1 && !best) best = buf.toString("latin1", strOff + so, strOff + so + len);
+      }
+      return best;
+    } catch (e) { return null; }
+  }
+  function registerFontFile(p) {
+    const buf = fsD.readFileSync(p);
+    const fam = fontFamilyName(buf) || pathD.basename(p).replace(/\.[^.]+$/, "");
+    try {
+      const ff = new FontFace(fam, buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+      ff.load().then(f => document.fonts.add(f)).catch(e => console.warn("font load:", e));
+    } catch (e) { console.warn("FontFace:", e); }
+    return fam;
+  }
+  // re-register previously added fonts at startup
+  try {
+    fsD.readdirSync(fontsDir()).filter(f => /\.(ttf|otf)$/i.test(f))
+       .forEach(f => registerFontFile(pathD.join(fontsDir(), f)));
+  } catch (e) {}
+  window.addUserFont = async function () {
+    const res = await ipcRenderer.invoke("dialog:openFont");
+    if (!res || !res.filePath) return;
+    try {
+      const dest = pathD.join(fontsDir(), pathD.basename(res.filePath));
+      fsD.copyFileSync(res.filePath, dest);
+      const fam = registerFontFile(dest);
+      settings.stylePreset = "custom";
+      settings.customStyle = Object.assign({}, settings.customStyle || {}, { font: fam });
+      saveSettings();
+      if (typeof populateCustomForm === "function") try { populateCustomForm(); } catch (e) {}
+      updateStylePreview();
+      showToast((settings.uiLang === "tr" ? "Font eklendi, Custom stile uygulandı: " : "Font added, applied to Custom: ") + fam, "success", 5000);
+    } catch (e) { showToast(e.message, "error", 5000); }
+  };
+  // "Add font" button under the position sliders (they appear at ~40ms)
+  setTimeout(() => {
+    const posWrap = document.getElementById("ui2-pos-wrap");
+    if (posWrap && !document.getElementById("addfont-btn")) {
+      const b = document.createElement("button");
+      b.id = "addfont-btn"; b.className = "btn-secondary";
+      b.style.cssText = "width:100%; margin-top:8px";
+      b.textContent = settings.uiLang === "tr" ? "Font dosyası ekle (.ttf / .otf)" : "Add a font file (.ttf / .otf)";
+      b.onclick = () => window.addUserFont();
+      posWrap.appendChild(b);
+      const h = document.createElement("div");
+      h.className = "setting-hint"; h.style.marginTop = "6px";
+      h.textContent = settings.uiLang === "tr"
+        ? "Eklenen font önizlemede ve videoya gömme çıktısında kullanılır."
+        : "Added fonts render in the preview and in burned-in exports.";
+      posWrap.appendChild(h);
+    }
+  }, 90);
+
   // Map the active ASS style (preset/gallery/custom + X/Y pin) onto the video
   // overlay so the preview matches the .ass/burned output as closely as CSS can
   function applyOverlayStyle() {
@@ -776,7 +869,7 @@
     window.addEventListener("resize", () => applyOverlayStyle());
   }, 120);
 
-  window.__stripVer = "strip-v5";   // bump when the waveform strip changes (update check)
+  window.__stripVer = "strip-v6";   // bump when the waveform strip changes (update check)
   async function buildWaveform() {
     if (!WCPP || !mediaPath || !mediaEl) return;
     let scroll = document.getElementById("waveform-scroll");
@@ -1105,7 +1198,8 @@
       if (segments.length) {
         fsD.writeFileSync(assPath, segmentsToASS(), "utf8");
         const esc = assPath.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
-        vf += ",subtitles='" + esc + "'";
+        const fdEsc = fontsDir().replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
+        vf += ",subtitles='" + esc + "':fontsdir='" + fdEsc + "'";
       }
       await new Promise((resolve, reject) => {
         const ff = spawnD(WCPP.ffmpegBin(extDir()),

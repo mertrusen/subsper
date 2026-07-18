@@ -463,6 +463,10 @@
       mediaEl.addEventListener("loadedmetadata", () => {
         if (mediaEl.videoWidth && mediaEl.videoHeight) {
           window.__videoAR = mediaEl.videoWidth / mediaEl.videoHeight;
+          // real dimensions drive the .ass PlayRes (vertical videos otherwise
+          // get ~1.8x oversized fonts that wrap word-per-line)
+          window.__videoW = mediaEl.videoWidth;
+          window.__videoH = mediaEl.videoHeight;
           try { updateStylePreview(); } catch (e) {}
         }
       });
@@ -887,7 +891,7 @@
     subOverlay.style.top = rct.top + "px";
     subOverlay.style.width = rct.width + "px";
     subOverlay.style.height = rct.height + "px";
-    const scale = (rct.height || 220) / 1080;      // ASS PlayResY → preview px
+    const scale = (rct.height || 220) / (window.__videoH || 1080);   // ASS PlayResY → preview px
     const ow = Math.max(0, (p.outlineW || 0) * scale);
     span.style.fontFamily = `"${p.font}", Arial, sans-serif`;
     span.style.fontSize = Math.max(9, p.size * scale) + "px";
@@ -930,7 +934,7 @@
     window.addEventListener("resize", () => applyOverlayStyle());
   }, 120);
 
-  window.__stripVer = "strip-v10";   // bump when the waveform strip changes (update check)
+  window.__stripVer = "strip-v11";   // bump when the waveform strip changes (update check)
   async function buildWaveform() {
     if (!WCPP || !mediaPath || !mediaEl) return;
     let scroll = document.getElementById("waveform-scroll");

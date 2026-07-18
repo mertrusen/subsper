@@ -13,6 +13,9 @@
     const L = (tr, en) => (settings.uiLang === "tr") ? tr : en;
     const $id = id => document.getElementById(id);
     const DESK = (typeof window !== "undefined" && window.IS_DESKTOP === true);
+    // .ass PlayRes = real video dims when known (desktop sets __videoW/H);
+    // the fixed 1920x1080 header oversized fonts ~1.8x on vertical videos
+    const PR = () => ({ w: window.__videoW || 1920, h: window.__videoH || 1080 });
 
     // ── shared helpers ─────────────────────────────────────────────────────
     function aiAvailable() {
@@ -811,9 +814,10 @@ ${_plainTranscript()}`);
         const back = colorFn(p.boxColor, p.box ? p.boxAlpha : 0);
         const border = p.box ? 3 : 1;
         const marginV = (p.marginV != null && p.marginV !== "") ? +p.marginV : ((p.align === 5) ? 0 : 50);
-        // max line-box width (Premiere-style safe box): % of PlayResX 1920 → L/R margins
+        // max line-box width (Premiere-style safe box): % of PlayResX → L/R margins
         const mLR = (settings.subMaxW != null)
-            ? Math.max(0, Math.round((100 - settings.subMaxW) / 2 * 19.2)) : 60;
+            ? Math.max(0, Math.round((100 - settings.subMaxW) / 2 * (PR().w / 100)))
+            : Math.round(PR().w / 32);
         const primaryCol = karaoke ? highlight : base;
         const secondaryCol = karaoke ? base : "&H000000FF";
         return `Style: Default,${p.font},${p.size},${primaryCol},${secondaryCol},${outlineCol},${back},${p.bold ? -1 : 0},${p.italic ? -1 : 0},0,0,100,100,0,0,${border},${p.outlineW},${p.shadow},${p.align},${mLR},${mLR},${marginV},1`;
@@ -2011,9 +2015,13 @@ ${_plainTranscript()}`);
             window.__s2aPosPatched = true;
             window.segmentsToASS = function () {
                 let out = _s2a.apply(this, arguments);
+                const pr = PR();
+                if (pr.w !== 1920 || pr.h !== 1080)
+                    out = out.replace("PlayResX: 1920", "PlayResX: " + pr.w)
+                             .replace("PlayResY: 1080", "PlayResY: " + pr.h);
                 if (settings.subPosX != null && settings.subPosY != null) {
-                    const px = Math.round(settings.subPosX * 19.2);   // % of PlayResX 1920
-                    const py = Math.round(settings.subPosY * 10.8);   // % of PlayResY 1080
+                    const px = Math.round(settings.subPosX / 100 * pr.w);
+                    const py = Math.round(settings.subPosY / 100 * pr.h);
                     out = out.replace(/^(Dialogue: (?:[^,]*,){9})/gm, `$1{\\an5\\pos(${px},${py})}`);
                 }
                 return out;

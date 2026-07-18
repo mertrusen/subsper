@@ -440,15 +440,18 @@
       subOverlay.innerHTML = `<span id="sub-overlay-t" style="position:absolute;padding:.15em .4em;border-radius:4px;white-space:pre-wrap"></span>`;
       vwrap.appendChild(mediaEl);
       vwrap.appendChild(subOverlay);
-      // native fullscreen targets the <video> alone (overlay would vanish) —
-      // re-enter fullscreen on the wrap so the subtitle stays visible
+      // Fullscreen must target the WRAP (so the subtitle overlay stays
+      // visible). The old exit-and-reenter swap failed because the re-enter
+      // has no user gesture — the video just shrank back. Instead: hide the
+      // native fullscreen button and own the double-click gesture directly.
+      mediaEl.setAttribute("controlslist", "nofullscreen");
+      mediaEl.addEventListener("dblclick", (e) => {
+        e.preventDefault(); e.stopPropagation();
+        if (document.fullscreenElement === vwrap) document.exitFullscreen().catch(() => {});
+        else vwrap.requestFullscreen().catch(() => {});
+      }, true);
       document.addEventListener("fullscreenchange", () => {
-        const fs = document.fullscreenElement;
-        if (fs === mediaEl) {
-          document.exitFullscreen().then(() => vwrap.requestFullscreen()).catch(e => {});
-          return;
-        }
-        const on = fs === vwrap;
+        const on = document.fullscreenElement === vwrap;
         mediaEl.style.maxHeight = on ? "100vh" : "220px";
         mediaEl.style.height = on ? "100%" : "";
         mediaEl.style.width = "100%";
@@ -921,7 +924,7 @@
     window.addEventListener("resize", () => applyOverlayStyle());
   }, 120);
 
-  window.__stripVer = "strip-v8";   // bump when the waveform strip changes (update check)
+  window.__stripVer = "strip-v9";   // bump when the waveform strip changes (update check)
   async function buildWaveform() {
     if (!WCPP || !mediaPath || !mediaEl) return;
     let scroll = document.getElementById("waveform-scroll");

@@ -260,6 +260,7 @@
     // Escape returns to the home screen (unless typing in a field)
     document.addEventListener("keydown", e => {
         if (e.key !== "Escape") return;
+        if (document.fullscreenElement) return;   // Esc = exit fullscreen only
         const tag = (document.activeElement && document.activeElement.tagName) || "";
         if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
         if (!document.body.classList.contains("ui2-home")) { e.preventDefault(); ui2Home(); }

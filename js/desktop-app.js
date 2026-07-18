@@ -727,28 +727,44 @@
 
   // Waveform strip under the preview player (peaks via bundled ffmpeg PCM dump)
   // Zoomable waveform: scroll-wheel over the strip zooms in/out (was too tiny).
-  let _waveSamples = null, _waveZoom = 1, _waveMax = 32768;
+  let _waveSamples = null, _waveZoom = 1, _waveRef = 32768;
+  // total (virtual) strip width in css px — content space for boxes/playhead/seek
+  function waveVirtualW() {
+    const scroll = document.getElementById("waveform-scroll");
+    if (!scroll) return 0;
+    return Math.max(scroll.clientWidth, Math.round(scroll.clientWidth * _waveZoom));
+  }
+  // Virtualized draw: the canvas is viewport-sized and sticky — only the
+  // visible slice is rendered, so any zoom level stays fast and never hits
+  // the 32k canvas width limit (that was the "freeze").
   function _drawWave() {
     const canvas = document.getElementById("waveform-canvas");
     const scroll = document.getElementById("waveform-scroll");
+    const spacer = document.getElementById("waveform-spacer");
     if (!canvas || !scroll || !_waveSamples) return;
     const dpr = window.devicePixelRatio || 1;
-    const cssW = Math.max(scroll.clientWidth, Math.round(scroll.clientWidth * _waveZoom));
-    canvas.style.width = cssW + "px";
-    const W = canvas.width = Math.round(cssW * dpr);
+    const vw = scroll.clientWidth;
+    const virtualW = waveVirtualW();
+    if (spacer) spacer.style.width = virtualW + "px";
+    canvas.style.width = vw + "px";
+    const W = canvas.width = Math.round(vw * dpr);
     const H = canvas.height = 44 * dpr;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = "rgba(80,140,255,.75)";
-    const per = Math.max(1, Math.floor(_waveSamples.length / W));
+    const total = _waveSamples.length;
+    const s0 = scroll.scrollLeft / virtualW * total;      // visible sample window
+    const perPx = total / (virtualW * dpr);               // samples per device px
     for (let x = 0; x < W; x++) {
-      let peak = 0;
-      for (let i = x * per; i < (x + 1) * per && i < _waveSamples.length; i++) {
-        const v = Math.abs(_waveSamples[i]); if (v > peak) peak = v;
-      }
-      // normalize to the FILE's own peak (quiet recordings looked like a flat
-      // line at /32768) + a perceptual curve so speech structure is visible
-      const h = Math.max(1, Math.pow(peak / _waveMax, 0.65) * H);
+      const a = Math.floor(s0 + x * perPx), b = Math.max(a + 1, Math.floor(s0 + (x + 1) * perPx));
+      let sum = 0, n = 0;
+      for (let i = a; i < b && i < total; i++) { const v = _waveSamples[i]; sum += v * v; n++; }
+      // RMS (energy), not peak — peaks made pauses look as loud as speech;
+      // silences now drop to a hairline
+      const rms = Math.sqrt(sum / Math.max(1, n));
+      let f = Math.pow(Math.min(1, rms / _waveRef), 0.6);
+      if (f < 0.04) f = 0.02;                             // noise floor → hairline
+      const h = Math.max(1, f * H);
       ctx.fillRect(x, (H - h) / 2, 1, h);
     }
     if (typeof drawSegmentBoxes === "function") try { drawSegmentBoxes(); } catch (e) {}
@@ -905,7 +921,7 @@
     window.addEventListener("resize", () => applyOverlayStyle());
   }, 120);
 
-  window.__stripVer = "strip-v7";   // bump when the waveform strip changes (update check)
+  window.__stripVer = "strip-v8";   // bump when the waveform strip changes (update check)
   async function buildWaveform() {
     if (!WCPP || !mediaPath || !mediaEl) return;
     let scroll = document.getElementById("waveform-scroll");
@@ -914,36 +930,46 @@
       scroll = document.createElement("div");
       scroll.id = "waveform-scroll";
       scroll.style.cssText = "position:relative;width:100%;overflow-x:auto;overflow-y:hidden;background:var(--bg3,#111);border-radius:6px;margin-bottom:10px";
-      scroll.title = "Scroll to zoom · click to seek";
+      scroll.title = settings.uiLang === "tr"
+        ? "Dikey kaydır: yakınlaş · yatay kaydır: gezin · tık: o ana git"
+        : "Scroll ↕ to zoom · scroll ↔ to pan · click to seek";
+      // sticky viewport-sized canvas + a spacer that provides the scroll width
       canvas = document.createElement("canvas");
       canvas.id = "waveform-canvas";
-      canvas.style.cssText = "height:44px;display:block;cursor:pointer";
+      canvas.style.cssText = "height:44px;display:block;cursor:pointer;position:sticky;left:0";
+      const spacer = document.createElement("div");
+      spacer.id = "waveform-spacer";
+      spacer.style.cssText = "height:1px;margin-top:-1px;pointer-events:none";
       scroll.appendChild(canvas);
+      scroll.appendChild(spacer);
       // after the video WRAP (not the video) — the overlay must not cover the strip
       (document.getElementById("video-wrap") || mediaEl).insertAdjacentElement("afterend", scroll);
-      // Cursor x in VIEWPORT space (within the visible strip). e.offsetX is
-      // content-space on the canvas — adding scrollLeft to it double-counts
-      // the scroll, which threw both seek and zoom off once zoomed in.
+      // Cursor x in VIEWPORT space (within the visible strip)
       const relX = e => e.clientX - scroll.getBoundingClientRect().left;
       canvas.onclick = (e) => {
         if (!mediaEl.duration) return;
-        const frac = (scroll.scrollLeft + relX(e)) / canvas.clientWidth;
+        const frac = (scroll.scrollLeft + relX(e)) / Math.max(1, waveVirtualW());
         mediaEl.currentTime = Math.max(0, Math.min(1, frac)) * mediaEl.duration;
       };
       scroll.addEventListener("wheel", (e) => {
+        // horizontal scroll = native pan — don't steal it (it used to freeze)
+        if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
         e.preventDefault();
         const vx = relX(e);
-        const frac = (scroll.scrollLeft + vx) / Math.max(1, canvas.clientWidth);
-        // zoom scales with the actual wheel delta: trackpads fire many tiny
-        // events (a fixed 1.25x per event exploded), a mouse notch is ~±120;
-        // per-event factor is clamped so neither device over/under-shoots
+        const frac = (scroll.scrollLeft + vx) / Math.max(1, waveVirtualW());
         const k = e.deltaMode === 1 ? 0.12 : 0.006;    // lines vs pixels
         const f = Math.max(0.67, Math.min(1.5, Math.exp(-e.deltaY * k)));
-        _waveZoom = Math.max(1, Math.min(40, _waveZoom * f));
+        _waveZoom = Math.max(1, Math.min(60, _waveZoom * f));
+        scroll.scrollLeft = frac * waveVirtualW() - vx;   // anchor under cursor
         _drawWave();
-        // keep the point under the cursor stable
-        scroll.scrollLeft = frac * canvas.clientWidth - vx;
       }, { passive: false });
+      // panning re-renders the visible slice (rAF-throttled)
+      let _rafPending = false;
+      scroll.addEventListener("scroll", () => {
+        if (_rafPending) return;
+        _rafPending = true;
+        requestAnimationFrame(() => { _rafPending = false; _drawWave(); });
+      });
       // playhead marker
       const ph = document.createElement("div");
       ph.id = "waveform-ph";
@@ -951,32 +977,35 @@
       scroll.appendChild(ph);
       canvas._phTimer = setInterval(() => {
         if (!mediaEl.duration || !scroll.isConnected) return;
-        // ph is absolutely positioned INSIDE the scroller, so it already moves
-        // with the content — content-space left, no scrollLeft correction
-        ph.style.left = (mediaEl.currentTime / mediaEl.duration * canvas.clientWidth) + "px";
+        // content-space left — the marker scrolls with the content
+        ph.style.left = (mediaEl.currentTime / mediaEl.duration * waveVirtualW()) + "px";
       }, 100);
     }
     try {
       const raw = pathD.join(osD.tmpdir(), "subsper_wave_" + Date.now() + ".pcm");
       await new Promise((resolve, reject) => {
         const ff = spawnD(WCPP.ffmpegBin(extDir()),
-          ["-y", "-i", mediaPath, "-ac", "1", "-ar", "400", "-f", "s16le", raw]);
+          ["-y", "-i", mediaPath, "-ac", "1", "-ar", "1000", "-f", "s16le", raw]);
         ff.on("error", reject);
         ff.on("close", c => c === 0 ? resolve() : reject(new Error("wave extract failed")));
       });
       const buf = fsD.readFileSync(raw);
       try { fsD.unlinkSync(raw); } catch (e) {}
       _waveSamples = new Int16Array(buf.buffer, buf.byteOffset, Math.floor(buf.length / 2));
-      _waveMax = 1;
-      for (let i = 0; i < _waveSamples.length; i++) {
-        const v = Math.abs(_waveSamples[i]); if (v > _waveMax) _waveMax = v;
-      }
+      // reference = 98th percentile of |samples| (sampled) — robust against a
+      // single loud spike squashing the whole strip
+      const step = Math.max(1, Math.floor(_waveSamples.length / 40000));
+      const pick = [];
+      for (let i = 0; i < _waveSamples.length; i += step) pick.push(Math.abs(_waveSamples[i]));
+      pick.sort((a, b) => a - b);
+      _waveRef = Math.max(1, pick[Math.floor(pick.length * 0.98)] || 32768);
       _waveZoom = 1;
       _drawWave();
     } catch (e) { console.warn("waveform failed:", e); }
   }
   const _origLoadMedia = loadMedia;
   loadMedia = function (p) { _origLoadMedia(p); setTimeout(buildWaveform, 50); };
+  window.__loadMedia = p => loadMedia(p);   // test hook (loadMedia is IIFE-private)
 
   // Multi-file drag & drop → batch
   document.addEventListener("drop", e => {
@@ -1114,7 +1143,7 @@
     }
     // inset:0 sized the layer to the VISIBLE strip, so the % boxes drifted off
     // the waveform when zoomed — pin it to the canvas (content) width instead
-    layer.style.width = canvas.clientWidth + "px";
+    layer.style.width = waveVirtualW() + "px";   // content space (canvas is viewport-sized now)
     const D = mediaEl.duration;
     layer.innerHTML = "";
     segments.forEach((s, i) => {
@@ -1135,7 +1164,7 @@
         if (ev.target !== el) return;            // edge handles do their own thing
         ev.preventDefault(); ev.stopPropagation();
         stripSelect(i);
-        const rect0 = canvas.getBoundingClientRect();
+        const rect0 = layer.getBoundingClientRect();   // spans the full content width
         const startX = ev.clientX, s0 = s.seqStart, dur = s.seqEnd - s.seqStart;
         const lo = i > 0 ? segments[i - 1].seqEnd : 0;
         const hi = (i < segments.length - 1 ? segments[i + 1].seqStart : D) - dur;
@@ -1166,7 +1195,7 @@
           ev.preventDefault(); ev.stopPropagation();
           pushUndo();
           const move = (mv) => {
-            const rect = canvas.getBoundingClientRect();
+            const rect = layer.getBoundingClientRect();   // content-space mapping
             let t = Math.max(0, Math.min(D, (mv.clientX - rect.left) / rect.width * D));
             // segments may never overlap: a start can reach back only to the
             // previous segment's end, an end forward only to the next's start

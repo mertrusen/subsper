@@ -434,11 +434,28 @@
       vwrap.style.cssText = "position:relative;margin-bottom:10px";
       subOverlay = document.createElement("div");
       subOverlay.id = "sub-overlay";
-      subOverlay.style.cssText = "position:absolute;left:0;right:0;bottom:5%;display:none;" +
+      // sized to the REAL displayed video frame (letterbox-aware) by applyOverlayStyle
+      subOverlay.style.cssText = "position:absolute;display:none;" +
         "pointer-events:none;text-align:center;line-height:1.25;z-index:2";
-      subOverlay.innerHTML = `<span id="sub-overlay-t" style="display:inline-block;padding:.15em .4em;border-radius:4px;white-space:pre-wrap"></span>`;
+      subOverlay.innerHTML = `<span id="sub-overlay-t" style="position:absolute;padding:.15em .4em;border-radius:4px;white-space:pre-wrap"></span>`;
       vwrap.appendChild(mediaEl);
       vwrap.appendChild(subOverlay);
+      // native fullscreen targets the <video> alone (overlay would vanish) —
+      // re-enter fullscreen on the wrap so the subtitle stays visible
+      document.addEventListener("fullscreenchange", () => {
+        const fs = document.fullscreenElement;
+        if (fs === mediaEl) {
+          document.exitFullscreen().then(() => vwrap.requestFullscreen()).catch(e => {});
+          return;
+        }
+        const on = fs === vwrap;
+        mediaEl.style.maxHeight = on ? "100vh" : "220px";
+        mediaEl.style.height = on ? "100%" : "";
+        mediaEl.style.width = "100%";
+        vwrap.style.background = on ? "#000" : "";
+        vwrap.style.height = on ? "100%" : "";
+        setTimeout(applyOverlayStyle, 80);
+      });
       // tell the style mock-up the real video aspect ratio
       mediaEl.addEventListener("loadedmetadata", () => {
         if (mediaEl.videoWidth && mediaEl.videoHeight) {
@@ -710,7 +727,7 @@
 
   // Waveform strip under the preview player (peaks via bundled ffmpeg PCM dump)
   // Zoomable waveform: scroll-wheel over the strip zooms in/out (was too tiny).
-  let _waveSamples = null, _waveZoom = 1;
+  let _waveSamples = null, _waveZoom = 1, _waveMax = 32768;
   function _drawWave() {
     const canvas = document.getElementById("waveform-canvas");
     const scroll = document.getElementById("waveform-scroll");
@@ -729,7 +746,9 @@
       for (let i = x * per; i < (x + 1) * per && i < _waveSamples.length; i++) {
         const v = Math.abs(_waveSamples[i]); if (v > peak) peak = v;
       }
-      const h = Math.max(1, (peak / 32768) * H);
+      // normalize to the FILE's own peak (quiet recordings looked like a flat
+      // line at /32768) + a perceptual curve so speech structure is visible
+      const h = Math.max(1, Math.pow(peak / _waveMax, 0.65) * H);
       ctx.fillRect(x, (H - h) / 2, 1, h);
     }
     if (typeof drawSegmentBoxes === "function") try { drawSegmentBoxes(); } catch (e) {}
@@ -821,13 +840,29 @@
 
   // Map the active ASS style (preset/gallery/custom + X/Y pin) onto the video
   // overlay so the preview matches the .ass/burned output as closely as CSS can
+  // Real displayed video rectangle inside the (letterboxed) element box
+  function videoRect() {
+    const cw = mediaEl ? mediaEl.clientWidth : 0, ch = mediaEl ? mediaEl.clientHeight : 0;
+    const vw = mediaEl ? mediaEl.videoWidth : 0, vh = mediaEl ? mediaEl.videoHeight : 0;
+    if (!vw || !vh || !cw || !ch) return { left: 0, top: 0, width: cw, height: ch };
+    const s = Math.min(cw / vw, ch / vh);
+    const w = vw * s, h = vh * s;
+    return { left: (cw - w) / 2, top: (ch - h) / 2, width: w, height: h };
+  }
+
   function applyOverlayStyle() {
     if (!subOverlay || typeof getActivePreset !== "function") return;
     const p = getActivePreset();
     const span = document.getElementById("sub-overlay-t");
     if (!span) return;
-    const vh = (mediaEl && mediaEl.clientHeight) || 220;
-    const scale = vh / 1080;                       // ASS PlayResY → preview px
+    // pin the overlay to the actual video frame, not the element box —
+    // a vertical video in a wide box was pushing the text into the letterbox
+    const rct = videoRect();
+    subOverlay.style.left = rct.left + "px";
+    subOverlay.style.top = rct.top + "px";
+    subOverlay.style.width = rct.width + "px";
+    subOverlay.style.height = rct.height + "px";
+    const scale = (rct.height || 220) / 1080;      // ASS PlayResY → preview px
     const ow = Math.max(0, (p.outlineW || 0) * scale);
     span.style.fontFamily = `"${p.font}", Arial, sans-serif`;
     span.style.fontSize = Math.max(9, p.size * scale) + "px";
@@ -842,17 +877,18 @@
     span.style.background = p.box
       ? `rgba(${parseInt((p.boxColor || "000000").slice(0, 2), 16)},${parseInt((p.boxColor || "000000").slice(2, 4), 16)},${parseInt((p.boxColor || "000000").slice(4, 6), 16)},${(1 - (p.boxAlpha != null ? p.boxAlpha : 96) / 255).toFixed(2)})`
       : "transparent";
-    const o = subOverlay.style;
+    // place the text WITHIN the video frame; width follows the safe-box slider
+    const s = span.style;
+    s.maxWidth = (settings.subMaxW != null ? Math.min(settings.subMaxW, 96) : 94) + "%";
     if (settings.subPosX != null && settings.subPosY != null) {
-      o.left = settings.subPosX + "%"; o.right = "auto";
-      o.top = settings.subPosY + "%"; o.bottom = "auto";
-      o.transform = "translate(-50%,-50%)";
-      o.width = "max-content"; o.maxWidth = "94%";
+      s.left = settings.subPosX + "%"; s.bottom = "auto";
+      s.top = settings.subPosY + "%";
+      s.transform = "translate(-50%,-50%)";
     } else {
-      o.left = "0"; o.right = "0"; o.width = "auto"; o.maxWidth = "none"; o.transform = "none";
-      if (p.align === 8)      { o.top = "4%";  o.bottom = "auto"; }
-      else if (p.align === 5) { o.top = "50%"; o.bottom = "auto"; o.transform = "translateY(-50%)"; }
-      else                    { o.bottom = "5%"; o.top = "auto"; }
+      s.left = "50%"; s.transform = "translateX(-50%)";
+      if (p.align === 8)      { s.top = "4%";  s.bottom = "auto"; }
+      else if (p.align === 5) { s.top = "50%"; s.bottom = "auto"; s.transform = "translate(-50%,-50%)"; }
+      else                    { s.bottom = "5%"; s.top = "auto"; }
     }
   }
   // restyle whenever the style UI changes (chains after features-v2's own wrapper)
@@ -869,7 +905,7 @@
     window.addEventListener("resize", () => applyOverlayStyle());
   }, 120);
 
-  window.__stripVer = "strip-v6";   // bump when the waveform strip changes (update check)
+  window.__stripVer = "strip-v7";   // bump when the waveform strip changes (update check)
   async function buildWaveform() {
     if (!WCPP || !mediaPath || !mediaEl) return;
     let scroll = document.getElementById("waveform-scroll");
@@ -931,6 +967,10 @@
       const buf = fsD.readFileSync(raw);
       try { fsD.unlinkSync(raw); } catch (e) {}
       _waveSamples = new Int16Array(buf.buffer, buf.byteOffset, Math.floor(buf.length / 2));
+      _waveMax = 1;
+      for (let i = 0; i < _waveSamples.length; i++) {
+        const v = Math.abs(_waveSamples[i]); if (v > _waveMax) _waveMax = v;
+      }
       _waveZoom = 1;
       _drawWave();
     } catch (e) { console.warn("waveform failed:", e); }

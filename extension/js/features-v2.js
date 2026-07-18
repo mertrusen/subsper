@@ -811,9 +811,12 @@ ${_plainTranscript()}`);
         const back = colorFn(p.boxColor, p.box ? p.boxAlpha : 0);
         const border = p.box ? 3 : 1;
         const marginV = (p.marginV != null && p.marginV !== "") ? +p.marginV : ((p.align === 5) ? 0 : 50);
+        // max line-box width (Premiere-style safe box): % of PlayResX 1920 → L/R margins
+        const mLR = (settings.subMaxW != null)
+            ? Math.max(0, Math.round((100 - settings.subMaxW) / 2 * 19.2)) : 60;
         const primaryCol = karaoke ? highlight : base;
         const secondaryCol = karaoke ? base : "&H000000FF";
-        return `Style: Default,${p.font},${p.size},${primaryCol},${secondaryCol},${outlineCol},${back},${p.bold ? -1 : 0},${p.italic ? -1 : 0},0,0,100,100,0,0,${border},${p.outlineW},${p.shadow},${p.align},60,60,${marginV},1`;
+        return `Style: Default,${p.font},${p.size},${primaryCol},${secondaryCol},${outlineCol},${back},${p.bold ? -1 : 0},${p.italic ? -1 : 0},0,0,100,100,0,0,${border},${p.outlineW},${p.shadow},${p.align},${mLR},${mLR},${marginV},1`;
     }
     window.__styleLineV2 = styleLineV2; // unit-test hook
 
@@ -2027,7 +2030,9 @@ ${_plainTranscript()}`);
           <input type="range" class="setting-slider" id="subposx" min="0" max="100" step="1" value="${settings.subPosX != null ? settings.subPosX : 50}">
           <div class="setting-slider-header" style="margin-top:6px"><span>${L("Altyazı konumu — Y (dikey)", "Subtitle position — Y (vertical)")}</span><span class="setting-value" id="subposy-val">${av(settings.subPosY)}</span></div>
           <input type="range" class="setting-slider" id="subposy" min="0" max="100" step="1" value="${settings.subPosY != null ? settings.subPosY : 90}">
-          <button class="btn-secondary" id="subpos-reset" style="width:100%; margin-top:6px">${L("Konumu sıfırla (otomatik)", "Reset position (auto)")}</button>
+          <div class="setting-slider-header" style="margin-top:6px"><span>${L("Genişlik — satır kutusu (maks)", "Width — line box (max)")}</span><span class="setting-value" id="submaxw-val">${av(settings.subMaxW)}</span></div>
+          <input type="range" class="setting-slider" id="submaxw" min="20" max="100" step="1" value="${settings.subMaxW != null ? settings.subMaxW : 94}">
+          <button class="btn-secondary" id="subpos-reset" style="width:100%; margin-top:6px">${L("Konum ve genişliği sıfırla (otomatik)", "Reset position & width (auto)")}</button>
           <div class="setting-hint" style="margin-top:6px">${L("Kaydırınca altyazı tam bu noktaya sabitlenir — önizlemede, .ass'ta ve videoya gömmede aynı yer. Otomatikte stilin hizalaması geçerli.", "Dragging pins the subtitle to this exact point — same spot in the preview, .ass and burned video. Auto follows the style's alignment.")}</div>`;
         const spk = $id("ui2-spk-wrap"), gal = $id("ui2-gal-btn");
         const anchor = spk || gal || chips;
@@ -2043,11 +2048,19 @@ ${_plainTranscript()}`);
         });
         wire("subposx", "subPosX");
         wire("subposy", "subPosY");
+        // width is independent of the pin — one axis, no coupling
+        $id("submaxw").addEventListener("input", () => {
+            onSettingChange("subMaxW", +$id("submaxw").value);
+            $id("submaxw-val").textContent = settings.subMaxW + "%";
+            updateStylePreview();
+        });
         $id("subpos-reset").onclick = () => {
             onSettingChange("subPosX", null); onSettingChange("subPosY", null);
-            $id("subposx").value = 50; $id("subposy").value = 90;
+            onSettingChange("subMaxW", null);
+            $id("subposx").value = 50; $id("subposy").value = 90; $id("submaxw").value = 94;
             $id("subposx-val").textContent = av(null);
             $id("subposy-val").textContent = av(null);
+            $id("submaxw-val").textContent = av(null);
             updateStylePreview();
         };
 
@@ -2062,18 +2075,35 @@ ${_plainTranscript()}`);
                     const box = $id("style-preview"), txt = $id("style-preview-text");
                     if (box && txt) {
                         box.style.position = "relative";
+                        box.style.overflow = "hidden";
                         box.style.aspectRatio = String(window.__videoAR || (16 / 9));
                         box.style.height = "auto";
+                        const wPct = settings.subMaxW != null ? settings.subMaxW : null;
                         if (settings.subPosX != null && settings.subPosY != null) {
                             txt.style.position = "absolute";
                             txt.style.left = settings.subPosX + "%";
                             txt.style.top = settings.subPosY + "%";
                             txt.style.transform = "translate(-50%,-50%)";
-                            txt.style.maxWidth = "94%";
+                            txt.style.maxWidth = Math.min(wPct != null ? wPct : 94, 94) + "%";
                         } else {
                             txt.style.position = ""; txt.style.left = ""; txt.style.top = "";
-                            txt.style.transform = ""; txt.style.maxWidth = "";
+                            txt.style.transform = "";
+                            txt.style.maxWidth = wPct != null ? wPct + "%" : "";
                         }
+                        // dashed safe-box guides (Premiere-style) while width is pinned
+                        let g = $id("ui2-pos-guides");
+                        if (!g) {
+                            g = document.createElement("div");
+                            g.id = "ui2-pos-guides";
+                            g.style.cssText = "position:absolute;top:4%;bottom:4%;pointer-events:none;" +
+                                "border-left:1px dashed rgba(120,170,255,.65);border-right:1px dashed rgba(120,170,255,.65)";
+                            box.appendChild(g);
+                        }
+                        if (wPct != null) {
+                            g.style.display = "block";
+                            g.style.left = ((100 - wPct) / 2) + "%";
+                            g.style.width = wPct + "%";
+                        } else g.style.display = "none";
                     }
                 } catch (e) {}
                 return r;

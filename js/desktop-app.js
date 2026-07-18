@@ -496,7 +496,8 @@
               const txt = activeIdx >= 0 ? (segments[activeIdx].text || "") : "";
               const span = document.getElementById("sub-overlay-t");
               if (span && span.textContent !== txt) span.textContent = txt;
-              subOverlay.style.display = txt ? "block" : "none";
+              if (subOverlay.dataset.ready !== "1") applyOverlayStyle();   // geometry retry
+              subOverlay.style.display = (txt && subOverlay.dataset.ready === "1") ? "block" : "none";
           }
       };
 
@@ -877,6 +878,11 @@
     // pin the overlay to the actual video frame, not the element box —
     // a vertical video in a wide box was pushing the text into the letterbox
     const rct = videoRect();
+    // no reliable geometry yet (pre-metadata / hidden panel) → keep hidden,
+    // otherwise the text painted as a word-stack at the window's top-left
+    const ready = rct.width > 20 && rct.height > 20 && mediaEl && mediaEl.videoWidth > 0;
+    subOverlay.dataset.ready = ready ? "1" : "";
+    if (!ready) { subOverlay.style.display = "none"; return; }
     subOverlay.style.left = rct.left + "px";
     subOverlay.style.top = rct.top + "px";
     subOverlay.style.width = rct.width + "px";
@@ -924,7 +930,7 @@
     window.addEventListener("resize", () => applyOverlayStyle());
   }, 120);
 
-  window.__stripVer = "strip-v9";   // bump when the waveform strip changes (update check)
+  window.__stripVer = "strip-v10";   // bump when the waveform strip changes (update check)
   async function buildWaveform() {
     if (!WCPP || !mediaPath || !mediaEl) return;
     let scroll = document.getElementById("waveform-scroll");
@@ -939,7 +945,8 @@
       // sticky viewport-sized canvas + a spacer that provides the scroll width
       canvas = document.createElement("canvas");
       canvas.id = "waveform-canvas";
-      canvas.style.cssText = "height:44px;display:block;cursor:pointer;position:sticky;left:0";
+      // 12px gap above the wave = grab zone for the playhead triangle
+      canvas.style.cssText = "height:44px;display:block;cursor:pointer;position:sticky;left:0;margin-top:12px";
       const spacer = document.createElement("div");
       spacer.id = "waveform-spacer";
       spacer.style.cssText = "height:1px;margin-top:-1px;pointer-events:none";
@@ -973,10 +980,30 @@
         _rafPending = true;
         requestAnimationFrame(() => { _rafPending = false; _drawWave(); });
       });
-      // playhead marker
+      // playhead: draggable line + Premiere-style triangle handle on top
       const ph = document.createElement("div");
       ph.id = "waveform-ph";
-      ph.style.cssText = "position:absolute;top:0;bottom:0;width:2px;background:#fff;pointer-events:none";
+      ph.style.cssText = "position:absolute;top:0;bottom:0;width:14px;margin-left:-7px;cursor:ew-resize;z-index:3";
+      ph.innerHTML =
+        '<div style="position:absolute;left:50%;top:11px;bottom:0;width:2px;margin-left:-1px;background:#fff"></div>' +
+        '<div style="position:absolute;left:50%;top:0;width:0;height:0;margin-left:-7px;' +
+          'border-left:7px solid transparent;border-right:7px solid transparent;border-top:11px solid #fff"></div>';
+      ph.addEventListener("mousedown", (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        const scrub = (mv) => {
+          const x = scroll.scrollLeft + (mv.clientX - scroll.getBoundingClientRect().left);
+          const frac = Math.max(0, Math.min(1, x / Math.max(1, waveVirtualW())));
+          if (mediaEl.duration) mediaEl.currentTime = frac * mediaEl.duration;
+          ph.style.left = (frac * waveVirtualW()) + "px";
+        };
+        scrub(ev);
+        const up = () => {
+          document.removeEventListener("mousemove", scrub);
+          document.removeEventListener("mouseup", up);
+        };
+        document.addEventListener("mousemove", scrub);
+        document.addEventListener("mouseup", up);
+      });
       scroll.appendChild(ph);
       canvas._phTimer = setInterval(() => {
         if (!mediaEl.duration || !scroll.isConnected) return;
@@ -1141,7 +1168,7 @@
       if (!host || getComputedStyle(host).position !== "relative") return;
       layer = document.createElement("div");
       layer.id = "waveform-segs";
-      layer.style.cssText = "position:absolute;left:0;top:0;bottom:0;pointer-events:none";
+      layer.style.cssText = "position:absolute;left:0;top:12px;bottom:0;pointer-events:none";   // below the triangle zone
       host.appendChild(layer);
     }
     // inset:0 sized the layer to the VISIBLE strip, so the % boxes drifted off

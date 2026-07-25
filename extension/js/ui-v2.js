@@ -244,7 +244,19 @@
         });
         const back = $("page-back-label"); if (back) back.textContent = L("Geri", "Back");
         const badge = $("home-badge-text");
-        if (badge) badge.textContent = L("%100 çevrimdışı · ücretsiz", "100% offline · free");
+        if (badge) {
+            // licence/trial state replaces the "free" badge once selling starts
+            let txt = L("%100 çevrimdışı · ücretsiz", "100% offline · free");
+            try {
+                if (typeof LICENSING_ENABLED !== "undefined" && LICENSING_ENABLED && window.__licenseState) {
+                    const st = window.__licenseState();
+                    txt = st.status === "licensed" ? L("%100 çevrimdışı · lisanslı", "100% offline · licensed")
+                        : st.status === "trial" ? L(`%100 çevrimdışı · deneme ${st.daysLeft} gün`, `100% offline · trial ${st.daysLeft}d`)
+                        : L("Deneme bitti · Ayarlar'dan lisansla", "Trial ended · license in Settings");
+                }
+            } catch (e) {}
+            badge.textContent = txt;
+        }
         const foot = $("home-foot");
         if (foot) foot.textContent = "Subsper v" + (typeof APP_VERSION !== "undefined" ? APP_VERSION : "") + " · zipheron";
         document.querySelectorAll(".ui2-adv > summary").forEach(s => { s.textContent = L("Ayarlar", "Settings"); });

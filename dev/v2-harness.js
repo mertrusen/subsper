@@ -68,6 +68,7 @@ function run(desktop) {
         REG[id] = e;
     });
     const beepBtn = makeEl(); beepBtn._closest = makeEl();
+    const txControls = makeEl();
     const errHeader = makeEl();
 
     const doc = {
@@ -83,6 +84,7 @@ function run(desktop) {
             if (sel === "#error-panel .error-header") return errHeader;
             if (sel.indexOf("beepProfanityAction") !== -1) return beepBtn;
             if (sel.indexOf("cutFillerWordsDesktop") !== -1) return beepBtn;
+            if (sel === "#panel-tx-work .controls") return txControls;
             return null;
         },
         querySelectorAll() { return []; },
@@ -127,6 +129,11 @@ function run(desktop) {
         initEditSettingsUI() {}, initAudioSettingsUI() {},
         maybeShowOnboarding() {}, toggleAiPanel() {},
         setLanguage() {},
+        LICENSING_ENABLED: false,
+        verifyLicenseKey: async () => ({ success: true }),
+        segmentsToSRT: () => "1\n00:00:00,000 --> 00:00:01,000\nx\n",
+        startTranscription: async () => {},
+        fetch: async () => ({ ok: true, json: async () => ({ videos: [] }) }),
         fs: { writeFileSync() {}, mkdirSync() {} },
         os: { homedir: () => "/tmp" },
         path: { join: (...a) => a.join("/") },
@@ -177,6 +184,12 @@ function ok(cond, label) {
         .every(k => d.CARDS.includes(k)), "home grid keeps desktop tools (14)");
     ok(has(d, "beep-words-mirror") && has(d, "filler-words-mirror"), "list mirrors (desktop)");
     ok(has(d, "subposx") && has(d, "subposy") && has(d, "submaxw"), "position+width sliders (desktop)");
+    ok(has(d, "set-pexels") && has(d, "broll-dl"), "Faz D stock B-roll (desktop)");
+    ok(!has(d, "batch-scan"), "sequence batch ABSENT on desktop");
+    ok(!has(d, "lic-key"), "license UI hidden while LICENSING_ENABLED=false");
+    const lsD = d.sandbox.__licenseState();
+    ok(lsD.status === "trial" && lsD.daysLeft === 7, "fresh trial = 7 days left");
+    ok(d.sandbox.__licenseGate() === true, "gate open while licensing disabled");
 
     console.log("— extension mode (regression) —");
     const e = await run(false);
@@ -190,6 +203,8 @@ function ok(cond, label) {
         .every(k => e.CARDS.includes(k)), "home grid shows all 19 tools");
     ok(has(e, "beep-words-mirror") && has(e, "filler-words-mirror"), "list mirrors (extension)");
     ok(has(e, "submaxw"), "width slider (extension)");
+    ok(has(e, "batch-scan") && has(e, "batch-run"), "sequence batch present (extension)");
+    ok(has(e, "set-pexels") && has(e, "broll-dl"), "Faz D stock B-roll (extension)");
     const sl = e.sandbox.__styleLineV2;
     if (sl) {
         const p = { font: "Arial", size: 54, primary: "FFFFFF", outline: "000000",

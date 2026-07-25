@@ -1737,3 +1737,43 @@ function wsSpeedUpRanges(payloadJson) {
         return JSON.stringify({ success: false, error: e.toString(), diag: diag });
     }
 }
+
+/* ── Batch: enumerate project sequences, switch the active one ─────────────
+   Used by the extension's "batch transcribe" flow: the panel asks for the
+   list, then activates each sequence in turn and runs its normal
+   transcribe + export cycle against it. */
+function wsListSequences() {
+    try {
+        var out = [];
+        var act = null;
+        try { act = app.project.activeSequence ? app.project.activeSequence.sequenceID : null; } catch (eA) {}
+        for (var i = 0; i < app.project.sequences.numSequences; i++) {
+            var s = app.project.sequences[i];
+            var clips = 0;
+            try {
+                for (var v = 0; v < s.videoTracks.numTracks; v++) clips += s.videoTracks[v].clips.numItems;
+                for (var a = 0; a < s.audioTracks.numTracks; a++) clips += s.audioTracks[a].clips.numItems;
+            } catch (eC) {}
+            out.push({ id: s.sequenceID, name: s.name, clips: clips, active: s.sequenceID === act });
+        }
+        return JSON.stringify({ success: true, sequences: out });
+    } catch (e) {
+        return JSON.stringify({ success: false, error: e.toString() });
+    }
+}
+
+function wsActivateSequence(seqId) {
+    try {
+        for (var i = 0; i < app.project.sequences.numSequences; i++) {
+            var s = app.project.sequences[i];
+            if (s.sequenceID === seqId) {
+                app.project.activeSequence = s;
+                try { app.project.openSequence(seqId); } catch (eO) {}
+                return JSON.stringify({ success: true, name: s.name });
+            }
+        }
+        return JSON.stringify({ success: false, error: "Sequence not found: " + seqId });
+    } catch (e) {
+        return JSON.stringify({ success: false, error: e.toString() });
+    }
+}

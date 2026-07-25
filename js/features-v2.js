@@ -2198,6 +2198,236 @@ ${_plainTranscript()}`);
         }
     }
 
+    /* ═══ Faz D — licensing · stock B-roll · batch ═════════════════════ */
+
+    // #D1 license + 7-day trial. Everything stays invisible while main.js's
+    // LICENSING_ENABLED is false, so nothing changes until we actually sell.
+    const TRIAL_DAYS = 7;
+    const LICENSING = (typeof LICENSING_ENABLED !== "undefined") && LICENSING_ENABLED === true;
+    function trialStart() {
+        let s = +(localStorage.getItem("ws_trial_start") || 0);
+        if (!s || s > Date.now()) { s = Date.now(); localStorage.setItem("ws_trial_start", String(s)); }
+        return s;
+    }
+    function savedLicense() {
+        try { return JSON.parse(localStorage.getItem("ws_license") || "null"); } catch (e) { return null; }
+    }
+    function licenseState() {
+        const lic = savedLicense();
+        if (lic && lic.key && lic.ok) return { status: "licensed", key: lic.key, daysLeft: null };
+        const used = Math.floor((Date.now() - trialStart()) / 86400000);
+        const daysLeft = Math.max(0, TRIAL_DAYS - used);
+        return { status: daysLeft > 0 ? "trial" : "expired", key: null, daysLeft };
+    }
+    window.__licenseState = licenseState; // unit-test hook
+    // Blocks the heavy actions once the trial is over (no-op until we sell)
+    function licenseGate() {
+        if (!LICENSING) return true;
+        const st = licenseState();
+        if (st.status !== "expired") return true;
+        showToast(L("Deneme süresi doldu — Ayarlar'dan lisans anahtarını gir",
+                    "Trial has ended — enter your license key in Settings"), "warning", 6000);
+        return false;
+    }
+    window.__licenseGate = licenseGate;
+
+    async function activateLicense(key) {
+        key = String(key || "").trim();
+        if (!key) { showToast(L("Anahtar boş", "Key is empty"), "info"); return; }
+        const btn = $id("lic-activate"); if (btn) btn.disabled = true;
+        try {
+            let r = null;
+            if (typeof verifyLicenseKey === "function") r = await verifyLicenseKey(key);
+            const ok = !!(r && r.success);
+            localStorage.setItem("ws_license", JSON.stringify({
+                key, ok, at: Date.now(), email: (r && r.purchase && r.purchase.email) || "",
+            }));
+            renderLicense();
+            showToast(ok ? L("✓ Lisans etkinleştirildi — teşekkürler!", "✓ License activated — thank you!")
+                         : L("Anahtar doğrulanamadı — kontrol edip tekrar dene", "Key could not be verified — check it and retry"),
+                      ok ? "success" : "error", 5000);
+        } catch (e) {
+            showToast(L("Doğrulama başarısız (internet?): ", "Verification failed (offline?): ") + e.message, "error", 5000);
+        } finally { if (btn) btn.disabled = false; }
+    }
+    function renderLicense() {
+        const box = $id("lic-state"); if (!box) return;
+        const st = licenseState();
+        const txt = st.status === "licensed"
+            ? L("✓ Lisanslı — tüm özellikler açık", "✓ Licensed — everything unlocked")
+            : st.status === "trial"
+                ? L(`Deneme sürümü — ${st.daysLeft} gün kaldı`, `Trial — ${st.daysLeft} day(s) left`)
+                : L("Deneme süresi doldu", "Trial has ended");
+        box.textContent = txt;
+        box.style.color = st.status === "licensed" ? "var(--green, #7bb389)"
+                        : st.status === "expired" ? "var(--red, #c4726a)" : "var(--text2)";
+        const inp = $id("lic-key");
+        if (inp && st.key && !inp.value) inp.value = st.key;
+    }
+    function injectLicense() {
+        if (!LICENSING) return;                 // hidden until we sell
+        const sc = document.querySelector("#panel-su-main .setup-scroll");
+        if (!sc || $id("lic-key")) return;
+        const d = document.createElement("div");
+        d.innerHTML = `
+          <div class="setup-section-title" style="margin-top:16px">${L("Lisans", "License")}</div>
+          <div class="setting-item" style="padding-top:12px; padding-bottom:12px">
+            <div id="lic-state" class="setting-name" style="margin-bottom:8px"></div>
+            <input type="text" id="lic-key" class="settings-textarea" style="height:32px; font-size:13px; padding:0 8px"
+                   placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX">
+            <button class="btn-transcribe btn-compact" id="lic-activate" style="margin-top:8px">${L("Etkinleştir", "Activate")}</button>
+            <div class="setting-hint" style="margin-top:6px">${L("Satın alma e-postandaki anahtarı yapıştır. Doğrulama tek seferlik ve internet ister; sonrasında çevrimdışı çalışır.", "Paste the key from your purchase email. Verification is one-time and needs internet; everything works offline afterwards.")}</div>
+          </div>`;
+        sc.appendChild(d);
+        $id("lic-activate").onclick = () => activateLicense(($id("lic-key") || {}).value);
+        renderLicense();
+    }
+
+    // #D2 stock B-roll (Pexels) — strictly opt-in: needs a free API key and is
+    // the only feature that ever touches the network for media.
+    async function pexelsSearch(query, per) {
+        const key = (settings.pexelsKey || "").trim();
+        if (!key) throw new Error(L("Önce Ayarlar'dan Pexels anahtarını gir", "Add your Pexels key in Settings first"));
+        const r = await fetch("https://api.pexels.com/videos/search?per_page=" + (per || 1) +
+                              "&query=" + encodeURIComponent(query), { headers: { Authorization: key } });
+        if (!r.ok) throw new Error("Pexels HTTP " + r.status);
+        const j = await r.json();
+        return (j.videos || []).map(v => {
+            const files = (v.video_files || []).slice().sort((a, b) => (b.width || 0) - (a.width || 0));
+            const hd = files.find(f => (f.width || 0) <= 1920) || files[0];
+            return hd ? { url: hd.link, w: hd.width, h: hd.height, id: v.id } : null;
+        }).filter(Boolean);
+    }
+    async function brollDownload() {
+        const lines = (($id("broll-out") || {}).value || "").trim().split(/\n/).filter(Boolean);
+        if (!lines.length) { showToast(L("Önce önerileri oluştur", "Generate ideas first"), "info"); return; }
+        const btn = $id("broll-dl"); if (btn) btn.disabled = true;
+        const dir = path.join(os.homedir(), "Desktop", "subsper_broll");
+        try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
+        let done = 0, failed = 0;
+        try {
+            for (let i = 0; i < Math.min(lines.length, 8); i++) {
+                // "MM:SS — what to show" → the query is the part after the dash
+                const q = lines[i].replace(/^\s*(?:\d{1,2}:)?\d{1,2}:\d{2}\s*[—–-]?\s*/, "").trim().slice(0, 60);
+                if (!q) continue;
+                setStatus(L(`Stok aranıyor ${i + 1}/${lines.length}: `, `Searching stock ${i + 1}/${lines.length}: `) + q, "info");
+                try {
+                    const hits = await pexelsSearch(q, 1);
+                    if (!hits.length) { failed++; continue; }
+                    const res = await fetch(hits[0].url);
+                    const buf = new Uint8Array(await res.arrayBuffer());
+                    fs.writeFileSync(path.join(dir, `broll${i + 1}_${q.replace(/[^\w]+/g, "_").slice(0, 30)}.mp4`), buf);
+                    done++;
+                } catch (e) { failed++; }
+            }
+            setStatus(L(`✓ ${done} stok klip indirildi → Masaüstü/subsper_broll`, `✓ Downloaded ${done} stock clip(s) → Desktop/subsper_broll`) +
+                      (failed ? L(` · ${failed} bulunamadı`, ` · ${failed} not found`) : ""), done ? "success" : "warning");
+            if (done) try { revealInFolder(dir); } catch (e) {}
+        } catch (e) { showToast(e.message, "error", 5000); setStatus(e.message, "error"); }
+        finally { if (btn) btn.disabled = false; }
+    }
+    function injectStockBroll() {
+        const markBtn = $id("broll-mark");
+        const item = markBtn && (markBtn.closest(".setting-item") || markBtn.parentElement);
+        if (!item || $id("broll-dl")) return;
+        const d = document.createElement("div");
+        d.innerHTML = `
+          <button class="btn-secondary" id="broll-dl" style="width:100%; margin-top:6px">
+            ${L("Stok klipleri indir (Pexels)", "Download stock clips (Pexels)")}
+            <span class="hc-badge" style="position:static; margin-left:6px">${L("çevrimiçi", "online")}</span></button>
+          <div class="setting-hint" style="margin-top:6px; margin-bottom:6px">${L("İsteğe bağlı ve tek çevrimiçi özellik: ücretsiz Pexels anahtarı ister (Ayarlar → AI & API). Klipler Masaüstü/subsper_broll'a iner.", "Optional, and the only online feature: needs a free Pexels key (Settings → AI & API). Clips land in Desktop/subsper_broll.")}</div>`;
+        item.appendChild(d);
+        $id("broll-dl").onclick = brollDownload;
+    }
+    function injectPexelsKey() {
+        const sc = document.querySelector("#panel-su-main .setup-scroll");
+        if (!sc || $id("set-pexels")) return;
+        const d = document.createElement("div");
+        d.innerHTML = `
+          <div class="setup-section-title" style="margin-top:16px">${L("Stok Görsel (isteğe bağlı)", "Stock Footage (optional)")}</div>
+          <div class="setting-item" style="padding-top:12px; padding-bottom:12px">
+            <div class="setting-desc" style="margin-bottom:8px">${L("B-Roll sayfasındaki 'Stok klipleri indir' için ücretsiz Pexels API anahtarı. Boş bırakırsan program tamamen çevrimdışı kalır.", "A free Pexels API key for 'Download stock clips' on the B-Roll page. Leave it empty and the app stays fully offline.")}</div>
+            <input type="text" id="set-pexels" class="settings-textarea" style="height:32px; font-size:13px; padding:0 8px"
+                   placeholder="${L("Pexels API anahtarı", "Pexels API key")}">
+            <div class="setting-hint" style="margin-top:6px">pexels.com/api → ${L("ücretsiz anahtar", "free key")}</div>
+          </div>`;
+        sc.appendChild(d);
+        const inp = $id("set-pexels");
+        inp.value = settings.pexelsKey || "";
+        inp.addEventListener("input", () => onSettingChange("pexelsKey", inp.value.trim()));
+    }
+
+    // #D3 batch transcribe across project sequences (desktop already batches
+    // files in desktop-app.js; this is the Premiere-side equivalent)
+    async function batchScan() {
+        const wrap = $id("batch-list"); if (!wrap) return;
+        wrap.innerHTML = `<div class="setting-hint">${L("Taranıyor…", "Scanning…")}</div>`;
+        await loadHostJSX();
+        const r = await evalScript("wsListSequences()");
+        if (!(r && r.success)) { wrap.innerHTML = `<div class="setting-hint">${(r && r.error) || "?"}</div>`; return; }
+        const seqs = (r.sequences || []).filter(s => s.clips > 0);
+        if (!seqs.length) { wrap.innerHTML = `<div class="setting-hint">${L("Dolu sekans yok", "No non-empty sequences")}</div>`; return; }
+        wrap.innerHTML = `<div class="ui2-checks" style="grid-template-columns:1fr">` + seqs.map(s => `
+            <label class="ui2-check">
+              <input type="checkbox" class="batch-seq" data-id="${s.id}" data-name="${String(s.name).replace(/"/g, "&quot;")}"${s.active ? " checked" : ""}>
+              <span>${s.name} · ${s.clips} ${L("klip", "clips")}</span></label>`).join("") + `</div>`;
+        const run = $id("batch-run"); if (run) run.style.display = "block";
+    }
+    async function batchRun() {
+        const picks = [...document.querySelectorAll(".batch-seq")].filter(c => c.checked);
+        if (!picks.length) { showToast(L("En az bir sekans seç", "Pick at least one sequence"), "info", 3000); return; }
+        const btn = $id("batch-run"); if (btn) btn.disabled = true;
+        const dir = path.join(os.homedir(), "Desktop", "subsper_batch");
+        try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
+        let done = 0, failed = 0;
+        try {
+            for (let i = 0; i < picks.length; i++) {
+                const id = +picks[i].getAttribute("data-id");
+                const name = picks[i].getAttribute("data-name") || ("seq" + (i + 1));
+                setStatus(L(`Toplu ${i + 1}/${picks.length}: `, `Batch ${i + 1}/${picks.length}: `) + name, "info");
+                const act = await evalScript(`wsActivateSequence(${id})`);
+                if (!(act && act.success)) { failed++; continue; }
+                try {
+                    await startTranscription();
+                    if (segments && segments.length) {
+                        const safe = name.replace(/[^\w\-. ]+/g, "_").slice(0, 60);
+                        fs.writeFileSync(path.join(dir, safe + ".srt"), segmentsToSRT(), "utf8");
+                        done++;
+                    } else failed++;
+                } catch (e) { failed++; }
+            }
+            setStatus(L(`✓ Toplu bitti — ${done} SRT → Masaüstü/subsper_batch`, `✓ Batch done — ${done} SRT → Desktop/subsper_batch`) +
+                      (failed ? L(` · ${failed} atlandı`, ` · ${failed} skipped`) : ""), failed ? "warning" : "success");
+            if (done) try { revealInFolder(dir); } catch (e) {}
+        } finally { if (btn) btn.disabled = false; }
+    }
+    function injectBatch() {
+        if (DESK) return;                       // desktop batches files, not sequences
+        const sc = document.querySelector("#panel-tx-work .controls");
+        if (!sc || $id("batch-scan")) return;
+        const d = document.createElement("div");
+        d.className = "setting-item tool-card";
+        d.style.marginTop = "10px";
+        d.innerHTML = `
+          <div class="setting-row"><div class="setting-info">
+            <div class="setting-name">${L("Toplu Transcribe (sekanslar)", "Batch Transcribe (sequences)")}</div>
+            <div class="setting-desc">${L("Projedeki birden çok sekansı sırayla yazıya döker; her biri için Masaüstü/subsper_batch'e SRT kaydeder.", "Transcribes several sequences in a row and saves an SRT per sequence into Desktop/subsper_batch.")}</div>
+          </div></div>
+          <button class="btn-load-srt" id="batch-scan" style="width:100%; margin-top:4px">${L("1 · Sekansları Tara", "1 · Scan Sequences")}</button>
+          <div id="batch-list"></div>
+          <button class="btn-transcribe btn-compact" id="batch-run" style="display:none; margin-top:8px">${L("2 · Toplu Başlat", "2 · Run Batch")}</button>`;
+        sc.appendChild(d);
+        $id("batch-scan").onclick = () => batchScan().catch(e => showToast(e.message, "error", 4000));
+        $id("batch-run").onclick = () => batchRun().catch(e => showToast(e.message, "error", 4000));
+    }
+
+    function fazD() {
+        injectLicense();
+        injectPexelsKey();
+        injectStockBroll();
+        injectBatch();
+    }
+
     function fazA() {
         if (!DESK) {
             patchEvalHistory();                        // history logs Premiere host calls
@@ -2209,5 +2439,8 @@ ${_plainTranscript()}`);
         injectErrorCopy();
     }
 
-    setTimeout(() => { try { injectAll(); fazA(); fazB(); fazC(); injectListMirrors(); subPosPro(); } catch (e) { console.error("[Subsper] features-v2 init:", e); } }, 40);
+    setTimeout(() => {
+        try { injectAll(); fazA(); fazB(); fazC(); fazD(); injectListMirrors(); subPosPro(); }
+        catch (e) { console.error("[Subsper] features-v2 init:", e); }
+    }, 40);
 })();

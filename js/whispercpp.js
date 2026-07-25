@@ -98,6 +98,18 @@ function resolveBin(appDir, name, systemCandidates) {
     return exeName(name); // last resort: rely on PATH
 }
 
+// macOS kills Gatekeeper-blocked binaries with SIGKILL before they emit any
+// output, which used to surface as a bare "exit null". Say what actually
+// happened and how to clear it, instead of a cryptic code.
+function gatekeeperHint(binPath, code, signal) {
+    if (process.platform !== "darwin") return null;
+    if (signal !== "SIGKILL" && code !== null) return null;
+    return "macOS blocked the engine (\"" + path.basename(binPath || "engine") + "\").\n" +
+           "Open System Settings → Privacy & Security, then click “Open Anyway” for it — " +
+           "or install the signed Subsper desktop app, which ships a ready-to-run engine.\n" +
+           "Path: " + (binPath || "?");
+}
+
 function whisperBin(appDir) {
     return resolveBin(appDir, "whisper-cli", [
         "/opt/homebrew/bin/whisper-cli",
@@ -394,9 +406,10 @@ function toWav16k(appDir, inputPath, outWav, spawnOpts, signal, onProgress) {
             }
         });
         ff.on("error", e => reject(new Error("ffmpeg could not run: " + e.message)));
-        ff.on("close", code => code === 0
+        ff.on("close", (code, sig) => code === 0
             ? resolve(outWav)
-            : reject(new Error("ffmpeg failed (" + code + "): " + err.slice(-400))));
+            : reject(new Error(gatekeeperHint(ffmpegBin(appDir), code, sig) ||
+                               ("ffmpeg failed (" + code + "): " + err.slice(-400)))));
     });
 }
 
@@ -547,7 +560,9 @@ function transcribeWav(opts) {
             wc.stdout.on("data", relay);
             wc.stderr.on("data", d => { errOut += d; relay(d); });
             
-            wc.on("close", code => {
+            wc.on("close", (code, sig) => {
+                const gk = gatekeeperHint(exePath, code, sig);
+                if (gk) return reject(new Error(gk));
                 const outJson = outBase + ".json";
                 if (code !== 0 && exePath === gpuBin && !isFallback && !safeExists(outJson)) {
                     dbg("GPU binary failed with code " + code + ". Falling back to CPU.");

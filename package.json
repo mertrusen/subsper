@@ -10,9 +10,11 @@
     "start": "electron .",
     "prep": "node scripts/fetch-binaries.mjs",
     "dist:win": "npm run prep && electron-builder --win --x64 --publish never",
-    "dist:mac": "npm run prep && electron-builder --mac --publish never",
+    "dist:mac": "npm run prep && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --publish never",
     "dist": "electron-builder -mw --publish never",
-    "cli": "node scripts/subsper-cli.mjs"
+    "cli": "node scripts/subsper-cli.mjs",
+    "dist:mac:signed": "npm run prep && electron-builder --mac -c.mac.notarize=true --publish never",
+    "dev:mac": "dev/run.sh"
   },
   "devDependencies": {
     "electron": "^31.0.0",
@@ -66,7 +68,14 @@
       ],
       "category": "public.app-category.video",
       "artifactName": "Subsper-${version}-mac-arm64.${ext}",
-      "identity": null
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "binaries": [
+        "Contents/Resources/bin/darwin-arm64/whisper-cli",
+        "Contents/Resources/bin/darwin-arm64/ffmpeg"
+      ]
     },
     "dmg": {
       "writeUpdateInfo": true
@@ -84,5 +93,8 @@
   "dependencies": {
     "diff": "^9.0.0",
     "electron-updater": "^6.3.9"
+  },
+  "allowScripts": {
+    "electron@31.7.7": true
   }
 }

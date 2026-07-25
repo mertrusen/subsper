@@ -2924,7 +2924,7 @@ function escAssText(s) {
 function karaokeBody(seg) {
     const words = (seg.words || []).filter(w => w && w.start != null && w.end != null && w.word);
     if (!words.length) return escAssText(seg.text);
-    // Keyword emphasis (Submagic-style): context words, ALL-CAPS words and
+    // Keyword emphasis for social captions: context words, ALL-CAPS words and
     // numbers pop bigger. Cheap heuristic, no AI call needed.
     const emph = new Set((settings.promptWords || "").split(/[,\n]/).map(w => w.trim().toLowerCase()).filter(Boolean));
     const isEmph = (word) => {

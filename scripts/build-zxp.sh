@@ -44,7 +44,8 @@ fi
 # 3) Stage a clean copy (skip repo noise) and sign
 STAGE="$(mktemp -d)/com.whisper.studio"
 mkdir -p "$STAGE"
-rsync -a --exclude ".git" --exclude "__pycache__" --exclude ".DS_Store" "$SRC/" "$STAGE/"
+rsync -a --exclude ".git" --exclude "__pycache__" --exclude ".DS_Store" \
+      --exclude "index-classic.html" --exclude "README.md" "$SRC/" "$STAGE/"
 
 rm -f "$ZXP"
 echo "· signing → $ZXP"

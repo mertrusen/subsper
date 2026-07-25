@@ -2421,7 +2421,21 @@ ${_plainTranscript()}`);
         $id("batch-run").onclick = () => batchRun().catch(e => showToast(e.message, "error", 4000));
     }
 
+    // The gate is worthless unless the paid actions actually consult it. Wrap
+    // them once, after desktop-app.js has installed its own overrides.
+    function gateActions() {
+        if (!LICENSING) return;
+        ["startTranscription", "exportAs", "sendToPremiere"].forEach(name => {
+            const orig = window[name];
+            if (typeof orig !== "function" || orig.__gated) return;
+            const wrapped = function () { return licenseGate() ? orig.apply(this, arguments) : undefined; };
+            wrapped.__gated = true;
+            window[name] = wrapped;
+        });
+    }
+
     function fazD() {
+        gateActions();
         injectLicense();
         injectPexelsKey();
         injectStockBroll();

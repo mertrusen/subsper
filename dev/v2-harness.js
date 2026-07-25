@@ -5,7 +5,8 @@
 const fsReal = require("fs");
 const vm = require("vm");
 
-function run(desktop) {
+function run(desktop, opts) {
+    opts = opts || {};
     const REG = {};
     const CARDS = [];
     function makeEl(tag) {
@@ -129,7 +130,7 @@ function run(desktop) {
         initEditSettingsUI() {}, initAudioSettingsUI() {},
         maybeShowOnboarding() {}, toggleAiPanel() {},
         setLanguage() {},
-        LICENSING_ENABLED: false,
+        LICENSING_ENABLED: !!opts.licensing,
         verifyLicenseKey: async () => ({ success: true }),
         segmentsToSRT: () => "1\n00:00:00,000 --> 00:00:01,000\nx\n",
         startTranscription: async () => {},
@@ -145,6 +146,12 @@ function run(desktop) {
     if (desktop) sandbox.IS_DESKTOP = true;
     const origApply = sandbox.applyTextCuts, origFiller = sandbox.cutFillerWords;
     if (desktop) store.ws_lastTool = "zoom";
+    // an expired trial: started well over the 7-day window
+    if (opts.expiredTrial) store.ws_trial_start = String(Date.now() - 30 * 86400000);
+    let ranTranscribe = false, ranExport = false;
+    sandbox.startTranscription = async () => { ranTranscribe = true; };
+    sandbox.exportAs = () => { ranExport = true; };
+    sandbox.__probe = () => ({ ranTranscribe, ranExport });
 
     const ctx = vm.createContext(sandbox);
     for (const f of ["js/features-v2.js", "js/ui-v2.js"]) {
@@ -152,6 +159,7 @@ function run(desktop) {
     }
     return new Promise(res => setTimeout(() => res({
         REG, CARDS, sandbox, origApply, origFiller,
+        probe: () => sandbox.__probe(),
     }), 200));
 }
 
@@ -223,6 +231,17 @@ function ok(cond, label) {
         delete e.sandbox.__videoW; delete e.sandbox.__videoH;
         e.sandbox.settings.subMaxW = null;
     } else ok(false, "__styleLineV2 hook missing");
+
+    console.log("— licensing on, trial expired —");
+    const x = await run(false, { licensing: true, expiredTrial: true });
+    ok(has(x, "lic-key") && has(x, "lic-activate"), "license UI appears when enabled");
+    ok(x.sandbox.__licenseState().status === "expired", "expired trial detected");
+    ok(x.sandbox.__licenseGate() === false, "gate closed while expired");
+    x.sandbox.startTranscription();
+    x.sandbox.exportAs("srt");
+    const pr = x.probe();
+    ok(!pr.ranTranscribe, "startTranscription blocked while expired");
+    ok(!pr.ranExport, "exportAs blocked while expired");
 
     console.log(fails ? `\n${fails} FAILURE(S)` : "\nALL GREEN");
     process.exit(fails ? 1 : 0);

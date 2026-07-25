@@ -51,10 +51,11 @@ Download `Subsper-x.x.x-mac-arm64.dmg` from **Releases**, drag to Applications, 
 (Intel Macs are not supported since v1.8.0 — the last Intel build is
 [v1.7.1](../../releases/tag/v1).)
 
-> **⚠️ First launch on macOS:** the app is ad-hoc signed (not notarized), so
-> Gatekeeper warns once. **Right-click the app → Open → Open** (or allow it under
-> System Settings → Privacy & Security). If you ever see "damaged", run:
-> `xattr -cr /Applications/Subsper.app`
+> **⚠️ macOS 26 (Tahoe) and unsigned builds:** on Tahoe an ad-hoc-signed build
+> is refused outright — you get **"Malware Blocked"**, and right-click → Open no
+> longer helps. Use a **signed & notarized** release (see
+> [RELEASING.md](RELEASING.md)); those install with no warning at all. Builds
+> made with `npm run dist:mac` are unsigned and for development only.
 
 > **Optional — Pro engine:** for speaker labels (diarization) install Python +
 > WhisperX and pick it in Settings. Everyone else needs nothing.
@@ -96,14 +97,31 @@ npm start           # run from source
 ---
 
 ## Usage
+
+The home screen is a grid of tools grouped by job — Subtitles, Editing, Audio,
+Content. Pick one and you get that tool alone, with its settings folded under it.
+**Esc** goes back; the last tool you used sits at the top for one-tap return.
+
 1. **Open Video / Audio File** (or drag-and-drop onto the window — drop 2+ files for batch mode)
 2. Pick model + language → **Transcribe File**
 3. Edit segments (click a word to split, double-click to edit, 🧹 to clean up,
-   **Cmd/Ctrl+Z** = undo, **Alt+←/→** = nudge timing, drag segment edges on the waveform)
-4. **⬇ Export** → SRT / VTT / ASS / word-by-word SRT / **burn-in MP4** — or save the
-   session as a **`.subsper` project** and continue later
-5. Bonus tools: **🔊 Audio → Enhance / Beep Profanity** · **✂️ Edit → Cut Silences /
-   Cut Filler Words** — each exports a processed copy of your file
+   **Cmd/Ctrl+Z** = undo, **Alt+←/→** = nudge timing). On the waveform strip you can
+   drag a segment to move it, drag its edges to retime it (they never overlap),
+   scroll ↕ to zoom, ↔ to pan, and drag the triangle playhead to scrub.
+4. **Style** the captions: 16-preset gallery, per-speaker colours, a mock-up in
+   your video's aspect ratio where you drag the subtitle into place, X/Y and
+   max-width sliders, and your own `.ttf`/`.otf` fonts — the live preview on the
+   video matches what gets burned in.
+5. **⬇ Export** → SRT / VTT / ASS / word-by-word SRT / **burn-in MP4** / 9:16
+   vertical clip — or save the session as a **`.subsper` project**.
+6. More tools: **Cut Silences · Remove Repeats · Cut Filler Words · Enhance Audio ·
+   Beep Profanity · Chapters · Viral Clips · Speech Pace · Social Pack · B-Roll**.
+   Every smart tool works with no API key (on-device heuristics) and simply gets
+   sharper if you add one.
+
+The Premiere extension adds the timeline-only tools on top: Auto Zoom, Podcast
+Multicam, Cut by Markers, Vertical Resize, Music Ducking and batch transcribe
+across sequences.
 
 ### Command line (headless)
 ```bash

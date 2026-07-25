@@ -109,8 +109,19 @@ function getActivePreset() {
 }
 
 function loadSettings() {
-    try { return Object.assign({}, DEFAULT_SETTINGS, JSON.parse(localStorage.getItem("ws_settings") || "{}")); }
-    catch { return Object.assign({}, DEFAULT_SETTINGS); }
+    let s;
+    try { s = Object.assign({}, DEFAULT_SETTINGS, JSON.parse(localStorage.getItem("ws_settings") || "{}")); }
+    catch { s = Object.assign({}, DEFAULT_SETTINGS); }
+    // One-time migration: the bundled engine is the product default on both
+    // apps — it needs no setup and is the only one that reports real progress.
+    // Installs from before this default kept whatever Pro engine they had, so
+    // move them over once. A deliberate pick made afterwards is respected.
+    if (!s.engineDefaultV2) {
+        s.engine = "cpp";
+        s.engineDefaultV2 = true;
+        try { localStorage.setItem("ws_settings", JSON.stringify(s)); } catch (e) {}
+    }
+    return s;
 }
 function saveSettings() {
     try { localStorage.setItem("ws_settings", JSON.stringify(settings)); } catch {}
@@ -3492,7 +3503,7 @@ function initTooltips() {
    files (and the extension↔desktop footer sync) stay untouched.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.3.0";
 const GH_REPO = "mertrusen/subsper";
 const IS_DESKTOP_APP = (typeof window !== "undefined" && window.IS_DESKTOP === true);
 

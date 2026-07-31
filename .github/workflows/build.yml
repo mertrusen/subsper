@@ -46,17 +46,28 @@ jobs:
       - run: npm run dist:win   # runs prep (skips compile on cache hit) then packages
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-      - uses: actions/upload-artifact@v4
+      # Straight to the Release: the artifact round-trip used to burn storage
+      # quota, and a full quota then failed the whole release.
+      - name: Publish Windows assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
-          name: win-installer
-          path: |
+          files: |
             dist/*.exe
             dist/*.blockmap
             dist/latest.yml
-          if-no-files-found: error
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+      - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        continue-on-error: true          # quota must never fail a build
+        with:
+          name: win-installer
+          path: dist/*.exe
           retention-days: 1
 
   macos:
+    needs: [windows]
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -74,33 +85,21 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - name: Build signed ZXP (Premiere extension)
         run: bash scripts/build-zxp.sh dist
+      - name: Publish macOS assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.dmg
+            dist/*.zxp
+            dist/latest-mac.yml
+          fail_on_unmatched_files: true
       - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        continue-on-error: true
         with:
           name: mac-installer
           path: |
             dist/*.dmg
             dist/*.zxp
-            dist/latest-mac.yml
-          if-no-files-found: error
           retention-days: 1
-
-  release:
-    needs: [windows, macos]
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-      - name: Publish Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            artifacts/win-installer/*.exe
-            artifacts/win-installer/*.blockmap
-            artifacts/win-installer/latest.yml
-            artifacts/mac-installer/*.dmg
-            artifacts/mac-installer/*.zxp
-            artifacts/mac-installer/latest-mac.yml
-          generate_release_notes: true
-          fail_on_unmatched_files: true

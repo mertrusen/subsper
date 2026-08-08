@@ -3024,6 +3024,10 @@ async function probeSource() {
         }
     } catch (e) { sourceInfo = null; }
     if (!segments.length) renderSegments();     // repaint the empty state in place
+    // The home screen's primary button names the source too.
+    if (typeof window.__ui2RenderHome === "function") {
+        try { window.__ui2RenderHome(); } catch (e) {}
+    }
 }
 
 /* mm:ss for humans — formatTime() is SRT format and reads as machinery here. */

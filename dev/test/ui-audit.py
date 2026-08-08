@@ -166,7 +166,7 @@ def audit_ids() -> None:
 def audit_tools() -> None:
     ui = JS["ui-v2.js"]
     block = ui[ui.index("const TOOLS = {"):]
-    block = block[:block.index("\n    const CATS")]
+    block = block[:block.index("\n    const GROUPS")]
     tools = re.findall(r'^\s{8}(\w+):\s*\{(.*?)(?=\n\s{8}\w+:\s*\{|\Z)', block, re.S | re.M)
 
     html_ids = set(re.findall(r'\sid="([^"]+)"', HTML))
@@ -196,7 +196,19 @@ def audit_tools() -> None:
     prem_only = [n for n, b in tools if re.search(r"\bpp:\s*true", b)]
     add("info", "platform-split",
         f"{len(prem_only)} of {len(tools)} tools are Premiere-only "
-        f"({', '.join(prem_only)}) — they vanish in the desktop app with no explanation on the home grid")
+        f"({', '.join(prem_only)}) — shown disabled on the desktop with a reason, not hidden")
+
+    # Every tool has to land in a group, or renderHome drops it silently.
+    ungrouped = [n for n, b in tools if not re.search(r'\bgroup:\s*"', b)]
+    if ungrouped:
+        add("high", "ungrouped-tool",
+            f"tool(s) with no `group` never render on the home screen: {', '.join(ungrouped)}")
+
+    badges = [n for n, b in tools if re.search(r'\bbadge:\s*"', b)]
+    if badges:
+        add("medium", "badge-returned",
+            f"'new'/'beta' badges are back on: {', '.join(badges)} — "
+            "they were removed because 11 of 19 carried one, which made them meaningless")
 
 
 # ── placeholders that never fill ──────────────────────────────────────────

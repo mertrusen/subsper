@@ -55,80 +55,82 @@
 
     // ── tool table ─────────────────────────────────────────────────────────
     const TOOLS = {
-        subtitles: { cat: "sub", tab: "transcribe", gear: true, color: "#6b9fd8",
+        subtitles: { cat: "sub", group: "hero", tab: "transcribe", gear: true, color: "#6b9fd8",
                      name: () => L("Altyazı Oluştur", "Subtitles"),
                      desc: () => DESK ? L("Dosyayı yazıya döker, düzenle ve SRT/ASS olarak dışa aktar", "Transcribe a file, edit, export SRT/ASS")
                                       : L("Konuşmayı yazıya döker, düzenle ve timeline'a gönder", "Transcribe speech, edit, send to the timeline") },
-        ai:        { cat: "sub", tab: "transcribe", color: "#a78bc9",
+        ai:        { cat: "sub", group: "text", tab: "transcribe", color: "#a78bc9",
                      name: () => L("AI Araçları", "AI Tools"),
                      desc: () => L("Özet, çeviri, dilbilgisi ve içerik fikirleri", "Summary, translation, grammar and content ideas"),
                      open: () => { const p = $("ai-panel"); if (p && p.style.display === "none" && typeof toggleAiPanel === "function") toggleAiPanel(); } },
-        silence:   { cat: "edit", tab: "edit", view: "#silence-btn", badge: "beta", color: "#c89a62",
+        silence:   { cat: "edit", group: "time", tab: "edit", view: "#silence-btn", color: "#c89a62",
                      name: () => L("Sessizlikleri Kes", "Cut Silences"),
                      desc: () => DESK ? L("Sessiz boşlukları bulur, kırpılmış bir kopya dışa aktarır", "Finds silent gaps; exports a trimmed copy")
                                       : L("Sessiz boşlukları bulur, işaretler veya ripple ile keser", "Finds silent gaps; marks or ripple-deletes them"),
                      open: () => { if (window.__silPageOpen) window.__silPageOpen(); } },
-        repeat:    { cat: "edit", tab: "edit", view: "#repeat-btn", badge: "new", color: "#c47f79",
+        repeat:    { cat: "edit", group: "time", tab: "edit", view: "#repeat-btn", color: "#c47f79",
                      name: () => L("Tekrarları Sil", "Remove Repeats"),
                      desc: () => L("Tekrar çekimleri bulur, kötü take'leri atar", "Finds re-takes and drops the bad ones") },
-        filler:    { cat: "edit", tab: "edit",
-                     view: DESK ? "button[onclick^='cutFillerWordsDesktop']" : "#filler-cut-btn",
-                     badge: "beta", color: "#7fb1c9",
+        filler:    { cat: "edit", group: "time", tab: "edit",
+                     view: DESK ? "button[onclick^='cutFillerWordsDesktop']" : "#filler-cut-btn", color: "#7fb1c9",
                      name: () => L("Dolgu Kelimeleri Kes", "Cut Filler Words"),
                      desc: () => L("ee, ıı, şey… kelimelerini videodan temizler", "Cleans um, uh, like… from the video") },
-        zoom:      { cat: "edit", tab: "edit", view: "#zoom-btn", badge: "beta", pp: true, color: "#8f8cc9",
+        zoom:      { cat: "edit", group: "time", tab: "edit", view: "#zoom-btn", pp: true, color: "#8f8cc9",
                      name: () => L("Otomatik Zoom", "Auto Zoom"),
                      desc: () => L("Kliplere enerji katan yumuşak yakınlaşmalar ekler", "Adds smooth push-ins that energize your clips") },
-        multicam:  { cat: "edit", tab: "edit", view: "#mc-scan", badge: "new", pp: true, color: "#bfae6e",
+        multicam:  { cat: "edit", group: "time", tab: "edit", view: "#mc-scan", pp: true, color: "#bfae6e",
                      name: () => "Podcast Multicam",
                      desc: () => L("Kim konuşuyorsa kamerayı ona geçirir", "Switches cameras to whoever is talking") },
-        markercut: { cat: "edit", tab: "edit", view: "#markercut-btn", badge: "new", pp: true, color: "#bfae6e",
+        markercut: { cat: "edit", group: "time", tab: "edit", view: "#markercut-btn", pp: true, color: "#bfae6e",
                      name: () => L("Marker ile Kes", "Cut by Markers"),
                      desc: () => L("Marker çiftleri arasını kes ya da tut", "Cut or keep between marker pairs") },
-        resize:    { cat: "edit", tab: "edit", view: "#resize-btn", badge: "new", pp: true, color: "#7bb389",
+        resize:    { cat: "edit", group: "time", tab: "edit", view: "#resize-btn", pp: true, color: "#7bb389",
                      name: () => L("Dikey Kes", "Vertical Resize"),
                      desc: () => L("Sekansı TikTok/Reels formatına çevirir", "Converts the sequence to TikTok/Reels format") },
-        ducking:   { cat: "audio", tab: "audio", view: "#duck-btn", badge: "new", pp: true, color: "#7aa7c2",
+        ducking:   { cat: "audio", group: "audio", tab: "audio", view: "#duck-btn", pp: true, color: "#7aa7c2",
                      name: () => L("Müzik Kısma", "Music Ducking"),
                      desc: () => L("Konuşma varken müziği otomatik kısar", "Auto-lowers music while someone talks") },
-        beep:      { cat: "audio", tab: "audio", view: "button[onclick^='beepProfanityAction']", color: "#c4726a",
+        beep:      { cat: "audio", group: "audio", tab: "audio", view: "button[onclick^='beepProfanityAction']", color: "#c4726a",
                      name: () => L("Küfür Sansürü", "Beep Profanity"),
                      desc: () => L("Küfürleri bulur; bipler ya da susturur", "Finds profanity; beeps or mutes it") },
-        enhance:   { cat: "audio", tab: "audio", view: "#enhance-btn", color: "#7bb389",
+        enhance:   { cat: "audio", group: "audio", tab: "audio", view: "#enhance-btn", color: "#7bb389",
                      name: () => L("Sesi İyileştir", "Enhance Audio"),
                      desc: () => L("Gürültüyü azaltır, ses seviyesini dengeler", "Reduces noise, normalizes loudness") },
-        chapters:  { cat: "content", tab: "edit", view: "#chapters-btn", badge: "new", color: "#6b9fd8",
+        chapters:  { cat: "content", group: "make", tab: "edit", view: "#chapters-btn", color: "#6b9fd8",
                      name: () => L("Bölümler", "Chapters"),
                      desc: () => DESK ? L("YouTube bölüm metni — kopyala ya da kaydet", "YouTube chapter text — copy or save")
                                       : L("YouTube bölümleri + timeline marker'ları", "YouTube chapters + timeline markers") },
-        viral:     { cat: "content", tab: "edit", view: "#viral-btn", badge: "new", color: "#c89a62",
+        viral:     { cat: "content", group: "make", tab: "edit", view: "#viral-btn", color: "#c89a62",
                      name: () => L("Viral Klipler", "Viral Clips"),
                      desc: () => L("Kısa içerik için en güçlü anları bulur", "Finds the strongest moments for shorts") },
-        pace:      { cat: "content", tab: "edit", view: "#pace-btn", badge: "new", color: "#8f8cc9",
+        pace:      { cat: "content", group: "make", tab: "edit", view: "#pace-btn", color: "#8f8cc9",
                      name: () => L("Konuşma Analizi", "Speech Pace"),
                      desc: () => DESK ? L("Hız grafiği — 180+ wpm bölgeler kırmızı", "WPM chart — 180+ wpm zones in red")
                                       : L("Hız grafiği + 'çok hızlı' işaretleri", "WPM chart + 'too fast' markers") },
-        social:    { cat: "content", tab: "edit", view: "#social-btn", badge: "new", color: "#c89a62",
+        social:    { cat: "content", group: "make", tab: "edit", view: "#social-btn", color: "#c89a62",
                      name: () => L("Sosyal Paket", "Social Pack"),
                      desc: () => DESK ? L("Tek tık: viral anlar + klip başına SRT", "One click: viral moments + per-clip SRTs")
                                       : L("Tek tık: viral anlar + SRT + 9:16 kopya", "One click: viral moments + SRTs + 9:16 copy") },
-        broll:     { cat: "content", tab: "edit", view: "#broll-btn", badge: "new", color: "#7fb1c9",
+        broll:     { cat: "content", group: "make", tab: "edit", view: "#broll-btn", color: "#7fb1c9",
                      name: () => "B-Roll",
                      desc: () => L("Anlatıma uygun ara görüntü önerileri", "Footage ideas matched to what's said") },
-        settings:  { cat: "general", tab: "setup", color: "#8e8e93",
+        settings:  { cat: "general", group: "app", tab: "setup", color: "#8e8e93",
                      name: () => L("Ayarlar", "Settings"),
                      desc: () => L("Genel tercihler, AI anahtarları, kurulum", "Preferences, AI keys, setup") },
-        help:      { cat: "general", overlay: true, color: "#7aa7c2",
+        help:      { cat: "general", group: "app", overlay: true, color: "#7aa7c2",
                      name: () => L("Yardım", "Help"),
                      desc: () => L("30 saniyede başlangıç turu", "The 30-second starter tour"),
                      open: () => { localStorage.removeItem("ws_onboarded"); if (typeof maybeShowOnboarding === "function") maybeShowOnboarding(); } },
     };
-    const CATS = [
-        { id: "sub",     label: () => L("Altyazı", "Subtitles") },
-        { id: "edit",    label: () => L("Kurgu", "Editing") },
-        { id: "audio",   label: () => L("Ses", "Audio") },
-        { id: "content", label: () => L("İçerik", "Content") },
-        { id: "general", label: () => L("Genel", "General") },
+    /* Grouped by what a tool CHANGES, because that is the question in the
+       user's head — "will this touch my text or my timeline?" — not by which
+       tab it happens to live in. */
+    const GROUPS = [
+        { id: "text",  label: () => L("Metni değiştirir", "Changes the text") },
+        { id: "time",  label: () => L("Zaman çizgisini değiştirir", "Changes the timeline") },
+        { id: "audio", label: () => L("Sesi değiştirir", "Changes the audio") },
+        { id: "make",  label: () => L("Yeni bir şey üretir", "Makes something new") },
+        { id: "app",   label: () => L("Uygulama", "App") },
     ];
     const VIEW_PANELS = ["panel-ed-work", "panel-au-work"];
     const PANEL_OF = { edit: "panel-ed-work", audio: "panel-au-work" };
@@ -186,6 +188,7 @@
         const gear = $("page-gear");
         if (gear) { gear.style.display = t.gear ? "inline-flex" : "none"; gear.classList.remove("active"); }
     };
+    window.__ui2RenderHome = renderHome;   // main.js calls this when the source probe answers
     window.ui2Home = function () {
         document.body.classList.add("ui2-home");
         document.body.removeAttribute("data-ui2page");
@@ -200,12 +203,45 @@
     };
 
     // ── home rendering ─────────────────────────────────────────────────────
+    /* The sequence name comes from Premiere, so it is not ours to trust. */
+    function escapeHtml(v) {
+        return String(v == null ? "" : v)
+            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
     function renderHome() {
         const wrap = $("home-cats"); if (!wrap) return;
         wrap.innerHTML = "";
-        // one-tap resume: last used tool right under the badge
+
+        /* ── One primary action ──────────────────────────────────────────
+           Nineteen equally-weighted cards told nobody where to start. There
+           is exactly one thing a first-time user needs to press, so it gets
+           the size to say so — and it says what it will act on, which the
+           old grid could not. */
+        const hero = TOOLS.subtitles;
+        const src  = (typeof sourceInfo !== "undefined") ? sourceInfo : null;
+        const heroBtn = document.createElement("button");
+        heroBtn.className = "home-hero";
+        heroBtn.innerHTML =
+            `<span class="hh-icon">${ART.subtitles ? "" : ""}` +
+              `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                 <rect x="2.5" y="4.5" width="19" height="15" rx="3.5"/>
+                 <path d="M9 10.5c-.8-1-2.8-.8-2.8 1.5s2 2.5 2.8 1.5M18 10.5c-.8-1-2.8-.8-2.8 1.5s2 2.5 2.8 1.5"/>
+               </svg></span>` +
+            `<span class="hh-text">` +
+              `<span class="hh-title">${hero.name()}</span>` +
+              `<span class="hh-sub${src && src.warn ? " warn" : ""}">${
+                  src ? escapeHtml(src.label) + (src.detail ? " · " + escapeHtml(src.detail) : "")
+                      : hero.desc()}</span>` +
+            `</span>` +
+            `<span class="hh-go" aria-hidden="true">›</span>`;
+        heroBtn.addEventListener("click", () => ui2Open("subtitles"));
+        wrap.appendChild(heroBtn);
+
+        /* ── Pick up where you left off ─────────────────────────────────── */
         const lastKey = (() => { try { return localStorage.getItem("ws_lastTool"); } catch (e) { return null; } })();
-        if (lastKey && TOOLS[lastKey] && !TOOLS[lastKey].overlay && !(DESK && TOOLS[lastKey].pp)) {
+        if (lastKey && lastKey !== "subtitles" && TOOLS[lastKey] && !TOOLS[lastKey].overlay && !(DESK && TOOLS[lastKey].pp)) {
             const lt = TOOLS[lastKey];
             const row = document.createElement("button");
             row.className = "ui2-resume";
@@ -213,35 +249,44 @@
             row.addEventListener("click", () => ui2Open(lastKey));
             wrap.appendChild(row);
         }
-        CATS.forEach(cat => {
-            const keys = Object.keys(TOOLS).filter(k => TOOLS[k].cat === cat.id && !(DESK && TOOLS[k].pp));
+
+        /* ── The rest, as compact rows ───────────────────────────────────
+           Rows, not tiles: a tool is a label and a sentence, and a 280px
+           panel cannot give two columns of those enough width to read. */
+        GROUPS.forEach(g => {
+            const keys = Object.keys(TOOLS).filter(k => TOOLS[k].group === g.id);
             if (!keys.length) return;
             const lab = document.createElement("div");
             lab.className = "home-cat-label";
-            lab.textContent = cat.label();
+            lab.textContent = g.label();
             wrap.appendChild(lab);
-            const grid = document.createElement("div");
-            grid.className = "home-grid";
+
+            const list = document.createElement("div");
+            list.className = "home-list";
             keys.forEach(k => {
                 const t = TOOLS[k];
+                // Premiere-only tools are shown disabled on the desktop rather
+                // than vanishing. Disappearing made the two products feel like
+                // different apps and hid what the extension is for.
+                const unavailable = DESK && t.pp;
                 const btn = document.createElement("button");
-                btn.className = "home-card";
+                btn.className = "home-row" + (unavailable ? " is-off" : "");
                 btn.setAttribute("data-tool", k);
-                const badge = t.badge
-                    ? `<span class="hc-badge${t.badge === "soon" ? " soon" : ""}">${
-                        t.badge === "new" ? L("Yeni", "New") : t.badge === "soon" ? L("Yakında", "Soon") : L("Deneysel", "Beta")}</span>`
-                    : "";
-                btn.innerHTML = `
-                  <span class="hc-art"><svg viewBox="0 0 120 56" xmlns="http://www.w3.org/2000/svg">${(ART[k] || ART.settings)(t.color)}</svg></span>
-                  <span class="hc-label">${t.name()}</span>
-                  <span class="hc-desc">${t.desc()}</span>
-                  ${badge}`;
-                btn.title = t.desc();   // full description on hover (desc clamps to 2 lines)
-                btn.addEventListener("click", () => ui2Open(k));
-                grid.appendChild(btn);
+                if (unavailable) btn.setAttribute("aria-disabled", "true");
+                btn.innerHTML =
+                    `<span class="hr-dot" style="background:${t.color || "var(--accent)"}"></span>` +
+                    `<span class="hr-text">` +
+                      `<span class="hr-label">${t.name()}</span>` +
+                      `<span class="hr-desc">${unavailable ? L("Premiere zaman çizgisi gerekir", "Needs a Premiere timeline") : t.desc()}</span>` +
+                    `</span>`;
+                btn.title = unavailable ? L("Bu araç Premiere eklentisinde çalışır", "This tool runs in the Premiere extension")
+                                        : t.desc();
+                if (!unavailable) btn.addEventListener("click", () => ui2Open(k));
+                list.appendChild(btn);
             });
-            wrap.appendChild(grid);
+            wrap.appendChild(list);
         });
+
         const back = $("page-back-label"); if (back) back.textContent = L("Geri", "Back");
         const badge = $("home-badge-text");
         if (badge) {

@@ -40,36 +40,56 @@
 .empty-state p                 { margin: 0; }
 
 /* ── Controls ────────────────────────────────────────────────────────────
-   These were inline-styled in the markup (`style="display:flex…"`,
-   `style="width:100%"`), which meant no stylesheet could adapt them without
-   !important. Moved to classes so the rules below are plain cascade. */
-.controls-row  { display: flex; gap: 8px; margin-bottom: 8px; }
-/* `flex: 1` in style.css only mattered once .controls became a flex row —
-   see the short-panel block below. Keep the block-layout default explicit. */
-.btn-playpause { width: 100%; justify-content: center; flex: 0 0 auto; }
+   These were inline-styled in the markup, which meant no stylesheet could
+   adapt them without !important. Moved to classes.
 
-/* ── The transcript is the only thing that scrolls ───────────────────────
-   Below 920px the panel was scrolling as one block, so "Send to Premiere"
-   scrolled off the bottom along with everything else — the primary action,
-   out of reach, on exactly the small panels that can least afford it.
+   `height: 34px` was among those inline styles, and it is why the Turkish
+   label — "In/Out Aralığını Yazıya Dök", far longer than "Transcribe File" —
+   wrapped to three lines and spilled out of its own button. A control sized to
+   one language is sized to one language; min-height lets it grow instead. */
+.controls-row   { display: flex; gap: 8px; margin-bottom: 8px; }
+.ctl-primary    { flex: 2 1 0; min-width: 0; margin: 0; font-size: 12px;
+                  padding: 8px 12px; min-height: 34px; height: auto; }
+.ctl-secondary  { flex: 1 1 0; min-width: 0; margin-top: 0; font-size: 12px;
+                  padding: 8px 12px; min-height: 34px; height: auto; }
+.ctl-primary > span, .ctl-secondary > span { min-width: 0; }
+.btn-playpause  { width: 100%; justify-content: center; flex: 0 0 auto; }
 
-   The cause is a missing line rather than a missing feature: `.work-right`
-   has `flex: 1` but no `min-height: 0`, so it expands to fit its content and
-   the `overflow-y: auto` already sitting on `.segments-wrap` never engages.
-   A flex item cannot shrink below its content without it.
+/* ── One scroll region, one pinned action ────────────────────────────────
+   First attempt pinned the controls and let only the transcript scroll. That
+   was wrong in practice: the controls block is tall — Transcribe, Load SRT,
+   Play, and whatever cards get injected onto the tool page — so on a short
+   panel it held ~400px hostage and left the transcript reading through a slot.
 
-   `.work-left` holds the status bar and controls plus the Find / Sync / AI
-   panels, which are hidden until invoked. Capping it means an open AI panel
-   scrolls within itself instead of pushing the transcript out of the panel.
+   Everything scrolls together instead. The action bar stays reachable by being
+   sticky rather than by being outside the scroll: it keeps its place in the
+   flow, so it cannot overlap the last line, and it is on screen whether you
+   are at the top of the transcript or the bottom.
 
-   Scoped below the existing wide-window breakpoint, which already handles
-   this correctly with its own two-column rules. */
+   Scoped below the wide-window breakpoint, which has its own two-column
+   layout and does not need this. */
 @media (max-width: 919px) {
-  #panel-tx-work.panel          { overflow: hidden; }
-  #panel-tx-work .work-left     { flex: 0 0 auto; max-height: 62%; overflow-y: auto; }
-  #panel-tx-work .work-right    { flex: 1 1 auto; min-height: 0; overflow: hidden; }
-  #panel-tx-work .segments-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-  #panel-tx-work .actions-bar   { flex: 0 0 auto; }
+  #panel-tx-work.panel        { overflow-y: auto; }
+  #panel-tx-work .work-right  { display: flex; flex-direction: column; }
+  #panel-tx-work .actions-bar {
+    position: sticky; bottom: 0; z-index: 5;
+    background: var(--header-bg);
+    box-shadow: 0 -6px 12px -6px rgba(0, 0, 0, .55);
+  }
+}
+
+/* ── The action bar has to hold its own row ──────────────────────────────
+   Six icon buttons, Clear, and "Premiere'e Gönder" — which carries
+   `white-space: nowrap`, so it keeps its full width no matter how little is
+   left and simply pushes itself out of the bar. The primary action, half
+   off-screen. It needed a wider net than the 330px sliver rule I first gave
+   it: the overlap audit found it still escaping at 360px.
+
+   Let the bar wrap, and let the send button take whatever row it lands on. */
+@media (max-width: 640px) {
+  .actions-bar { flex-wrap: wrap; gap: 5px; padding: 7px 8px; }
+  .actions-bar .btn-secondary { flex: 0 0 auto; }
+  .btn-send    { flex: 1 1 100%; justify-content: center; min-width: 0; padding: 9px 10px; }
 }
 
 /* ── Short panel ─────────────────────────────────────────────────────────
@@ -91,17 +111,12 @@
   .status-bar        { padding: 5px 12px; min-height: 24px; font-size: 11px; }
   .empty-state       { min-height: 0; padding: 20px 18px; gap: 10px; }
 
-  /* Transcribe · Load SRT · Play were three rows stacked ~110px tall. On a
-     480px panel that is a quarter of the height before the transcript starts.
-     Put Play on the same row as the other two.
-     `.btn-playpause` already carries `flex: 1` from style.css, which did
-     nothing while `.controls` was a block. Turning `.controls` into a flex row
-     woke it up, and combined with a `width: 100%` it took the full width of
-     the row as its basis and overlapped its siblings. Both have to be
-     neutralised here, not just one. */
-  .controls        { display: flex; gap: 8px; align-items: center; }
-  .controls-row    { flex: 1 1 auto; margin-bottom: 0; min-width: 0; }
-  .btn-playpause   { flex: 0 0 auto; width: auto; margin-top: 0; padding: 9px 14px; }
+  /* Play joins the row above rather than taking one of its own — worth ~40px.
+     NOT the full three-into-one compaction that was here before: squeezing
+     Transcribe into a third of the width made the long Turkish label wrap to
+     three lines and break out of its button. Saving 76px is not worth a
+     control that only fits in English. */
+  .btn-playpause   { margin-top: 6px; padding: 7px; }
   #page-bar        { padding-block: 4px; }
 }
 
@@ -130,16 +145,8 @@
   .brand-tagline     { display: none; }
   .controls          { padding: 8px 10px; }
 
-  /* Secondary actions become icon-only rather than wrapping to a second row. */
-  .actions-bar       { gap: 5px; padding: 7px 8px; flex-wrap: wrap; }
-  .actions-bar .btn-secondary { padding: 7px 8px; flex: 0 0 auto; }
+  .actions-bar .btn-secondary { padding: 7px 8px; }
   .seg-count         { display: none; }
-
-  /* "Premiere'e Gönder" carries `white-space: nowrap`, so on a 260px panel it
-     kept its full width and pushed itself out of the bar — the primary action,
-     half off-screen. Let it take the row it needs instead. Caught by the
-     overlap audit in dev/test/build-panel-sizes.py, not by eye. */
-  .btn-send          { flex: 1 1 100%; justify-content: center; padding: 9px 10px; min-width: 0; }
 }
 
 /* ── Very narrow ─────────────────────────────────────────────────────────

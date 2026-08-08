@@ -53,6 +53,16 @@ def snapshot(view: str) -> str:
     # Scripts need Node and a Premiere host; the layout does not.
     html = re.sub(r"<script\b.*?</script>", "", html, flags=re.S)
 
+    # Use the Turkish strings, not the English defaults baked into the markup.
+    # "In/Out Aralığını Yazıya Dök" is three times the length of "Transcribe
+    # File", and a control that only fits the short one is a control that
+    # breaks for half the users. Testing the shorter label found nothing.
+    for key, tr in [("btn_transcribe", "In/Out Aralığını Yazıya Dök"),
+                    ("btn_loadsrt", "SRT Yükle"), ("btn_play", "Oynat"),
+                    ("act_clear", "Temizle"), ("act_send", "Premiere'e Gönder"),
+                    ("status_ready", "Hazır — Transcribe'a bas (In/Out istersen aralık seçer)")]:
+        html = re.sub(rf'(data-i18n="{key}"[^>]*>)[^<]*', rf"\g<1>{tr}", html)
+
     if view == "home":
         html = html.replace('<body class="ui2-home">', '<body class="ui2-home">')
         cards = ""

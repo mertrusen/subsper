@@ -1,0 +1,149 @@
+/* ──────────────────────────────────────────────────────────────────────────
+   Panel-size adaptation.
+
+   A CEP panel is not a window. People dock it into whatever gap they have —
+   a 280px strip beside the Program monitor, a short shelf under the timeline,
+   occasionally a wide floating window. Inside CEP the panel IS the viewport,
+   so plain media queries measure it directly; no container queries needed
+   (CEP 12 ships Chromium 99, which predates them anyway).
+
+   The problem this solves is vertical, not horizontal. Measured on the shipping
+   panel at 360x460: header 41px + home padding 38px + badge 39px = 118px of
+   chrome before the first card — 28% of the panel spent on decoration. In the
+   work view it is worse: roughly 200px of chrome leaves ~220px for the
+   transcript, which is the one thing the user came here to read.
+
+   So: every rule below buys vertical space back, and the transcript is what
+   gets it. Loaded last so it wins without !important shouting.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* The shell is already a flex column; make sure nothing but the scrollable
+   content is allowed to grow, so short panels shrink chrome instead of the
+   list. */
+.header,
+#page-bar,
+.status-bar,
+.progress-wrap,
+.controls,
+.actions-bar,
+.find-panel        { flex-shrink: 0; }
+#segments-wrap,
+.panel,
+#home-screen       { min-height: 0; }
+
+/* ── Controls ────────────────────────────────────────────────────────────
+   These were inline-styled in the markup (`style="display:flex…"`,
+   `style="width:100%"`), which meant no stylesheet could adapt them without
+   !important. Moved to classes so the rules below are plain cascade. */
+.controls-row  { display: flex; gap: 8px; margin-bottom: 8px; }
+.btn-playpause { width: 100%; justify-content: center; }
+
+/* ── The transcript is the only thing that scrolls ───────────────────────
+   Below 920px the panel was scrolling as one block, so "Send to Premiere"
+   scrolled off the bottom along with everything else — the primary action,
+   out of reach, on exactly the small panels that can least afford it.
+
+   The cause is a missing line rather than a missing feature: `.work-right`
+   has `flex: 1` but no `min-height: 0`, so it expands to fit its content and
+   the `overflow-y: auto` already sitting on `.segments-wrap` never engages.
+   A flex item cannot shrink below its content without it.
+
+   `.work-left` holds the status bar and controls plus the Find / Sync / AI
+   panels, which are hidden until invoked. Capping it means an open AI panel
+   scrolls within itself instead of pushing the transcript out of the panel.
+
+   Scoped below the existing wide-window breakpoint, which already handles
+   this correctly with its own two-column rules. */
+@media (max-width: 919px) {
+  #panel-tx-work.panel          { overflow: hidden; }
+  #panel-tx-work .work-left     { flex: 0 0 auto; max-height: 62%; overflow-y: auto; }
+  #panel-tx-work .work-right    { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  #panel-tx-work .segments-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  #panel-tx-work .actions-bar   { flex: 0 0 auto; }
+}
+
+/* ── Short panel ─────────────────────────────────────────────────────────
+   Docked under a timeline, roughly half a screen tall. */
+@media (max-height: 560px) {
+  .header            { padding: 3px 10px; }
+  .brand-mark        { width: 19px; height: 19px; border-radius: 5px; }
+  .brand-title       { font-size: 13px; }
+  .brand-tagline     { display: none; }   /* "YAPAY ZEKA ALTYAZI" — decoration */
+  .brand-version     { display: none; }
+
+  #home-screen       { padding: 10px 11px 14px; }
+  .home-badge        { margin-bottom: 9px; padding: 3px 10px; font-size: 10px; }
+  .home-cat-label    { margin: 10px 2px 6px; }
+  .home-grid         { gap: 7px; }
+
+  .controls          { padding: 8px 12px; }
+  .actions-bar       { padding: 7px 10px; }
+  .status-bar        { padding: 5px 12px; min-height: 24px; font-size: 11px; }
+  .empty-state       { min-height: 0; padding: 20px 18px; gap: 10px; }
+
+  /* Transcribe · Load SRT · Play were three rows stacked ~110px tall. On a
+     480px panel that is a quarter of the height spent before the transcript
+     starts. One row instead. */
+  .controls        { display: flex; gap: 8px; align-items: stretch; }
+  .controls-row    { flex: 1; margin-bottom: 0; min-width: 0; }
+  .btn-playpause   { width: auto; flex: 0 0 auto; margin-top: 0; padding-inline: 14px; }
+  #page-bar        { padding-block: 4px; }
+}
+
+/* ── Very short panel ────────────────────────────────────────────────────
+   A shelf. Anything that is not the content itself has to justify its pixels. */
+@media (max-height: 420px) {
+  .home-badge        { display: none; }   /* status, not an action */
+  #home-screen       { padding: 8px 10px 10px; }
+  .home-cat-label    { margin: 7px 2px 5px; font-size: 9.5px; }
+  .empty-state       { padding: 14px; }
+  .empty-state .icon { display: none; }
+  .segment           { padding: 7px 12px 7px 10px; }
+  .seg-header        { margin-bottom: 2px; }
+}
+
+/* ── Narrow panel ────────────────────────────────────────────────────────
+   Two cards side by side stop being readable below ~330px: the label wraps to
+   three lines and the description clamps to nothing. One column is honest. */
+@media (max-width: 330px) {
+  .home-grid         { grid-template-columns: 1fr; }
+  .home-card         { flex-direction: row; align-items: center; text-align: left; }
+  .hc-art            { display: none; }   /* the illustration is the first thing to go */
+  .hc-desc           { -webkit-line-clamp: 1; }
+
+  .header            { padding: 4px 8px; }
+  .brand-tagline     { display: none; }
+  .controls          { padding: 8px 10px; }
+
+  /* Secondary actions become icon-only rather than wrapping to a second row. */
+  .actions-bar       { gap: 5px; padding: 7px 8px; }
+  .actions-bar .btn-secondary { padding: 7px 8px; }
+  .seg-count         { display: none; }
+}
+
+/* ── Very narrow ─────────────────────────────────────────────────────────
+   Below 260px the panel is a sliver. Keep it usable rather than pretty. */
+@media (max-width: 260px) {
+  .brand-text        { display: none; }
+  .cue-time,
+  .seg-time          { font-size: 9px; }
+  .segment           { padding: 7px 9px; }
+}
+
+/* ── Reading comfort ─────────────────────────────────────────────────────
+   On a very wide dock the transcript would otherwise run to 900px lines, which
+   is past comfortable reading for subtitle text. */
+@media (min-width: 1000px) {
+  #segments-wrap    { max-width: 780px; margin-inline: auto; width: 100%; }
+}
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────
+   A 15px scrollbar on a 280px panel is 5% of the width. */
+@media (max-width: 400px) {
+  #segments-wrap::-webkit-scrollbar,
+  #home-screen::-webkit-scrollbar,
+  .panel::-webkit-scrollbar        { width: 6px; }
+  #segments-wrap::-webkit-scrollbar-thumb,
+  #home-screen::-webkit-scrollbar-thumb,
+  .panel::-webkit-scrollbar-thumb  { border-width: 1px; }
+}

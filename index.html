@@ -5,6 +5,8 @@
   <title>Subsper</title>
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/ui-v2.css">
+  <!-- last: adapts the shell to however the panel is docked -->
+  <link rel="stylesheet" href="css/panel.css">
 </head>
 <body class="ui2-home">
 
@@ -113,7 +115,7 @@
     <div class="progress-wrap"><div class="progress-bar" id="progress-bar"></div></div>
 
     <div class="controls">
-      <div style="display:flex; gap:8px; margin-bottom: 8px;">
+      <div class="controls-row">
         <button class="btn-transcribe" id="transcribe-btn" onclick="startTranscription()" style="flex:2; margin-top:0; margin-bottom:0; font-size:12px; padding:8px 12px; height:34px" data-i18n-tip="tip_transcribe">
           <span class="ico ic" data-icon="mic"></span><span data-i18n="btn_transcribe">Transcribe File</span>
         </button>
@@ -121,7 +123,7 @@
           <span class="ic" data-icon="folder"></span><span data-i18n="btn_loadsrt">Load SRT</span>
         </button>
       </div>
-      <button class="btn-playpause" id="playpause-btn" onclick="playPause()" style="width:100%; justify-content:center" data-i18n-tip="tip_play">
+      <button class="btn-playpause" id="playpause-btn" onclick="playPause()" data-i18n-tip="tip_play">
         <span class="ic" data-icon="play"></span><span data-i18n="btn_play">Play</span>
       </button>
       <input type="file" id="srt-file-input" accept=".srt" style="display:none">

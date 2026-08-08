@@ -114,13 +114,28 @@ The build fails on purpose if a GPL or non-free component ever creeps back in.
 
 ### Tests
 ```
-dev/test/run.sh            # unit suite (uses node, or JavaScriptCore if node is absent)
-dev/test/check-mirror.sh   # desktop and extension copies must stay identical
-dev/test/ffmpeg-smoke.sh   # the bundled ffmpeg can do everything the app asks
-node dev/v2-harness.js     # feature gating, desktop vs extension
+dev/test/run.sh                       # unit suite (node, or JavaScriptCore if node is absent)
+dev/test/check-mirror.sh              # desktop and extension copies must stay identical
+dev/test/ffmpeg-smoke.sh              # the bundled ffmpeg can do what the app asks
+dev/test/dom-harness.sh               # segment-list clicks, in a real browser
+python3 dev/test/ui-audit.py          # dead buttons, untranslated strings, empty tool pages
+python3 dev/test/settings-audit.py    # settings nothing reads, settings nothing can change
+node dev/v2-harness.js                # feature gating, desktop vs extension
 ```
-CI runs all four on every push and PR, and the packaging jobs will not start
-until they pass.
+
+The panel is not a window — people dock it into whatever gap they have. To see
+the layout at the sizes that actually happen:
+
+```
+python3 dev/test/build-panel-sizes.py /tmp/sizes && open /tmp/sizes/panel-sizes.html
+```
+
+Each size renders in its own iframe, because media queries measure the viewport
+and inside CEP the panel *is* the viewport — a fixed-size `<div>` would never
+trigger them and would report every size as fine.
+
+CI runs the suite, both audits, the DOM harness and the ffmpeg smoke test on
+every push and pull request. The packaging jobs do not start until they pass.
 
 ---
 

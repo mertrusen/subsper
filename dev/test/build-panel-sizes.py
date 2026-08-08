@@ -131,9 +131,11 @@ PAGE = """<!doctype html><html lang="tr"><head><meta charset="utf-8">
 <p class="lede">Gerçek işaretleme, gerçek CSS. Her boyut kendi iframe'inde — media query'ler
 viewport ölçer, sabit boyutlu bir div onları hiç tetiklemez.</p>
 <div class="tabs">
-  <button class="on" onclick="show('home',this)">Ana ekran</button>
-  <button onclick="show('work',this)">Çalışma</button>
+  <button onclick="show('home',this)">Ana ekran (eski işaretleme)</button>
+  <button class="on" onclick="show('work',this)">Çalışma</button>
 </div>
+<div id="verdict" style="margin:0 0 18px;padding:11px 14px;border-radius:9px;
+     background:#1a2126;color:#93a3ab;font-size:12.5px">ölçülüyor…</div>
 <div class="grid" id="grid"></div>
 <div class="warn">Betikler çıkarıldı — bu sayfa yalnızca yerleşimi test eder, davranışı değil.</div>
 <script>
@@ -150,8 +152,74 @@ viewport ölçer, sabit boyutlu bir div onları hiç tetiklemez.</p>
       g.appendChild(f);
     });
   }
-  show("home", null);
-  document.querySelector(".tabs button").classList.add("on");
+  show("work", null);
+  document.querySelectorAll(".tabs button")[1].classList.add("on");
+
+  /* Measuring is not the same as looking.
+     The first version of this page reported widths and heights and called the
+     layout fine, while a Play button with an inherited `flex: 1` was sitting
+     on top of Transcribe. Numbers were right, the layout was broken. So ask
+     the question that actually matters: does anything overlap anything else,
+     and does anything escape its container? */
+  function overlaps(a, b) {
+    return !(a.right <= b.left + 1 || a.left >= b.right - 1 ||
+             a.bottom <= b.top + 1 || a.top >= b.bottom - 1);
+  }
+  function audit() {
+    var problems = [], checked = 0;
+    document.querySelectorAll("iframe").forEach(function (f) {
+      var d = f.contentDocument;
+      if (!d || !d.body) return;
+      var tag = f.width + "×" + f.height;
+
+      // Siblings that share a row must never sit on top of each other.
+      [".controls", ".actions-bar", ".seg-header", ".home-list", ".controls-row"].forEach(function (sel) {
+        d.querySelectorAll(sel).forEach(function (box) {
+          var kids = [].filter.call(box.children, function (c) {
+            var r = c.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          });
+          for (var i = 0; i < kids.length; i++) {
+            checked++;
+            var ri = kids[i].getBoundingClientRect();
+            var rb = box.getBoundingClientRect();
+            if (ri.right > rb.right + 2 || ri.left < rb.left - 2) {
+              problems.push(tag + " · " + sel + " > " + (kids[i].className || kids[i].tagName) + " kabından taşıyor");
+            }
+            for (var j = i + 1; j < kids.length; j++) {
+              if (overlaps(ri, kids[j].getBoundingClientRect())) {
+                problems.push(tag + " · " + sel + " içinde çakışma: " +
+                  (kids[i].className || kids[i].tagName) + " ↔ " + (kids[j].className || kids[j].tagName));
+              }
+            }
+          }
+        });
+      });
+
+      if (d.documentElement.scrollWidth > f.width + 1) problems.push(tag + " · yatay taşma");
+    });
+
+    var v = document.getElementById("verdict");
+    if (problems.length) {
+      v.style.background = "#2c1918"; v.style.color = "#e08a83";
+      v.innerHTML = "<b>" + problems.length + " sorun</b><br>" + problems.join("<br>");
+      document.title = "PANEL-LAYOUT fail=" + problems.length;
+    } else if (checked === 0) {
+      // A pass that inspected nothing is the failure mode this audit exists to
+      // stop. Say so instead of showing green.
+      v.style.background = "#2a2114"; v.style.color = "#dfa955";
+      v.textContent = "Hiçbir öğe kontrol edilmedi — seçiciler bu görünümle eşleşmiyor. Bu bir geçiş değil.";
+      document.title = "PANEL-LAYOUT fail=1 (nothing checked)";
+    } else {
+      v.style.background = "#132720"; v.style.color = "#6cc296";
+      v.textContent = "Çakışma ve taşma yok — " + checked + " öğe kontrol edildi.";
+      document.title = "PANEL-LAYOUT fail=0";
+    }
+  }
+  window.addEventListener("load", function () { setTimeout(audit, 700); });
+  document.querySelectorAll(".tabs button").forEach(function (b) {
+    b.addEventListener("click", function () { setTimeout(audit, 700); });
+  });
 </script></body></html>
 """
 

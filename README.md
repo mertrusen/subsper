@@ -134,6 +134,11 @@ Each size renders in its own iframe, because media queries measure the viewport
 and inside CEP the panel *is* the viewport — a fixed-size `<div>` would never
 trigger them and would report every size as fine.
 
+The page asserts that nothing overlaps and nothing escapes its container, and
+**refuses to report a pass if it inspected nothing**. Measuring dimensions is
+not the same as looking: an earlier version reported sensible widths while a
+Play button with an inherited `flex: 1` sat on top of Transcribe.
+
 CI runs the suite, both audits, the DOM harness and the ffmpeg smoke test on
 every push and pull request. The packaging jobs do not start until they pass.
 

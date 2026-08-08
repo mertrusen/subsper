@@ -44,7 +44,9 @@
    `style="width:100%"`), which meant no stylesheet could adapt them without
    !important. Moved to classes so the rules below are plain cascade. */
 .controls-row  { display: flex; gap: 8px; margin-bottom: 8px; }
-.btn-playpause { width: 100%; justify-content: center; }
+/* `flex: 1` in style.css only mattered once .controls became a flex row —
+   see the short-panel block below. Keep the block-layout default explicit. */
+.btn-playpause { width: 100%; justify-content: center; flex: 0 0 auto; }
 
 /* ── The transcript is the only thing that scrolls ───────────────────────
    Below 920px the panel was scrolling as one block, so "Send to Premiere"
@@ -90,11 +92,16 @@
   .empty-state       { min-height: 0; padding: 20px 18px; gap: 10px; }
 
   /* Transcribe · Load SRT · Play were three rows stacked ~110px tall. On a
-     480px panel that is a quarter of the height spent before the transcript
-     starts. One row instead. */
-  .controls        { display: flex; gap: 8px; align-items: stretch; }
-  .controls-row    { flex: 1; margin-bottom: 0; min-width: 0; }
-  .btn-playpause   { width: auto; flex: 0 0 auto; margin-top: 0; padding-inline: 14px; }
+     480px panel that is a quarter of the height before the transcript starts.
+     Put Play on the same row as the other two.
+     `.btn-playpause` already carries `flex: 1` from style.css, which did
+     nothing while `.controls` was a block. Turning `.controls` into a flex row
+     woke it up, and combined with a `width: 100%` it took the full width of
+     the row as its basis and overlapped its siblings. Both have to be
+     neutralised here, not just one. */
+  .controls        { display: flex; gap: 8px; align-items: center; }
+  .controls-row    { flex: 1 1 auto; margin-bottom: 0; min-width: 0; }
+  .btn-playpause   { flex: 0 0 auto; width: auto; margin-top: 0; padding: 9px 14px; }
   #page-bar        { padding-block: 4px; }
 }
 
@@ -124,9 +131,15 @@
   .controls          { padding: 8px 10px; }
 
   /* Secondary actions become icon-only rather than wrapping to a second row. */
-  .actions-bar       { gap: 5px; padding: 7px 8px; }
-  .actions-bar .btn-secondary { padding: 7px 8px; }
+  .actions-bar       { gap: 5px; padding: 7px 8px; flex-wrap: wrap; }
+  .actions-bar .btn-secondary { padding: 7px 8px; flex: 0 0 auto; }
   .seg-count         { display: none; }
+
+  /* "Premiere'e Gönder" carries `white-space: nowrap`, so on a 260px panel it
+     kept its full width and pushed itself out of the bar — the primary action,
+     half off-screen. Let it take the row it needs instead. Caught by the
+     overlap audit in dev/test/build-panel-sizes.py, not by eye. */
+  .btn-send          { flex: 1 1 100%; justify-content: center; padding: 9px 10px; min-width: 0; }
 }
 
 /* ── Very narrow ─────────────────────────────────────────────────────────

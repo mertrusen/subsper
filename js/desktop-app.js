@@ -643,9 +643,14 @@
       const esc = assPath.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
       const fdEsc = fontsDir().replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
       await new Promise((resolve, reject) => {
+        // Name the video encoder. With no -c:v, ffmpeg picks the container
+        // default: that used to resolve to libx264, and against the LGPL build
+        // (which ships no libx264 — see THIRD-PARTY-NOTICES.md) it silently
+        // falls back to mpeg4. The export still "worked", it just quietly came
+        // out as a 2001-era codec at ~2.3x the size and worse quality.
         const ff = spawnD(WCPP.ffmpegBin(extDir()),
           ["-y", "-i", mediaPath, "-vf", "subtitles='" + esc + "':fontsdir='" + fdEsc + "'",
-           "-c:a", "copy", res.filePath]);
+           ...WCPP.videoEncodeArgs(extDir()), "-c:a", "copy", res.filePath]);
         let err = "";
         ff.stderr.on("data", d => {
           err += d.toString(); if (err.length > 60000) err = err.slice(-30000);
@@ -1306,7 +1311,8 @@
       }
       await new Promise((resolve, reject) => {
         const ff = spawnD(WCPP.ffmpegBin(extDir()),
-          ["-y", "-i", mediaPath, "-vf", vf, "-c:a", "copy", res.filePath]);
+          ["-y", "-i", mediaPath, "-vf", vf,
+           ...WCPP.videoEncodeArgs(extDir()), "-c:a", "copy", res.filePath]);
         let err = "";
         ff.stderr.on("data", d => {
           err += d.toString(); if (err.length > 60000) err = err.slice(-30000);

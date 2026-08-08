@@ -1,0 +1,115 @@
+Subsper — End User Licence Agreement
+Copyright (c) 2026 zipheron. All rights reserved.
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ TEMPLATE — HAVE A LAWYER REVIEW THIS BEFORE YOU SELL                     │
+│                                                                          │
+│ This is a working commercial licence written to replace the incorrect    │
+│ "MIT" declaration the project shipped with. It is a reasonable starting  │
+│ point, not legal advice. Before taking money — especially from EU or UK  │
+│ consumers, where statutory withdrawal and warranty rights override much  │
+│ of what a EULA can disclaim — have a qualified lawyer in your selling    │
+│ jurisdiction review it. Fill in every ▶ marker.                          │
+│                                                                          │
+│   ▶ Legal entity name and address                                        │
+│   ▶ Support contact e-mail                                               │
+│   ▶ Refund window                                                        │
+│   ▶ Governing law and venue                                              │
+└──────────────────────────────────────────────────────────────────────────┘
+
+1. DEFINITIONS
+
+   "Software" means the Subsper desktop application and the Subsper Premiere
+   Pro extension, including updates supplied under this agreement.
+   "Licensor" means ▶ zipheron, ▶ address.
+   "You" means the individual or entity that acquired a licence key.
+
+2. GRANT OF LICENCE
+
+   Subject to payment and to this agreement, Licensor grants You a
+   non-exclusive, non-transferable, revocable licence to install and use the
+   Software on up to ▶ three (3) devices that You own or control, for Your own
+   commercial or personal video production work.
+
+   Output You create with the Software — subtitles, transcripts, edited media —
+   is entirely Yours. Licensor claims no rights in it and no attribution.
+
+3. TRIAL
+
+   The Software may be used without a licence key for an evaluation period of
+   seven (7) days. Evaluation use is subject to this agreement except that no
+   fee is due.
+
+4. RESTRICTIONS
+
+   You may not:
+   (a) resell, rent, lease, sublicense or redistribute the Software;
+   (b) share, publish or resell a licence key;
+   (c) reverse engineer, decompile or disassemble the Software, except to the
+       extent that applicable law expressly permits it despite this limitation;
+   (d) remove or alter any proprietary notice;
+   (e) use the Software to build a competing product.
+
+   Nothing in this clause restricts rights You have in the third-party
+   components listed in THIRD-PARTY-NOTICES.md. Those components remain under
+   their own licences, and where one of those licences (for example the LGPL
+   covering the bundled FFmpeg) grants You rights that clause 4(c) would
+   otherwise limit, that licence prevails for that component.
+
+5. THIRD-PARTY COMPONENTS
+
+   The Software bundles and uses third-party software under separate licences.
+   See THIRD-PARTY-NOTICES.md, which forms part of this agreement.
+
+6. PRIVACY AND DATA
+
+   Transcription, editing and export run locally on Your machine. Optional
+   features that send data to third-party services are off by default and
+   require Your own API key. See PRIVACY.md.
+
+7. UPDATES
+
+   Licensor may provide updates but is not obliged to. Updates are covered by
+   this agreement unless supplied with different terms.
+
+8. REFUNDS
+
+   ▶ Refunds are available within ▶ fourteen (14) days of purchase. Statutory
+   rights that apply to You are not affected.
+
+9. NO WARRANTY
+
+   TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE SOFTWARE IS PROVIDED "AS IS"
+   WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
+
+   Speech recognition is inherently imperfect. Licensor does not warrant that
+   transcripts are accurate or complete, and You are responsible for reviewing
+   output before publication. This matters: the profanity filter, the filler
+   remover and the automatic subtitle formatter are aids, not guarantees.
+
+10. LIMITATION OF LIABILITY
+
+   TO THE MAXIMUM EXTENT PERMITTED BY LAW, LICENSOR'S TOTAL LIABILITY UNDER
+   THIS AGREEMENT SHALL NOT EXCEED THE AMOUNT YOU PAID FOR THE SOFTWARE IN THE
+   TWELVE MONTHS BEFORE THE CLAIM AROSE. LICENSOR SHALL NOT BE LIABLE FOR LOST
+   PROFITS, LOST DATA, OR INDIRECT OR CONSEQUENTIAL DAMAGES.
+
+   Nothing here excludes liability for death or personal injury caused by
+   negligence, for fraud, or for anything else that cannot lawfully be
+   excluded.
+
+11. TERMINATION
+
+   This licence ends automatically if You breach it. On termination You must
+   stop using the Software and remove all copies. Clauses 9, 10 and 12 survive.
+
+12. GOVERNING LAW
+
+   ▶ This agreement is governed by the laws of ▶ Türkiye, and the courts of
+   ▶ Istanbul have exclusive jurisdiction, without prejudice to mandatory
+   consumer-protection rules in Your country of residence.
+
+13. CONTACT
+
+   ▶ support@example.com

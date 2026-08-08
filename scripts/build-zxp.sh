@@ -36,9 +36,13 @@ if [ ! -x "$BIN" ]; then
 fi
 
 # 2) Self-signed cert (created once, reused)
+#
+# -validityDays is not optional here. ZXPSignCmd defaults to a short validity,
+# and a .zxp signed with an expired certificate stops installing — for everyone
+# who downloads it after that date, including people who already bought it.
 if [ ! -f "$CERT" ]; then
-  echo "· generating self-signed certificate…"
-  "$BIN" -selfSignedCert TR Istanbul zipheron Subsper "$CERT_PASS" "$CERT"
+  echo "· generating self-signed certificate (10-year validity)…"
+  "$BIN" -selfSignedCert TR Istanbul zipheron Subsper "$CERT_PASS" "$CERT" -validityDays 3650
 fi
 
 # 3) Stage a clean copy (skip repo noise) and sign
@@ -49,8 +53,41 @@ rsync -a --exclude ".git" --exclude "__pycache__" --exclude ".DS_Store" \
 
 rm -f "$ZXP"
 echo "· signing → $ZXP"
-"$BIN" -sign "$STAGE" "$ZXP" "$CERT" "$CERT_PASS" -tsa http://timestamp.digicert.com \
-  || "$BIN" -sign "$STAGE" "$ZXP" "$CERT" "$CERT_PASS"   # retry without TSA if it's down
+
+# The signature MUST be timestamped. Without a timestamp the .zxp becomes
+# uninstallable the day the certificate expires, rather than staying valid
+# because it was signed while the certificate was live.
+#
+# This used to fall back to an untimestamped signature whenever the TSA was
+# unreachable — silently, so a momentary network blip produced a release that
+# looked fine and quietly carried an expiry date. Try the backup TSAs, then
+# fail loudly.
+signed=0
+for TSA in http://timestamp.digicert.com \
+           http://timestamp.sectigo.com \
+           http://timestamp.apple.com/ts01; do
+  if "$BIN" -sign "$STAGE" "$ZXP" "$CERT" "$CERT_PASS" -tsa "$TSA"; then
+    echo "· timestamped via $TSA"
+    signed=1
+    break
+  fi
+  echo "· TSA unavailable: $TSA — trying the next one"
+  rm -f "$ZXP"
+done
+
+if [ "$signed" -ne 1 ]; then
+  echo "ERROR: every timestamp authority failed." >&2
+  echo "Refusing to ship an untimestamped .zxp — it would stop installing when" >&2
+  echo "the signing certificate expires. Re-run when a TSA is reachable." >&2
+  echo "(Override deliberately, for a local test build only: ALLOW_UNTIMESTAMPED=1)" >&2
+  if [ "${ALLOW_UNTIMESTAMPED:-0}" = "1" ]; then
+    echo "· ALLOW_UNTIMESTAMPED=1 — signing without a timestamp (DO NOT RELEASE THIS)" >&2
+    "$BIN" -sign "$STAGE" "$ZXP" "$CERT" "$CERT_PASS"
+  else
+    rm -rf "$(dirname "$STAGE")"
+    exit 1
+  fi
+fi
 
 rm -rf "$(dirname "$STAGE")"
 echo "✓ $(du -h "$ZXP" | cut -f1) $ZXP"

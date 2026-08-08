@@ -345,7 +345,14 @@ mark.find-hit { background: var(--yellow); color: #1a1206; border-radius: 3px; p
 .empty-state p strong { color: var(--text); font-weight: 600; }
 .empty-state .hint { font-size: 11.5px; color: var(--text3); }
 
-.segment { padding: 10px 14px 10px 12px; border-bottom: 1px solid var(--border); cursor: default; transition: background .12s; position: relative; }
+/* content-visibility lets the engine skip layout and paint for segments that
+   are scrolled out of view. On an hour-long transcript that is ~1000 segments;
+   without this the browser lays out every one of them on every rebuild.
+   contain-intrinsic-size gives it a height guess so the scrollbar stays stable
+   instead of jumping as segments come into view. Chromium 85+, and CEP 12 ships
+   Chromium 99, so the Premiere panel gets it too. */
+.segment { padding: 10px 14px 10px 12px; border-bottom: 1px solid var(--border); cursor: default; transition: background .12s; position: relative;
+           content-visibility: auto; contain-intrinsic-size: auto 58px; }
 .segment:hover    { background: var(--bg2); }
 .segment.selected { background: var(--accent-bg); }
 .segment.selected::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); }

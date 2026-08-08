@@ -1,20 +1,82 @@
 name: Build
 
+# Tests run on every push and PR; the expensive packaging jobs still only run
+# for tags and manual dispatch. Before this, nothing ran between releases —
+# which is how a split-at-last-word regression survived for months.
 on:
   push:
+    branches: [ main ]
     tags: [ 'v*' ]
+  pull_request:
   workflow_dispatch:
 
-# A new build supersedes any in-progress one (no more piled-up duplicate builds).
+# A new run supersedes an in-progress one for the same ref (no piled-up builds),
+# but different branches and PRs no longer cancel each other.
 concurrency:
-  group: build-${{ github.workflow }}
+  group: build-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      # GitHub runs `run:` steps under `bash -e`, so a bare `[ -f x ] && cmd`
+      # aborts the step when the last file is missing. Use an explicit if.
+      - name: Syntax-check every shipped script
+        run: |
+          for f in extension/js/*.js js/*.js dev/v2-harness.js electron-main.js; do
+            if [ -f "$f" ]; then node --check "$f"; fi
+          done
+          for f in scripts/*.mjs; do
+            if [ -f "$f" ]; then node --input-type=module --check < "$f"; fi
+          done
+      - name: Unit tests
+        run: bash dev/test/run.sh
+      # The unit suite runs without a DOM, so it cannot tell whether a click
+      # still reaches the right handler. This drives the real segment list in a
+      # headless browser. REQUIRE_BROWSER makes a missing browser a failure
+      # rather than a silent skip.
+      - name: DOM harness (segment list interactions)
+        run: REQUIRE_BROWSER=1 bash dev/test/dom-harness.sh
+      - name: Feature-gate harness
+        run: node dev/v2-harness.js
+      - name: Desktop and extension copies stay in sync
+        run: bash dev/test/check-mirror.sh
+      # Catches dead buttons, untranslated strings and tool cards that open an
+      # empty page — the kind of thing that only surfaces when a customer hits it.
+      - name: UI wiring audit
+        run: python3 dev/test/ui-audit.py
+      # A setting that nothing reads is worse than a missing feature: the user
+      # changes it, nothing happens, and they stop trusting the whole panel.
+      - name: Settings audit
+        run: python3 dev/test/settings-audit.py
+
+  # The bundled ffmpeg has to be able to do what the app asks of it. Building it
+  # here also proves the LGPL build script still works before a release needs it.
+  ffmpeg-smoke:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache LGPL ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: ffmpeg-lgpl-subs-${{ runner.os }}-${{ hashFiles('scripts/build-ffmpeg-lgpl.sh') }}
+      - name: Build LGPL ffmpeg (cache miss only)
+        run: |
+          [ -x bin/darwin-arm64/ffmpeg ] || bash scripts/build-ffmpeg-lgpl.sh subs
+      - name: ffmpeg pipeline smoke test
+        run: bash dev/test/ffmpeg-smoke.sh
+
   windows:
+    needs: [test, ffmpeg-smoke]
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,9 +105,23 @@ jobs:
         with:
           path: bin
           key: engine-${{ runner.os }}-gpu1-${{ hashFiles('scripts/fetch-binaries.mjs') }}
+      # Signed when the certificate secrets exist, unsigned otherwise so that
+      # forks and dry runs still build. A TAGGED release must be signed — the
+      # guard below refuses to publish an unsigned installer, because unsigned
+      # means every buyer meets a SmartScreen "unknown publisher" wall.
+      - name: Refuse to release Windows unsigned
+        if: startsWith(github.ref, 'refs/tags/') && env.WIN_CSC_LINK == ''
+        shell: bash
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+        run: |
+          echo "::error::Tagged release with no WIN_CSC_LINK secret — see docs/SIGNING.md"
+          exit 1
       - run: npm run dist:win   # runs prep (skips compile on cache hit) then packages
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.WIN_CSC_LINK != '' && 'true' || 'false' }}
       # Straight to the Release: the artifact round-trip used to burn storage
       # quota, and a full quota then failed the whole release.
       - name: Publish Windows assets
@@ -68,6 +144,7 @@ jobs:
 
   macos:
     needs: [windows]
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -80,9 +157,32 @@ jobs:
         with:
           path: bin
           key: engine-${{ runner.os }}-gpu1-${{ hashFiles('scripts/fetch-binaries.mjs') }}
-      - run: npm run dist:mac
+      # Unsigned + un-notarized macOS builds are quarantined by Gatekeeper with
+      # "Subsper is damaged and can't be opened" — which reads as a virus
+      # warning to a paying customer. A tagged release must carry a Developer ID.
+      - name: Refuse to release macOS unsigned
+        if: startsWith(github.ref, 'refs/tags/') && env.MAC_CSC_LINK == ''
+        shell: bash
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+        run: |
+          echo "::error::Tagged release with no MAC_CSC_LINK secret — see docs/SIGNING.md"
+          exit 1
+      - name: Package macOS (signed + notarized when secrets are present)
+        run: |
+          if [ -n "${CSC_LINK:-}" ]; then npm run dist:mac:signed; else npm run dist:mac; fi
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CSC_LINK != '' && 'true' || 'false' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Verify the .dmg is signed and notarized
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          DMG="$(ls dist/*.dmg | head -1)"
+          spctl --assess --type open --context context:primary-signature -vv "$DMG"
       - name: Build signed ZXP (Premiere extension)
         run: bash scripts/build-zxp.sh dist
       - name: Publish macOS assets

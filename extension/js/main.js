@@ -13,6 +13,9 @@ const csInterface = new CSInterface();
 // ── State ─────────────────────────────────────────────────────────────────
 let segments = [], seqInTime = 0, isRunning = false, selectedIndex = -1, toastTimer = null;
 let lastLanguage = "";
+// The segment currently highlighted as playing, so the follow loop can update
+// two nodes instead of walking the whole list every tick.
+let _playingNode = null;
 
 // ── Settings (persisted to localStorage) ──────────────────────────────────
 const DEFAULT_SETTINGS = {
@@ -32,6 +35,7 @@ const DEFAULT_SETTINGS = {
     silenceMinDur:    0.6,
     silencePad:       0.05,       // seconds kept around speech when ripple-cutting
     customStyle:      null,
+    bilingualOrder:   "source-first", // source-first | translation-first
     uiLang:           "en",       // interface language: en | tr
     theme:            "dark",     // dark | light | auto
     // ── Transcript clean-up ──
@@ -160,6 +164,7 @@ const I18N = {
     act_clear: "Clear", act_send: "Send to Premiere",
     clean_title: "Clean up…", clean_dict: "Apply Dictionary", clean_filler: "Remove Fillers",
     clean_prof: "Censor Profanity", clean_punct: "Filter Punctuation", clean_all: "Clean All",
+    clean_proof: "Spelling & Punctuation",
     export_title: "Export as…", export_srt: "SubRip", export_vtt: "WebVTT",
     export_ass: "Advanced SSA", export_txt: "Plain text",
     // settings sections
@@ -263,6 +268,21 @@ const I18N = {
     tip_clean_dict: "Apply your wrong=right rules from Settings",
     tip_clean_filler: "Remove filler words (ee, ıı, şey, um, uh…)",
     tip_clean_prof: "Censor profanity (asterisk or remove)",
+    lbl_followplayhead: "Follow along while playing",
+    ds_followplayhead: "Scrolls the list to the line being spoken. Turn off to watch the video without the text jumping.",
+    ds_bi_order: "Which language sits on top when you export a bilingual subtitle file.",
+    prof_title: "Profiles", prof_save: "Save", prof_delete: "Delete",
+    prof_name_ph: "Profile name (e.g. Client A — vertical)",
+    prof_hint: "Saves style, reading speed, word lists, model and language under a name. API keys and your licence are never included.",
+    prof_need_name: "Give the profile a name first",
+    prof_saved: "Profile saved: %s", prof_loaded: "Profile loaded: %s",
+    prof_deleted: "Profile deleted: %s", prof_missing: "That profile no longer exists",
+    prof_none: "No profiles yet",
+    bi_export: "Bilingual SRT", bi_saved: "Bilingual SRT saved to Desktop",
+    bi_need_translate: "Run Translate first — the bilingual file needs both languages",
+    bi_order: "Bilingual line order", bi_src_first: "Original on top", bi_dst_first: "Translation on top",
+    hint_ai_privacy: "Everything else in Subsper runs offline. These features are the exception: they send your subtitle TEXT (never your audio or video) to the provider you pick below, using your own API key. Leave them alone and nothing is sent. For spelling and punctuation there is an offline pass in the Clean-up menu.",
+    tip_clean_proof: "Offline spell + punctuation pass — no AI, no internet. Cmd/Ctrl+Z undoes it",
     tip_clean_punct: "Apply the Allowed-Punctuation setting (clear it to strip all punctuation)",
     tip_clean_all: "Apply dictionary + fillers + profanity at once",
     tip_export: "Export subtitles to a file",
@@ -328,12 +348,13 @@ const I18N = {
     btn_play: "Oynat", btn_pause: "Duraklat",
     btn_enhance: "Sesi İyileştir — gürültü azalt + dengele",
     empty_p: "Transcribe'a bas — tüm timeline yazıya dökülür. Sadece bir aralık istersen önce In/Out (I/O) koy.",
-    empty_hint: "Bölmek için kelimeye tıkla · düzenlemek için metne çift tıkla.",
+    empty_hint: "Bölmek için kelimeye tıkla (o kelime alttaki satırın başı olur) · düzenlemek için metne çift tıkla.",
     find_ph: "Ara…", replace_ph: "Şununla değiştir… (opsiyonel)",
     btn_close: "Kapat", btn_replaceall: "Tümünü Değiştir", btn_cancel: "İptal",
     act_clear: "Temizle", act_send: "Premiere'e Gönder",
     clean_title: "Temizlik…", clean_dict: "Sözlüğü Uygula", clean_filler: "Dolguları Kaldır",
     clean_prof: "Küfür Sansürle", clean_punct: "Noktalama Filtrele", clean_all: "Hepsini Temizle",
+    clean_proof: "Yazım & Noktalama",
     export_title: "Şu formatta aktar…", export_srt: "SubRip", export_vtt: "WebVTT",
     export_ass: "Advanced SSA", export_txt: "Düz metin",
     sec_engine: "Transkripsiyon Motoru", sec_cleanup: "Metin Temizliği",
@@ -432,6 +453,21 @@ const I18N = {
     tip_clean_dict: "Ayarlardaki yanlış=doğru kurallarını uygula",
     tip_clean_filler: "Dolgu kelimeleri sil (ee, ıı, şey, um, uh…)",
     tip_clean_prof: "Küfürleri sansürle (yıldız veya kaldır)",
+    lbl_followplayhead: "Oynatırken satırı takip et",
+    ds_followplayhead: "Konuşulan satıra kaydırır. Videoyu metin zıplamadan izlemek için kapat.",
+    ds_bi_order: "Çift dilli altyazı dosyasında hangi dil üstte olsun.",
+    prof_title: "Profiller", prof_save: "Kaydet", prof_delete: "Sil",
+    prof_name_ph: "Profil adı (ör. Müşteri A — dikey)",
+    prof_hint: "Stil, okuma hızı, kelime listeleri, model ve dili bir isim altında saklar. API anahtarların ve lisansın asla dahil edilmez.",
+    prof_need_name: "Önce profile bir isim ver",
+    prof_saved: "Profil kaydedildi: %s", prof_loaded: "Profil yüklendi: %s",
+    prof_deleted: "Profil silindi: %s", prof_missing: "Bu profil artık yok",
+    prof_none: "Henüz profil yok",
+    bi_export: "Çift dilli SRT", bi_saved: "Çift dilli SRT masaüstüne kaydedildi",
+    bi_need_translate: "Önce Çevir'i çalıştır — çift dilli dosya iki dili de ister",
+    bi_order: "Çift dilli satır sırası", bi_src_first: "Orijinal üstte", bi_dst_first: "Çeviri üstte",
+    hint_ai_privacy: "Subsper'da her şey çevrimdışı çalışır; istisna bunlar. Aşağıda seçtiğin sağlayıcıya kendi API anahtarınla altyazı METNİNİ gönderirler — sesin ya da videon asla gitmez. Dokunmazsan hiçbir şey gönderilmez. Yazım ve noktalama için Temizle menüsünde çevrimdışı bir seçenek var.",
+    tip_clean_proof: "Çevrimdışı yazım + noktalama düzeltmesi — yapay zeka yok, internet yok. Cmd/Ctrl+Z ile geri alınır",
     tip_clean_punct: "İzin verilen noktalama ayarını uygula (boşaltırsan tüm noktalama silinir)",
     tip_clean_all: "Sözlük + dolgu + küfür temizliğini birden uygula",
     tip_export: "Altyazıyı dosyaya aktar",
@@ -521,8 +557,6 @@ function setLanguage(lang) {
         ? icon("pause") + "<span>" + t("btn_pause") + "</span>"
         : icon("play")  + "<span>" + t("btn_play")  + "</span>";
     const langSel = $("set-uilang"); if (langSel) langSel.value = settings.uiLang;
-    const seg = $("lang-seg");
-    if (seg) seg.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.getAttribute("data-lang") === settings.uiLang));
 }
 
 // ── Icon system (clean line icons, no emoji) ───────────────────────────────
@@ -1047,6 +1081,8 @@ function initSettingsUI() {
     set("set-prompt-words", settings.promptWords || "");
     updateDictCount();
     chk("set-autocleanup", settings.autoCleanup);
+    chk("set-followplayhead", settings.followPlayhead !== false);
+    set("set-bilingual-order", settings.bilingualOrder || "source-first");
     chk("set-filleron", settings.fillerOn);
     set("set-fillers", settings.fillerWords);
     // NOTE: HTML ids are set-profanity / set-profmode (a set-prof-list /
@@ -1558,6 +1594,43 @@ async function applyAutoZoom() {
 // ── Transcript clean-up (dictionary · fillers · profanity) ────────────────
 function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
+// JavaScript's \b is ASCII-only, so /\bşey\b/ NEVER matches: a space and "ş"
+// are both non-word characters, so there is no boundary between them. Every
+// Turkish word starting or ending in ç/ğ/ı/ö/ş/ü was therefore invisible to the
+// dictionary, the filler remover and the profanity filter — "şey", the most
+// common Turkish filler of all, was silently skipped. Match on an explicit
+// letter class with lookarounds instead.
+const WORD_CHARS = "0-9A-Za-z_çğıöşüâîûÇĞIİÖŞÜÂÎÛ";
+
+/* Whole-word matcher that understands Turkish letters. `trailing` is appended
+ * OUTSIDE the closing lookaround (it is zero-width), for patterns that also
+ * want to swallow the space or comma after the word. */
+function wordRe(body, trailing, flags) {
+    return new RegExp(`(?<![${WORD_CHARS}])(?:${body})(?![${WORD_CHARS}])${trailing || ""}`,
+                      flags || "gi");
+}
+
+// Turkish needs locale-aware casing: plain toUpperCase turns "i" into "I"
+// instead of "İ".
+function upperIn(s, lang) { return lang === "tr" ? s.toLocaleUpperCase("tr") : s.toUpperCase(); }
+
+/* Carry the matched word's capitalisation over to its replacement, so a
+ * sentence-initial "Şarz" becomes "Şarj" and not "şarj". */
+function matchCase(match, repl, lang) {
+    const c = match.charAt(0);
+    return c !== c.toLowerCase() ? upperIn(c, lang) + repl.slice(1) : repl;
+}
+
+/* Turkish softens a final k/p/t/ç to ğ/b/d/c before a vowel suffix, so a stem
+ * list alone never matches the inflected form: "yarrak" does not appear
+ * anywhere inside "yarrağı". Accept either consonant at the stem's end. */
+function stemAlt(word) {
+    const soft = { "k": "ğ", "p": "b", "t": "d", "ç": "c" };
+    const last = word.slice(-1).toLowerCase();
+    if (!soft[last]) return escRe(word);
+    return escRe(word.slice(0, -1)) + "[" + escRe(last) + escRe(soft[last]) + "]";
+}
+
 // Tidy double spaces and stray spaces before punctuation after a removal
 function tidyText(t) {
     return (t || "")
@@ -1626,11 +1699,12 @@ function applyDictionary(opts) {
     const rules = parseDictRules(settings.customDict);
     if (!rules.length) { if (!opts.silent) showToast("No dictionary rules yet (add them in Settings)", "info", 2500); return 0; }
     let count = 0;
+    const lang = proofLang();
     for (const seg of segments) {
         let t = seg.text || "";
         for (const r of rules) {
-            const re = new RegExp("\\b" + escRe(r.from) + "\\b", "gi");
-            t = t.replace(re, m => { count++; return r.to; });
+            const re = wordRe(escRe(r.from));
+            t = t.replace(re, m => { count++; return matchCase(m, r.to, lang); });
         }
         seg.text = t;
     }
@@ -1649,7 +1723,7 @@ function removeFillers(opts) {
     opts = opts || {};
     const list = getFillerList();
     if (!list.length) { if (!opts.silent) showToast("No filler words configured", "info", 2500); return 0; }
-    const re = new RegExp("\\b(" + list.map(escRe).join("|") + ")\\b[\\s,]*", "gi");
+    const re = wordRe(list.map(escRe).join("|"), "[\\s,]*");
     let count = 0;
     for (const seg of segments) {
         let t = (seg.text || "");
@@ -1666,9 +1740,22 @@ function censorProfanity(opts) {
     (settings.profanityList || "").split(/[,\n]/).forEach(w => { w = w.trim(); if (w) list.push(w); });
     list = list.filter((v, i, a) => a.indexOf(v) === i);
     if (!list.length) { if (!opts.silent) showToast("No profanity words configured", "info", 2500); return 0; }
-    // profStem: also match inflected forms — root + up to 6 letter-suffix (kanın, siktirin…)
-    const suffix = settings.profStem !== false ? "[a-zçğıöşüâîû]{0,6}" : "";
-    const re = new RegExp("\\b(" + list.map(escRe).join("|") + ")" + suffix + "\\b", "gi");
+    // profStem: also match inflected forms — root + up to 6 letters of suffix
+    // (siktirin, götünü…). stemAlt additionally accepts the softened final
+    // consonant, without which "yarrağı" and "amcığı" walked straight past the
+    // filter. The suffix must be consumed, not just tolerated: the closing
+    // lookaround is what stops "göt" matching inside "götü" and leaving a
+    // dangling "ü" behind.
+    const stem = settings.profStem !== false;
+    // The alternation must be grouped before the suffix, or the suffix would
+    // only apply to the last word in the list.
+    // 8, not 6: Turkish agglutinates, and very common forms like "siktiğimin"
+    // carry a seven-letter tail. Under-censoring is the worse failure here —
+    // the user trusts the filter and publishes — and anyone who finds it too
+    // eager can turn stemming off.
+    const body = "(?:" + list.map(w => (stem ? stemAlt(w) : escRe(w))).join("|") + ")"
+               + (stem ? "[a-zçğıöşüâîû]{0,8}" : "");
+    const re = wordRe(body);
     let count = 0;
     const mode = settings.profanityMode || "asterisk";
     const censorWord = (m) => {
@@ -1685,15 +1772,112 @@ function censorProfanity(opts) {
     return count;
 }
 
+// ── Offline proofreader — spelling + punctuation, no AI ───────────────────
+// Deterministic rule pass that works with the network off, unlike the AI
+// grammar action. Only unambiguous fixes belong here; anything that needs the
+// meaning weighed (Turkish "de/da" and "ki", proper nouns, mishearings) stays
+// with the AI pass.
+
+const PROOF_TYPOS_TR = {
+    "herkez": "herkes", "herkezin": "herkesin", "herkeze": "herkese", "herkezi": "herkesi",
+    "her kes": "herkes", "hiç bir": "hiçbir", "bir kaç": "birkaç", "bir çok": "birçok",
+    "her hangi": "herhangi", "pekçok": "pek çok", "herşey": "her şey", "birşey": "bir şey",
+    "yada": "ya da", "yalnış": "yanlış", "yalnışlık": "yanlışlık", "yanlız": "yalnız",
+    "deyil": "değil", "şarz": "şarj", "süpriz": "sürpriz", "orjinal": "orijinal",
+    "klavuz": "kılavuz", "pantalon": "pantolon", "eşortman": "eşofman", "mütiş": "müthiş",
+    "kirbit": "kibrit", "traş": "tıraş", "ünvan": "unvan", "makina": "makine",
+};
+
+const PROOF_TYPOS_EN = {
+    "teh": "the", "adn": "and", "recieve": "receive", "seperate": "separate",
+    "definately": "definitely", "occured": "occurred", "untill": "until",
+    "alot": "a lot", "wich": "which", "thier": "their", "becuase": "because",
+    "accomodate": "accommodate", "neccessary": "necessary", "goverment": "government",
+    "publically": "publicly",
+};
+
+function proofLang() {
+    const l = String(lastLanguage || "").toLowerCase();
+    if (l.startsWith("tr")) return "tr";
+    if (l && !l.startsWith("auto")) return "en";
+    const sample = segments.slice(0, 60).map(s => s.text || "").join(" ");
+    return /[çğışöüÇĞİŞÖÜ]/.test(sample) ? "tr" : "en";
+}
+
+function proofPunct(t) {
+    return t
+        .replace(/\s+/g, " ")                       // collapse runs of whitespace
+        .replace(/\s+([,.!?;:…])/g, "$1")           // no space BEFORE punctuation
+        .replace(/([!?])\1+/g, "$1")                // !!! → !
+        .replace(/,{2,}/g, ",")                     // ,, → ,
+        .replace(/\.{4,}/g, "...")                  // .... → ...
+        .replace(/([,;:])(?=[^\s\d])/g, "$1 ")      // space AFTER , ; : — but not in 1,5 / 10:30
+        .replace(/([.!?…])(?=\p{L})/gu, "$1 ")      // "Dr.Ahmet" → "Dr. Ahmet"; digits stay (3.14)
+        .replace(/\(\s+/g, "(").replace(/\s+\)/g, ")")
+        .trim();
+}
+
+function proofCaps(t, lang, startsSentence) {
+    t = t.replace(/([.!?…]\s+)(\p{Ll})/gu, (m, p, c) => p + upperIn(c, lang));
+    if (startsSentence) t = t.replace(/^(\p{Ll})/u, c => upperIn(c, lang));
+    if (lang === "en") t = t.replace(wordRe("i", "", "g"), "I");
+    return t;
+}
+
+function applyProofread(opts) {
+    opts = opts || {};
+    const lang  = proofLang();
+    const typos = lang === "tr" ? PROOF_TYPOS_TR : PROOF_TYPOS_EN;
+    const rules = Object.keys(typos).map(k => ({ re: wordRe(escRe(k)), to: typos[k] }));
+
+    let spell = 0, punct = 0, caps = 0, touched = 0;
+    segments.forEach((seg, i) => {
+        const before = seg.text || "";
+        if (!before.trim()) return;
+        let t = before;
+
+        for (const r of rules) t = t.replace(r.re, m => { spell++; return matchCase(m, r.to, lang); });
+
+        const afterSpell = t;
+        t = proofPunct(t);
+        if (t !== afterSpell) punct++;
+
+        // A segment only opens a sentence when the previous one closed one —
+        // mid-sentence continuations keep their lowercase start. The previous
+        // segment has already been corrected by this same pass.
+        const prev = i > 0 ? (segments[i - 1].text || "").trim() : "";
+        const afterPunct = t;
+        t = proofCaps(t, lang, i === 0 || /[.!?…]$/.test(prev));
+        if (t !== afterPunct) caps++;
+
+        if (t !== before) { seg.text = t; touched++; }
+    });
+
+    if (!opts.silent) {
+        renderSegments(); reselect();
+        const isTr = settings.uiLang === "tr";
+        if (!touched) showToast(isTr ? "Yazım ve noktalama zaten temiz" : "Spelling & punctuation already clean", "info", 2500);
+        else {
+            const msg = isTr
+                ? `${spell} yazım · ${punct} noktalama · ${caps} büyük harf (${touched} satır)`
+                : `${spell} spelling · ${punct} punctuation · ${caps} capitalisation (${touched} line(s))`;
+            setStatus(msg, "success");
+            showToast(msg + (isTr ? " — geri almak için Cmd/Ctrl+Z" : " — Cmd/Ctrl+Z to undo"), "success", 5000);
+        }
+    }
+    return spell + punct + caps;
+}
+
 function cleanAll() {
     $("clean-menu").style.display = "none";
     if (segments.length === 0) { showToast("Nothing to clean yet", "info", 2000); return; }
     const d = applyDictionary({ silent: true });
     const f = removeFillers({ silent: true });
     const p = censorProfanity({ silent: true });
+    const s = applyProofread({ silent: true });
     renderSegments(); reselect();
-    setStatus(`Cleaned — ${d} dictionary · ${f} fillers · ${p} censored`, "success");
-    showToast(`Clean-up done (${d}+${f}+${p})`, "success");
+    setStatus(`Cleaned — ${d} dictionary · ${f} fillers · ${p} censored · ${s} proofread`, "success");
+    showToast(`Clean-up done (${d}+${f}+${p}+${s})`, "success");
 }
 
 function reselect() { if (selectedIndex >= 0) selectSegment(selectedIndex); }
@@ -1709,6 +1893,7 @@ function cleanMenuAction(which) {
     if (which === "dict")  applyDictionary();
     if (which === "filler") removeFillers();
     if (which === "prof")  censorProfanity();
+    if (which === "proof") applyProofread();
     if (which === "punct") {
         const n = applyPunctuationFilter();
         showToast(n > 0 ? `Punctuation filtered (${n} line(s))` : "No punctuation to change", n > 0 ? "success" : "info", 3000);
@@ -2008,6 +2193,7 @@ function updateAiActions(type) {
     const show = (id, on) => { const el = $(id); if (el) el.style.display = on ? "inline-flex" : "none"; };
     show("ai-apply-btn",   type === "grammar" || type === "translate_en");
     show("ai-srt-btn",     type === "translate_en");
+    show("ai-bilingual-btn", type === "translate_en");
     show("ai-send-tr-btn", type === "translate_en");
     show("ai-clips-btn",   type === "shorts");
 }
@@ -2686,6 +2872,20 @@ function handleError(rawErr) {
 }
 
 // ── Segment rendering ─────────────────────────────────────────────────────
+/* Rebuild the segment list.
+ *
+ * This used to create a node per segment, attach a click listener to each one,
+ * and give every WORD its own inline onclick attribute. On a one-hour
+ * transcript that is roughly a thousand segments and ten thousand handler
+ * strings for the parser to chew through — rebuilt from scratch on every edit,
+ * split, undo and clean-up (27 call sites). The panel visibly stalled.
+ *
+ * Now: one HTML string, one assignment, and a single delegated listener on the
+ * container. Words carry data-w instead of an onclick. Off-screen segments are
+ * skipped by the compositor via content-visibility (see .segment in style.css),
+ * which gets most of the benefit of virtualisation without the scroll-position
+ * and selection bugs that come with it.
+ */
 function renderSegments() {
     if (segments.length === 0) {
         segmentsWrap.innerHTML = `
@@ -2696,52 +2896,92 @@ function renderSegments() {
           </div>`;
         return;
     }
-    segmentsWrap.innerHTML = "";
-    segments.forEach((seg, idx) => {
-        const el = document.createElement("div");
-        el.className   = "segment";
-        el.dataset.idx = idx;
+
+    // Hoisted out of the loop: these were re-read and re-escaped per segment.
+    const tipSeek  = escHtml(t("tip_seek"));
+    const tipEdit  = escHtml(t("tip_edit"));
+    const tipSplit = escHtml(t("tip_split"));
+    const tipDel   = escHtml(t("tip_del"));
+    const icPencil = icon("pencil"), icScissors = icon("scissors"), icClose = icon("close");
+
+    const out = [];
+    for (let idx = 0; idx < segments.length; idx++) {
+        const seg = segments[idx];
 
         const speakerHtml = seg.speaker
-            ? `<span class="seg-speaker" style="cursor:pointer" onclick="event.stopPropagation();renameSpeaker(segments[${idx}].speaker)" data-tip="Click to rename this speaker everywhere">${escHtml(String(seg.speaker).replace("SPEAKER_", "S"))}</span>`
+            ? `<span class="seg-speaker" data-act="speaker" style="cursor:pointer" data-tip="Click to rename this speaker everywhere">${escHtml(String(seg.speaker).replace("SPEAKER_", "S"))}</span>`
             : "";
 
-        const tipSeek = escHtml(t("tip_seek"));
-        const header = `
-          <div class="seg-header">
-            <span class="seg-index" onclick="seekToSegment(${idx})" data-tip="${tipSeek}">${idx + 1}</span>
-            <span class="seg-time"  onclick="seekToSegment(${idx})" data-tip="${tipSeek}">${formatTime(seg.seqStart)} → ${formatTime(seg.seqEnd)}</span>
-            ${speakerHtml}
-            <div class="seg-actions">
-              <button class="seg-btn"     onclick="editSegment(${idx})"   data-tip="${escHtml(t("tip_edit"))}">${icon("pencil")}</button>
-              <button class="seg-btn"     onclick="splitSegmentHalf(${idx})"  data-tip="${escHtml(t("tip_split"))}">${icon("scissors")}</button>
-              <button class="seg-btn del" onclick="deleteSegment(${idx})" data-tip="${escHtml(t("tip_del"))}">${icon("close")}</button>
-            </div>
-          </div>`;
-
-        let bodyHtml;
+        let bodyHtml, matchCls = "";
         if (activeFindRegex) {
             // Find mode: highlight matches (no per-word split while searching)
             bodyHtml = highlightMatches(seg.text, activeFindRegex);
-            if (findMatchSegs.includes(idx)) el.classList.add("has-match");
+            if (findMatchSegs.includes(idx)) matchCls = " has-match";
         } else {
             const words = seg.text.split(" ");
-            bodyHtml = words.map((w, wi) =>
-                `<span class="seg-word" onclick="splitAtWord(${idx},${wi})">${escHtml(w)}</span>`
-            ).join(" ");
+            const parts = new Array(words.length);
+            for (let wi = 0; wi < words.length; wi++) {
+                parts[wi] = `<span class="seg-word" data-w="${wi}">${escHtml(words[wi])}</span>`;
+            }
+            bodyHtml = parts.join(" ");
         }
 
-        el.innerHTML = header +
-            `<div class="seg-text" id="seg-text-${idx}" ondblclick="editSegment(${idx})">${bodyHtml}</div>`;
+        out.push(
+            `<div class="segment${matchCls}" data-idx="${idx}">` +
+              `<div class="seg-header">` +
+                `<span class="seg-index" data-act="seek" data-tip="${tipSeek}">${idx + 1}</span>` +
+                `<span class="seg-time"  data-act="seek" data-tip="${tipSeek}">${formatTime(seg.seqStart)} → ${formatTime(seg.seqEnd)}</span>` +
+                speakerHtml +
+                `<div class="seg-actions">` +
+                  `<button class="seg-btn" data-act="edit"   data-tip="${tipEdit}">${icPencil}</button>` +
+                  `<button class="seg-btn" data-act="split"  data-tip="${tipSplit}">${icScissors}</button>` +
+                  `<button class="seg-btn del" data-act="delete" data-tip="${tipDel}">${icClose}</button>` +
+                `</div>` +
+              `</div>` +
+              `<div class="seg-text" id="seg-text-${idx}">${bodyHtml}</div>` +
+            `</div>`);
+    }
+    segmentsWrap.innerHTML = out.join("");
+    bindSegmentDelegation();
+}
 
-        el.addEventListener("click", e => {
-            // closest(): clicks land on the ICON inside the button, whose target
-            // has no .seg-btn class — that made Edit/Split/Delete ALSO seek.
-            const t = e.target;
-            if (t.closest && (t.closest(".seg-btn") || t.closest(".seg-word") || t.closest("textarea"))) return;
-            seekToSegment(idx);
-        });
-        segmentsWrap.appendChild(el);
+/* One listener for the whole list, attached once. Previously every segment got
+ * its own, so a thousand segments meant a thousand listeners to install and
+ * later garbage-collect on each rebuild. */
+let _segDelegationBound = false;
+function bindSegmentDelegation() {
+    if (_segDelegationBound || !segmentsWrap) return;
+    _segDelegationBound = true;
+
+    segmentsWrap.addEventListener("click", (e) => {
+        const target = e.target;
+        if (!target || !target.closest) return;
+        if (target.closest("textarea")) return;          // editing in place
+
+        const segEl = target.closest(".segment");
+        if (!segEl) return;
+        const idx = +segEl.dataset.idx;
+
+        const word = target.closest(".seg-word");
+        if (word) { splitAtWord(idx, +word.dataset.w); return; }
+
+        // closest(): a click lands on the ICON inside the button, and the icon
+        // has no data-act of its own — that used to make Edit/Split/Delete
+        // also seek.
+        const act = target.closest("[data-act]");
+        switch (act && act.dataset.act) {
+            case "edit":    editSegment(idx); return;
+            case "split":   splitSegmentHalf(idx); return;
+            case "delete":  deleteSegment(idx); return;
+            case "speaker": e.stopPropagation(); renameSpeaker(segments[idx].speaker); return;
+            case "seek":    seekToSegment(idx); return;
+        }
+        seekToSegment(idx);
+    });
+
+    segmentsWrap.addEventListener("dblclick", (e) => {
+        const segEl = e.target && e.target.closest && e.target.closest(".segment");
+        if (segEl && e.target.closest(".seg-text")) editSegment(+segEl.dataset.idx);
     });
 }
 
@@ -2766,10 +3006,23 @@ function highlightMatches(text, re) {
 }
 
 function selectSegment(idx) {
-    document.querySelectorAll(".segment").forEach(el => el.classList.remove("selected"));
+    // Clear only the one that was actually selected. querySelectorAll(".segment")
+    // walked every node in the list on each call, and selectSegment runs after
+    // every split, edit and undo.
+    const prev = segmentsWrap && segmentsWrap.querySelector(".segment.selected");
+    if (prev) prev.classList.remove("selected");
     selectedIndex = idx;
     const el = document.querySelector(`.segment[data-idx="${idx}"]`);
-    if (el) { el.classList.add("selected"); el.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+    if (!el) return;
+    el.classList.add("selected");
+    // "smooth" queues an animation; firing one per keystroke-level action made
+    // the list fight the user's own scrolling. Only scroll when it is actually
+    // out of view, and jump straight there.
+    const box = segmentsWrap ? segmentsWrap.getBoundingClientRect() : null;
+    const r = el.getBoundingClientRect();
+    if (!box || r.top < box.top || r.bottom > box.bottom) {
+        el.scrollIntoView({ block: "nearest" });
+    }
 }
 
 function updateSegCount() {
@@ -2801,20 +3054,46 @@ function editSegment(idx) {
     ta.closest(".segment")?.classList.add("editing");
 }
 
+/* Where to cut so display-word `wi` starts the second half. Prefers whisper's
+ * real per-word timestamps (cut in the silence between the two words); falls
+ * back to proportional interpolation once the text has been edited and no
+ * longer lines up with the word list one-to-one. */
+function splitPoint(seg, words, wi) {
+    const wt = (seg.words || []).filter(w => w && w.start != null && w.end != null);
+    if (wt.length === words.length && wi > 0 && wi < wt.length) {
+        return { t: (wt[wi - 1].end + wt[wi].start) / 2, a: wt.slice(0, wi), b: wt.slice(wi) };
+    }
+    return { t: seg.start + (seg.end - seg.start) * (wi / words.length), a: [], b: [] };
+}
+
+/* Cut one segment in two at media time `t`. Each half keeps only ITS OWN word
+ * timings — the old `{...seg}` spread copied the whole word list into both,
+ * so auto-format and karaoke/MOGRT rendering (which rebuild text from
+ * seg.words) resurrected the text that had just been split away.
+ * seqStart/seqEnd move by the same proportion, so the media→sequence offset
+ * survives the cut. */
+function cutSegment(seg, t, wordsA, wordsB, textA, textB) {
+    const span = (seg.end - seg.start) || 1;
+    const r    = Math.min(1, Math.max(0, (t - seg.start) / span));
+    const seqT = seg.seqStart + (seg.seqEnd - seg.seqStart) * r;
+    return [
+        { ...seg, end: t,   seqEnd:   seqT, text: textA, words: wordsA },
+        { ...seg, start: t, seqStart: seqT, text: textB, words: wordsB },
+    ];
+}
+
 // UI action: split ONE segment in half (bound to the scissors button). NOTE the
 // distinct name — an earlier `splitSegment(idx)` here shadowed the formatter's
 // splitSegment(seg,opt,maxChars), silently breaking all auto-format (max chars /
 // lines / CPS / duration) because applySmartSplit called this with wrong args.
 function splitSegmentHalf(idx) {
-    const seg = segments[idx];
-    const mid = (seg.start + seg.end) / 2;
-    const seqM= (seg.seqStart + seg.seqEnd) / 2;
-    const words= seg.text.split(" ");
-    const half = Math.max(1, Math.floor(words.length / 2));
-    segments.splice(idx, 1,
-        { ...seg, end: mid,   seqEnd:   seqM,  text: words.slice(0, half).join(" ") },
-        { ...seg, id: idx+.5, start: mid, seqStart: seqM, text: words.slice(half).join(" ") }
-    );
+    const seg   = segments[idx];
+    const words = seg.text.split(" ");
+    if (words.length < 2) { selectSegment(idx); return; }
+    const half  = Math.max(1, Math.round(words.length / 2));
+    const p     = splitPoint(seg, words, half);
+    segments.splice(idx, 1, ...cutSegment(seg, p.t, p.a, p.b,
+        words.slice(0, half).join(" "), words.slice(half).join(" ")));
     segments.forEach((s, i) => { s.id = i; });
     renderSegments(); updateSegCount(); selectSegment(idx);
 }
@@ -2822,14 +3101,15 @@ function splitSegmentHalf(idx) {
 function splitAtWord(idx, wi) {
     const seg   = segments[idx];
     const words = seg.text.split(" ");
-    if (wi === 0 || wi >= words.length - 1) { selectSegment(idx); return; }
-    const ratio  = wi / words.length;
-    const splitT = seg.start    + (seg.end    - seg.start)    * ratio;
-    const splitS = seg.seqStart + (seg.seqEnd - seg.seqStart) * ratio;
-    segments.splice(idx, 1,
-        { ...seg, end: splitT, seqEnd:   splitS, text: words.slice(0, wi).join(" ") },
-        { ...seg, id: idx+.5, start: splitT, seqStart: splitS, text: words.slice(wi).join(" ") }
-    );
+    // Only wi === 0 is a genuine no-op (nothing sits before it). Splitting off
+    // the LAST word is a real split, but the old `wi >= words.length - 1`
+    // guard swallowed that click without a word of feedback — so the line
+    // stayed long and Premiere just wrapped it onto a second line, which reads
+    // exactly like someone hit Enter instead of cutting.
+    if (wi <= 0 || wi >= words.length) { selectSegment(idx); return; }
+    const p = splitPoint(seg, words, wi);
+    segments.splice(idx, 1, ...cutSegment(seg, p.t, p.a, p.b,
+        words.slice(0, wi).join(" "), words.slice(wi).join(" ")));
     segments.forEach((s, i) => { s.id = i; });
     renderSegments(); updateSegCount(); selectSegment(idx);
 }
@@ -3385,8 +3665,6 @@ function initTooltips() {
     // Track manual scrolling so the playhead-follow loop backs off for a few
     // seconds (don't yank the user down while they scroll up to edit).
     (function(){ const w = $("segments-wrap"); if (w) w.addEventListener("scroll", () => { window._lastUserScroll = Date.now(); }, { passive: true }); })();
-    const lseg = $("lang-seg");
-    if (lseg) lseg.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.getAttribute("data-lang") === settings.uiLang));
     setStatus(t("status_ready"), "info");
     sendBtn.disabled         = true;
     setupIndicator.className = "setup-indicator loading";
@@ -3452,28 +3730,32 @@ function initTooltips() {
             
             const wrap = $("segments-wrap");
             if (wrap && activeIdx >= 0) {
-                const nodes = wrap.querySelectorAll(".segment");
-                const ae = document.activeElement, at = ae && ae.tagName;
-                const editing = at === "TEXTAREA" || at === "INPUT" || (ae && ae.isContentEditable);
-                const recentlyScrolled = (Date.now() - (window._lastUserScroll || 0)) < 5000;
-                nodes.forEach((n, i) => {
-                    if (i === activeIdx) {
-                        if (!n.classList.contains("playing")) {
-                            n.classList.add("playing");
-                            // Only follow the playhead when the user isn't editing and
-                            // hasn't just scrolled — and only nudge if it's off-screen.
-                            if (!editing && !recentlyScrolled) {
-                                const wr = wrap.getBoundingClientRect(), nr = n.getBoundingClientRect();
-                                if (nr.top < wr.top || nr.bottom > wr.bottom)
-                                    n.scrollIntoView({ behavior: "smooth", block: "nearest" });
-                            }
-                        }
-                    } else {
-                        n.classList.remove("playing");
+                // Touch only the two nodes that change. This used to
+                // querySelectorAll(".segment") and walk every node three times
+                // a second — a thousand segments meant 3,000 class checks per
+                // second while the video played.
+                const node = wrap.querySelector(`.segment[data-idx="${activeIdx}"]`);
+                if (node !== _playingNode) {
+                    if (_playingNode) _playingNode.classList.remove("playing");
+                    if (node) node.classList.add("playing");
+                    _playingNode = node;
+
+                    const ae = document.activeElement, at = ae && ae.tagName;
+                    const editing = at === "TEXTAREA" || at === "INPUT" || (ae && ae.isContentEditable);
+                    const recentlyScrolled = (Date.now() - (window._lastUserScroll || 0)) < 5000;
+                    // followPlayhead was declared in DEFAULT_SETTINGS and never
+                    // read, so the panel always yanked the list down mid-play
+                    // even for someone who just wanted to watch. Highlighting
+                    // stays on either way — only the scrolling is opt-out.
+                    if (node && settings.followPlayhead !== false && !editing && !recentlyScrolled) {
+                        const wr = wrap.getBoundingClientRect(), nr = node.getBoundingClientRect();
+                        if (nr.top < wr.top || nr.bottom > wr.bottom)
+                            node.scrollIntoView({ behavior: "smooth", block: "nearest" });
                     }
-                });
-            } else if (wrap) {
-                wrap.querySelectorAll(".segment.playing").forEach(n => n.classList.remove("playing"));
+                }
+            } else if (_playingNode) {
+                _playingNode.classList.remove("playing");
+                _playingNode = null;
             }
         }, 300);
     }
@@ -3558,11 +3840,49 @@ function _semverNewer(remote, local) {
     for (let i = 0; i < 3; i++) { if ((r[i]||0) > (l[i]||0)) return true; if ((r[i]||0) < (l[i]||0)) return false; }
     return false;
 }
+// ── Where releases, updates and support live ──────────────────────────────
+// One place to repoint everything. Selling from your own site or from Gumroad
+// instead of a public GitHub repo means editing these three lines plus the
+// `publish` block in package.json — nothing else.
+//
+// This is centralised because it has already failed once: when the repo went
+// private, the update check, the README's download links and electron-updater
+// all died at the same moment, and the update check swallowed the 404 without
+// a word, so nothing surfaced it.
+//
+// updateUrl only has to return JSON containing `tag_name` and `html_url`. The
+// GitHub Releases API happens to have that shape, so a static JSON file on your
+// own domain is a drop-in replacement.
+const DIST = {
+    updateUrl:   `https://api.github.com/repos/${GH_REPO}/releases/latest`,
+    downloadUrl: `https://github.com/${GH_REPO}/releases/latest`,
+    supportUrl:  `https://github.com/${GH_REPO}/issues/new`,
+};
+
+// Last update-check outcome, surfaced in Settings → diagnostics.
+// "ok" | "offline" | "missing" | "idle"
+let updateCheckState = { status: "idle", detail: "" };
+
 async function checkForUpdates() {
     try {
-        const res = await fetch(`https://api.github.com/repos/${GH_REPO}/releases/latest`, { headers: { Accept: "application/vnd.github+json" } });
-        if (!res.ok) return;
+        const res = await fetch(DIST.updateUrl, { headers: { Accept: "application/vnd.github+json" } });
+        if (!res.ok) {
+            // 404/410 is not a network hiccup — it means the release endpoint
+            // itself is gone (repo made private, renamed, or deleted), so every
+            // existing install has silently stopped receiving updates. Loud in
+            // the log, visible in diagnostics, but NOT a banner: this app is
+            // offline-first and must never nag about the network.
+            const gone = res.status === 404 || res.status === 410;
+            updateCheckState = {
+                status: gone ? "missing" : "offline",
+                detail: `HTTP ${res.status} — ${DIST.updateUrl}`,
+            };
+            if (gone) console.error("[subsper] update endpoint is gone:", DIST.updateUrl,
+                                    "— users are no longer getting updates. See DIST in main.js.");
+            return;
+        }
         const rel = await res.json();
+        updateCheckState = { status: "ok", detail: rel.tag_name || "" };
         const tag = rel.tag_name || "";
         if (!_semverNewer(tag, APP_VERSION)) return;
         if (localStorage.getItem("ws_skip_update") === tag) return;
@@ -3575,9 +3895,13 @@ async function checkForUpdates() {
             `<button id="upd-get" style="background:#fff;color:#1a2;border:none;border-radius:6px;padding:4px 12px;font-weight:700;cursor:pointer;color:#333">${isTr ? "İndir" : "Download"}</button>` +
             `<button id="upd-skip" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:6px;padding:4px 10px;cursor:pointer">${isTr ? "Bu sürümü atla" : "Skip"}</button>`;
         document.body.appendChild(bar);
-        $("upd-get").onclick = () => { openExternal(rel.html_url || `https://github.com/${GH_REPO}/releases/latest`); };
+        $("upd-get").onclick = () => { openExternal(rel.html_url || DIST.downloadUrl); };
         $("upd-skip").onclick = () => { localStorage.setItem("ws_skip_update", tag); bar.remove(); };
-    } catch (e) {}
+    } catch (e) {
+        // Being offline is the normal case for an offline-first tool, so this
+        // stays quiet — it is only recorded for the diagnostics panel.
+        updateCheckState = { status: "offline", detail: e.message };
+    }
 }
 function openExternal(url) {
     try {
@@ -3598,11 +3922,12 @@ function reportProblem() {
 ---
 App: Subsper ${IS_DESKTOP_APP ? "Desktop" : "Premiere Extension"} v${APP_VERSION}
 OS: ${process.platform} ${os.release()} (${process.arch})
+Update check: ${updateCheckState.status}${updateCheckState.detail ? " — " + updateCheckState.detail : ""}
 Engine log (last steps):
 \`\`\`
 ${logTail || "(no log)"}
 \`\`\``;
-    openExternal(`https://github.com/${GH_REPO}/issues/new?title=${encodeURIComponent("[Bug] ")}&body=${encodeURIComponent(body)}`);
+    openExternal(`${DIST.supportUrl}?title=${encodeURIComponent("[Bug] ")}&body=${encodeURIComponent(body)}`);
 }
 
 // ── Model manager (Setup tab): list downloaded GGML models, delete, fetch ──
@@ -3766,6 +4091,100 @@ async function sendWordCaptions() {
     else handleError((result && result.error) || "Failed");
 }
 
+// ── Settings profiles ─────────────────────────────────────────────────────
+// An editor working for several clients re-dials the same style, reading speed
+// and word lists on every job. These save that whole set under a name.
+// Deliberately NOT saved: API keys, licence, UI language — those belong to the
+// person, not the project.
+const PROFILE_KEYS = [
+    "stylePreset", "customStyle", "karaoke", "karaokeHi",
+    "autoSplit", "maxCharsPerLine", "maxLines", "maxCps", "maxDur",
+    "gapFill", "gapMax",
+    "punctAllowed", "customDict", "promptWords", "autoCleanup",
+    "fillerWords", "fillerOn", "profanityList", "profanityMode", "profStem",
+    "model", "language", "engine", "diarize",
+];
+
+function listProfiles() {
+    try { return JSON.parse(localStorage.getItem("ws_profiles") || "{}") || {}; }
+    catch (e) { return {}; }
+}
+function writeProfiles(all) {
+    try { localStorage.setItem("ws_profiles", JSON.stringify(all)); } catch (e) {}
+}
+
+function saveProfile(name) {
+    name = String(name || "").trim();
+    if (!name) { showToast(t("prof_need_name"), "info", 2500); return false; }
+    const all = listProfiles();
+    const snap = {};
+    for (const k of PROFILE_KEYS) if (settings[k] !== undefined) snap[k] = settings[k];
+    all[name] = { savedAt: Date.now(), settings: snap };
+    writeProfiles(all);
+    showToast(t("prof_saved").replace("%s", name), "success", 3000);
+    return true;
+}
+
+function loadProfile(name) {
+    const p = listProfiles()[name];
+    if (!p) { showToast(t("prof_missing"), "error", 3000); return false; }
+    Object.assign(settings, p.settings);
+    saveSettings();
+    // Repaint every control from the restored values, then re-apply formatting
+    // so the segment list matches the profile immediately rather than at the
+    // next edit.
+    for (const fn of [initSettingsUI, initEditSettingsUI, initAudioSettingsUI, applyLanguage]) {
+        try { if (typeof fn === "function") fn(); } catch (e) {}
+    }
+    if (segments.length && settings.autoSplit) {
+        pushUndo();
+        segments = applySmartSplit(segments, settings);
+        renderSegments(); updateSegCount(); reselect();
+    }
+    showToast(t("prof_loaded").replace("%s", name), "success", 3000);
+    return true;
+}
+
+function deleteProfile(name) {
+    const all = listProfiles();
+    if (!all[name]) return false;
+    delete all[name];
+    writeProfiles(all);
+    showToast(t("prof_deleted").replace("%s", name), "info", 2500);
+    return true;
+}
+
+// ── Bilingual SRT (original + translation in one file) ────────────────────
+/* Two lines per cue: source on top, translation underneath — the convention
+ * language learners and international clients expect. Reads the same numbered
+ * AI output that exportTranslationSRT does, so Translate has to have run. */
+function buildBilingualSRT(order) {
+    const text = $("ai-output") ? $("ai-output").value : "";
+    const map = parseNumberedAi(text);
+    if (!Object.keys(map).length) return null;
+    return segments.map((seg, i) => {
+        const src = (seg.text || "").trim();
+        const dst = (map[i] != null ? map[i] : "").trim();
+        const body = !dst || dst === src ? src
+                   : order === "translation-first" ? dst + "\n" + src
+                   : src + "\n" + dst;
+        return `${i + 1}\n${formatTime(seg.seqStart)} --> ${formatTime(seg.seqEnd)}\n${body}\n`;
+    }).join("\n");
+}
+
+function exportBilingualSRT() {
+    const srt = buildBilingualSRT(settings.bilingualOrder || "source-first");
+    if (!srt) { showToast(t("bi_need_translate"), "info", 3500); return; }
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    const outPath = path.join(os.homedir(), "Desktop", `captions_bilingual_${stamp}.srt`);
+    try {
+        fs.writeFileSync(outPath, srt, "utf8");
+        setStatus(`Bilingual SRT → ${outPath}`, "success");
+        showToast(t("bi_saved"), "success", 4000);
+        revealInFolder(outPath);
+    } catch (e) { showToast("Save failed: " + e.message, "error"); }
+}
+
 // ── Translation SRT export (from the AI panel translate output) ────────────
 function exportTranslationSRT() {
     const text = $("ai-output") ? $("ai-output").value : "";
@@ -3812,23 +4231,24 @@ function maybeShowOnboarding() {
     $("onboard-ok").onclick = () => { localStorage.setItem("ws_onboarded", "1"); ov.remove(); };
 }
 
-// ── License skeleton (disabled until a payment provider is wired) ──────────
-const LICENSING_ENABLED = false;   // flip on when selling; UI stays hidden until then
-function verifyLicenseKey(key) {
-    // Gumroad-style verification endpoint — fill in the product id when live.
-    return fetch("https://api.gumroad.com/v2/licenses/verify", {
-        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: `product_id=SUBSPER_PRODUCT_ID&license_key=${encodeURIComponent(key)}`,
-    }).then(r => r.json());
-}
-
 // ── Feature-pack init (runs AFTER desktop-app.js overrides, via setTimeout) ─
 setTimeout(function initFeaturePack() {
+    /* Each UI injection gets its own try/catch.
+     *
+     * This whole function used to sit inside one `try`, so the first section
+     * that threw silently cancelled every section after it — a missing node in
+     * the export menu could take out the model manager, the AI buttons and the
+     * settings tab, with nothing visible to explain why. Logging the section
+     * name turns "some feature vanished" into a line that says which one. */
+    function step(name, fn) {
+        try { fn(); }
+        catch (e) { console.error("[Subsper] feature pack section '" + name + "' failed:", e); }
+    }
     try {
         // Undo hooks around every mutating action
         ["deleteSegment", "splitSegmentHalf", "splitAtWord", "doReplaceAll",
          "applyAiToSubtitles", "applySyncProposal", "cleanAll", "editSegment",
-         "applyDictionary", "removeFillers", "censorProfanity"].forEach(name => {
+         "applyDictionary", "removeFillers", "censorProfanity", "applyProofread"].forEach(name => {
             const orig = window[name];
             if (typeof orig === "function") window[name] = function () { pushUndo(); return orig.apply(this, arguments); };
         });
@@ -3845,140 +4265,164 @@ setTimeout(function initFeaturePack() {
             }
         });
 
-        // Export menu: grouped extra entries. menuGroupAdd puts each feature
-        // under a labeled group (Video / Premiere / Project) instead of a flat pile.
-        window.menuGroupAdd = function (grpId, labelKey, text, fn, tip) {
-            const grp = $(grpId); if (!grp) return null;
-            if (labelKey && !grp.querySelector(".menu-group-label")) {
-                const lab = document.createElement("div");
-                lab.className = "menu-group-label";
-                lab.textContent = t(labelKey);
-                grp.appendChild(lab);
-            }
-            const b = document.createElement("button");
-            b.innerHTML = `<span>${text}</span>`;
-            if (tip) b.setAttribute("data-tip", tip);
-            b.onclick = () => { const em2 = $("export-menu"); if (em2) em2.style.display = "none"; fn(); };
-            grp.appendChild(b);
-            return b;
-        };
-        if (IS_DESKTOP_APP) {
-            menuGroupAdd("export-grp-files", null,
-                settings.uiLang === "tr" ? "Kelime kelime SRT" : "Word-by-word SRT",
-                sendWordCaptions, "TikTok-style: every word becomes its own cue");
-        } else {
-            menuGroupAdd("export-grp-premiere", "grp_premiere",
-                settings.uiLang === "tr" ? "Kelime kelime altyazı → timeline" : "Word-by-word captions → timeline",
-                sendWordCaptions, "TikTok-style: every word becomes its own caption cue");
-        }
-
-        // Remember last export format + preselect
-        const origExport = window.exportAs;
-        if (typeof origExport === "function") {
-            window.exportAs = function (fmt) { try { settings.lastExport = fmt; saveSettings(); } catch (e) {} return origExport.apply(this, arguments); };
-        }
-
-        // AI panel: "Save translated SRT" — contextual, only visible after Translate
-        const aiActions = $("ai-actions");
-        if (aiActions) {
-            const tb = document.createElement("button");
-            tb.className = "btn-secondary";
-            tb.id = "ai-srt-btn";
-            tb.style.display = "none";
-            tb.textContent = settings.uiLang === "tr" ? "Çeviriyi SRT kaydet" : "Save translated SRT";
-            tb.onclick = exportTranslationSRT;
-            aiActions.appendChild(tb);
-        }
-
-        // Extension-only: caption pull + filler cut buttons on the Edit-tools panel
-        if (!IS_DESKTOP_APP) {
-            const edPanel = (document.querySelector("#panel-ed-work .setup-scroll") || document.getElementById("panel-ed-work"));
-            if (edPanel) {
-                const wrap = document.createElement("div");
-                wrap.className = "setting-item tool-card";
-                wrap.innerHTML = `
-                  <div class="setting-row"><div class="setting-info">
-                    <div class="setting-name">${settings.uiLang === "tr" ? "Dolgu Kelime Kes (deneysel)" : "Cut Filler Words (experimental)"}</div>
-                    <div class="setting-desc">${settings.uiLang === "tr" ? "ee, ıı, şey… kelimelerini videodan ripple-delete ile keser. Önce Transcribe." : "Ripple-deletes ee/um/uh words from the video. Transcribe first."}</div>
-                  </div></div>
-                  <button class="btn-transcribe btn-compact" id="filler-cut-btn" style="margin-top:8px">${settings.uiLang === "tr" ? "Dolguları Kes" : "Cut Fillers"}</button>`;
-                edPanel.appendChild(wrap);
-                $("filler-cut-btn").onclick = cutFillerWords;
-            }
-        }
-
-        // Compact secondary-actions row under the main controls (shared helper —
-        // desktop adds Batch here, extension adds caption pull). Keeps the primary
-        // Transcribe/Play area clean instead of stacking full-width buttons.
-        window.secondaryAdd = function (text, fn, tip) {
-            const txControls = document.querySelector("#panel-tx-work .controls");
-            if (!txControls) return null;
-            let row = $("secondary-actions");
-            if (!row) {
-                row = document.createElement("div");
-                row.id = "secondary-actions";
-                txControls.appendChild(row);
-            }
-            const b = document.createElement("button");
-            b.className = "btn-ghost";
-            b.textContent = text;
-            if (tip) b.setAttribute("data-tip", tip);
-            b.onclick = fn;
-            row.appendChild(b);
-            return b;
-        };
-        // (timeline caption pull removed — Premiere doesn't expose caption
-        //  contents reliably; Load SRT + File>Export>Captions covers the need)
-
-        // Setup tab: model manager + report button
-        const setupPanel = $("panel-setup");
-        if (setupPanel) {
-            const sc = setupPanel.querySelector(".setup-scroll") || setupPanel;
-            const rep = document.createElement("div");
-            rep.innerHTML = `<div class="setup-section-title" style="margin-top:14px">Feedback</div>
-              <div class="setting-item"><div class="setting-row"><div class="setting-info">
-                <div class="setting-name">Report a problem</div>
-                <div class="setting-desc">Opens a GitHub issue prefilled with your app version and the last engine-log lines. No data is sent automatically.</div>
-              </div><button class="btn-secondary" onclick="reportProblem()">Report</button></div></div>
-              <div class="setting-desc" style="margin-top:10px;text-align:center;color:var(--text3)">Subsper v${APP_VERSION} · by zipheron</div>`;
-            sc.appendChild(rep);
-        }
-        // Re-render models with the manager whenever diagnostics render them
-        const origRenderModels = window.renderModels;
-        if (typeof origRenderModels === "function") window.renderModels = function () { renderModelManager(); };
-        renderModelManager();
-
-        // ── Settings tab = GENERAL settings only (Interface, AI & API) + a
-        //    "Setup" subsection. Subtitle/Edit/Audio settings stay under their
-        //    own tabs' Settings sub-tab (user was explicit about this).
-        try {
-            const dst = document.querySelector("#panel-su-main .setup-scroll");
-            const src = document.querySelector("#panel-tx-settings .setup-scroll");
-            if (dst && src) {
-                // pull the Interface + AI&API sections (title + everything until
-                // the next section title) OUT of the Subtitle settings panel into
-                // the Settings tab's "Ayarlar" sub-page. Setup stays on its own
-                // sub-page untouched.
-                const pulled = { sec_interface: [], sec_api: [] };
-                let cur = null;
-                for (const node of [...src.children]) {
-                    const isTitle = node.classList && node.classList.contains("setup-section-title");
-                    if (isTitle) {
-                        const key = (node.querySelector("[data-i18n]") || node).getAttribute("data-i18n");
-                        cur = (key === "sec_interface" || key === "sec_api") ? key : null;
-                    }
-                    if (cur) pulled[cur].push(node);
+        step("export menu", () => {
+            // Export menu: grouped extra entries. menuGroupAdd puts each feature
+            // under a labeled group (Video / Premiere / Project) instead of a flat pile.
+            window.menuGroupAdd = function (grpId, labelKey, text, fn, tip) {
+                const grp = $(grpId); if (!grp) return null;
+                if (labelKey && !grp.querySelector(".menu-group-label")) {
+                    const lab = document.createElement("div");
+                    lab.className = "menu-group-label";
+                    lab.textContent = t(labelKey);
+                    grp.appendChild(lab);
                 }
-                pulled.sec_interface.forEach(n => dst.appendChild(n));
-                pulled.sec_api.forEach(n => dst.appendChild(n));
-                const first = dst.querySelector(".setup-section-title");
-                if (first) first.style.marginTop = "0";
+                const b = document.createElement("button");
+                b.innerHTML = `<span>${text}</span>`;
+                if (tip) b.setAttribute("data-tip", tip);
+                b.onclick = () => { const em2 = $("export-menu"); if (em2) em2.style.display = "none"; fn(); };
+                grp.appendChild(b);
+                return b;
+            };
+            if (IS_DESKTOP_APP) {
+                menuGroupAdd("export-grp-files", null,
+                    settings.uiLang === "tr" ? "Kelime kelime SRT" : "Word-by-word SRT",
+                    sendWordCaptions, "TikTok-style: every word becomes its own cue");
+            } else {
+                menuGroupAdd("export-grp-premiere", "grp_premiere",
+                    settings.uiLang === "tr" ? "Kelime kelime altyazı → timeline" : "Word-by-word captions → timeline",
+                    sendWordCaptions, "TikTok-style: every word becomes its own caption cue");
             }
-        } catch (eMig) { console.error("[Subsper] settings migration failed:", eMig); }
+        });
 
-        maybeShowOnboarding();
-        checkForUpdates();
-    } catch (e) { console.error("[Subsper] feature pack init failed:", e); }
+        step("last export format", () => {
+            // Remember last export format + preselect
+            const origExport = window.exportAs;
+            if (typeof origExport === "function") {
+                window.exportAs = function (fmt) { try { settings.lastExport = fmt; saveSettings(); } catch (e) {} return origExport.apply(this, arguments); };
+            }
+        });
+
+        step("AI panel buttons", () => {
+            // AI panel: "Save translated SRT" — contextual, only visible after Translate
+            const aiActions = $("ai-actions");
+            if (aiActions) {
+                const tb = document.createElement("button");
+                tb.className = "btn-secondary";
+                tb.id = "ai-srt-btn";
+                tb.style.display = "none";
+                tb.textContent = settings.uiLang === "tr" ? "Çeviriyi SRT kaydet" : "Save translated SRT";
+                tb.onclick = exportTranslationSRT;
+                aiActions.appendChild(tb);
+
+                // Bilingual: source and translation stacked in one cue. Same
+                // contextual visibility — it needs Translate to have run.
+                const bb = document.createElement("button");
+                bb.className = "btn-secondary";
+                bb.id = "ai-bilingual-btn";
+                bb.style.display = "none";
+                bb.textContent = t("bi_export");
+                bb.setAttribute("data-tip", t("bi_need_translate"));
+                bb.onclick = exportBilingualSRT;
+                aiActions.appendChild(bb);
+            }
+        });
+
+        step("edit-tools buttons", () => {
+            // Extension-only: caption pull + filler cut buttons on the Edit-tools panel
+            if (!IS_DESKTOP_APP) {
+                const edPanel = (document.querySelector("#panel-ed-work .setup-scroll") || document.getElementById("panel-ed-work"));
+                if (edPanel) {
+                    const wrap = document.createElement("div");
+                    wrap.className = "setting-item tool-card";
+                    wrap.innerHTML = `
+                      <div class="setting-row"><div class="setting-info">
+                        <div class="setting-name">${settings.uiLang === "tr" ? "Dolgu Kelime Kes (deneysel)" : "Cut Filler Words (experimental)"}</div>
+                        <div class="setting-desc">${settings.uiLang === "tr" ? "ee, ıı, şey… kelimelerini videodan ripple-delete ile keser. Önce Transcribe." : "Ripple-deletes ee/um/uh words from the video. Transcribe first."}</div>
+                      </div></div>
+                      <button class="btn-transcribe btn-compact" id="filler-cut-btn" style="margin-top:8px">${settings.uiLang === "tr" ? "Dolguları Kes" : "Cut Fillers"}</button>`;
+                    edPanel.appendChild(wrap);
+                    $("filler-cut-btn").onclick = cutFillerWords;
+                }
+            }
+        });
+
+        step("secondary actions", () => {
+            // Compact secondary-actions row under the main controls (shared helper —
+            // desktop adds Batch here, extension adds caption pull). Keeps the primary
+            // Transcribe/Play area clean instead of stacking full-width buttons.
+            window.secondaryAdd = function (text, fn, tip) {
+                const txControls = document.querySelector("#panel-tx-work .controls");
+                if (!txControls) return null;
+                let row = $("secondary-actions");
+                if (!row) {
+                    row = document.createElement("div");
+                    row.id = "secondary-actions";
+                    txControls.appendChild(row);
+                }
+                const b = document.createElement("button");
+                b.className = "btn-ghost";
+                b.textContent = text;
+                if (tip) b.setAttribute("data-tip", tip);
+                b.onclick = fn;
+                row.appendChild(b);
+                return b;
+            };
+            // (timeline caption pull removed — Premiere doesn't expose caption
+            //  contents reliably; Load SRT + File>Export>Captions covers the need)
+        });
+
+        step("setup tab", () => {
+            // Setup tab: model manager + report button
+            const setupPanel = $("panel-setup");
+            if (setupPanel) {
+                const sc = setupPanel.querySelector(".setup-scroll") || setupPanel;
+                const rep = document.createElement("div");
+                rep.innerHTML = `<div class="setup-section-title" style="margin-top:14px">Feedback</div>
+                  <div class="setting-item"><div class="setting-row"><div class="setting-info">
+                    <div class="setting-name">Report a problem</div>
+                    <div class="setting-desc">Opens a GitHub issue prefilled with your app version and the last engine-log lines. No data is sent automatically.</div>
+                  </div><button class="btn-secondary" onclick="reportProblem()">Report</button></div></div>
+                  <div class="setting-desc" style="margin-top:10px;text-align:center;color:var(--text3)">Subsper v${APP_VERSION} · by zipheron</div>`;
+                sc.appendChild(rep);
+            }
+            // Re-render models with the manager whenever diagnostics render them
+            const origRenderModels = window.renderModels;
+            if (typeof origRenderModels === "function") window.renderModels = function () { renderModelManager(); };
+            renderModelManager();
+
+            // ── Settings tab = GENERAL settings only (Interface, AI & API) + a
+            //    "Setup" subsection. Subtitle/Edit/Audio settings stay under their
+            //    own tabs' Settings sub-tab (user was explicit about this).
+            try {
+                const dst = document.querySelector("#panel-su-main .setup-scroll");
+                const src = document.querySelector("#panel-tx-settings .setup-scroll");
+                if (dst && src) {
+                    // pull the Interface + AI&API sections (title + everything until
+                    // the next section title) OUT of the Subtitle settings panel into
+                    // the Settings tab's "Ayarlar" sub-page. Setup stays on its own
+                    // sub-page untouched.
+                    const pulled = { sec_interface: [], sec_api: [] };
+                    let cur = null;
+                    for (const node of [...src.children]) {
+                        const isTitle = node.classList && node.classList.contains("setup-section-title");
+                        if (isTitle) {
+                            const key = (node.querySelector("[data-i18n]") || node).getAttribute("data-i18n");
+                            cur = (key === "sec_interface" || key === "sec_api") ? key : null;
+                        }
+                        if (cur) pulled[cur].push(node);
+                    }
+                    pulled.sec_interface.forEach(n => dst.appendChild(n));
+                    pulled.sec_api.forEach(n => dst.appendChild(n));
+                    const first = dst.querySelector(".setup-section-title");
+                    if (first) first.style.marginTop = "0";
+                }
+            } catch (eMig) { console.error("[Subsper] settings migration failed:", eMig); }
+
+            maybeShowOnboarding();
+            checkForUpdates();
+        });
+
+        } catch (e) { console.error("[Subsper] feature pack init failed:", e); }
 }, 0);
 
 /* ═══════════════════════════════════════════════════════════════════════════

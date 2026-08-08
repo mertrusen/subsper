@@ -8,7 +8,9 @@
  *
  * - whisper-cli: built from source (statically linked → portable, no Homebrew /
  *   no shared ggml dylibs). macOS embeds the Metal shader library.
- * - ffmpeg: taken from the `ffmpeg-static` npm package (static, per-platform).
+ * - ffmpeg: LGPL only. Built from source on macOS/Linux, BtbN's LGPL build on
+ *   Windows, and verified either way — see prepareFfmpeg() and
+ *   THIRD-PARTY-NOTICES.md for why this is not negotiable.
  *
  * Requires: git + cmake + a C/C++ toolchain (preinstalled on GitHub runners;
  * locally: `brew install cmake` on macOS, Visual Studio Build Tools on Windows).
@@ -77,14 +79,71 @@ function buildWhisper(vulkan = false) {
   log(exeName + " →", dst);
 }
 
-// ── 2) ffmpeg (static, from ffmpeg-static npm) ──────────────────────────────
-async function copyFfmpeg() {
+// ── 2) ffmpeg (LGPL — see THIRD-PARTY-NOTICES.md) ───────────────────────────
+//
+// This used to copy the binary out of the `ffmpeg-static` npm package. On macOS
+// that is an evermeet.cx build configured with:
+//     --enable-gpl --enable-version3 --enable-nonfree
+// and a binary built with --enable-nonfree may not be redistributed AT ALL.
+// Shipping it inside a paid product was a licensing breach.
+//
+// macOS/Linux: build plain LGPL ffmpeg from source.
+// Windows:     BtbN publishes LGPL builds, which are redistributable as-is.
+//              Cross-compiling on a Windows runner would need MSYS2 and buys
+//              us nothing over a build whose licence is already what we want.
+const BTBN_LGPL_WIN =
+  "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip";
+
+/* Never ship an ffmpeg whose own banner says it is GPL or non-free. This gate
+ * is the whole reason the build script exists — keep it on every path. */
+function assertRedistributable(binPath) {
+  const banner = execSync(`"${binPath}" -version`, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  for (const bad of ["--enable-gpl", "--enable-nonfree", "--enable-version3",
+                     "--enable-libx264", "--enable-libx265"]) {
+    if (banner.includes(bad)) {
+      throw new Error(
+        `REFUSING TO SHIP: ${path.basename(binPath)} reports ${bad}.\n` +
+        `See THIRD-PARTY-NOTICES.md — the bundled ffmpeg must be plain LGPL.`);
+    }
+  }
+  log("ffmpeg licence gate passed (no GPL/non-free components)");
+}
+
+async function prepareFfmpeg() {
   const dst = path.join(OUT, "ffmpeg" + EXE);
-  const mod = await import("ffmpeg-static");
-  const src = mod.default || mod;
-  if (!src || !fs.existsSync(src)) throw new Error("ffmpeg-static binary not found: " + src);
-  fs.copyFileSync(src, dst);
+
+  if (fs.existsSync(dst) && !process.env.FORCE) {
+    log("ffmpeg exists, verifying licence…");
+    assertRedistributable(dst);
+    return;
+  }
+
+  if (isWin) {
+    const zip = path.join(os.tmpdir(), "ffmpeg-lgpl-win64.zip");
+    const work = path.join(os.tmpdir(), "ffmpeg-lgpl-win64");
+    log("downloading LGPL ffmpeg for Windows…");
+    run(`curl -fL "${BTBN_LGPL_WIN}" -o "${zip}"`);
+    fs.rmSync(work, { recursive: true, force: true });
+    fs.mkdirSync(work, { recursive: true });
+    run(`tar -xf "${zip}" -C "${work}"`);          // bsdtar ships with Windows 10+
+    const found = [];
+    (function walk(dir) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name.toLowerCase() === "ffmpeg.exe") found.push(p);
+      }
+    })(work);
+    if (!found.length) throw new Error("ffmpeg.exe not found inside " + zip);
+    fs.copyFileSync(found[0], dst);
+  } else {
+    log("building LGPL ffmpeg from source (this takes a few minutes)…");
+    run(`bash "${path.join(ROOT, "scripts", "build-ffmpeg-lgpl.sh")}" subs`);
+  }
+
+  if (!fs.existsSync(dst)) throw new Error("ffmpeg was not produced at " + dst);
   if (!isWin) fs.chmodSync(dst, 0o755);
+  assertRedistributable(dst);
   log("ffmpeg →", dst);
 }
 
@@ -97,6 +156,6 @@ async function copyFfmpeg() {
   } else {
     buildWhisper(false);
   }
-  await copyFfmpeg();
+  await prepareFfmpeg();
   log("done ✓  bundled:", fs.readdirSync(OUT).join(", "));
 })().catch(e => { console.error("[fetch-binaries] FAILED:", e.message); process.exit(1); });

@@ -1,6 +1,15 @@
 # Subsper
 
-By **zipheron**. Local AI subtitles, audio cleanup & silence cutting. 100% offline & free.
+By **zipheron**. Local AI subtitles, audio cleanup & silence cutting.
+
+**Your media never leaves your machine.** Transcription, editing and export all
+run on your own hardware. A handful of *optional* extras — AI grammar and
+translation, stock B-roll, the update check — do use the network, and
+[PRIVACY.md](PRIVACY.md) lists every one of them. The old "100% offline" claim
+was not quite true once those features existed, so it is stated properly now.
+
+Licensing: [LICENSE](LICENSE) · third-party components:
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
 
 This repo holds **two apps that share the same engine**:
 
@@ -8,6 +17,13 @@ This repo holds **two apps that share the same engine**:
 |-----|-----|-------|
 | **Desktop** (this folder) | CapCut / any editor — no Premiere needed. Windows + macOS. | [Releases](../../releases) → `.exe` / `.dmg` |
 | **Premiere extension** | Adobe Premiere Pro users | [Releases](../../releases) → `Subsper-Premiere-*.zxp` |
+
+> **Download links depend on this repo being reachable.** They point at its
+> Releases page, and so do the in-app update check and `electron-updater`. If
+> the repo is private, all three go dead at once — silently, in the case of the
+> update check. Selling from your own site or Gumroad instead means editing
+> `DIST` in `js/main.js` and the `publish` block in `package.json`; nothing else
+> hard-codes a URL.
 
 The Premiere extension reuses the Desktop app's bundled engine, so **installing the
 Desktop app makes both work** — no Python, no terminal.
@@ -29,7 +45,8 @@ folder with PlayerDebugMode — see [extension/README.md](extension/README.md).)
 ## Subsper — Desktop
 
 Local AI subtitles, audio cleanup & silence cutting for **CapCut** (or any editor).
-No Premiere needed. Runs on **Windows** and macOS. 100% offline & free.
+No Premiere needed. Runs on **Windows** and macOS. Transcription and editing are
+fully offline — see [PRIVACY.md](PRIVACY.md) for the optional online extras.
 
 ---
 
@@ -77,14 +94,10 @@ don't need a Windows PC.
    ```
    GitHub Actions builds and attaches `Subsper-Setup-1.0.0.exe` to a Release.
 
-### First-time push
-```
-cd WhisperStudioDesktop
-git init
-git add .
-git commit -m "Subsper Desktop"
-gh repo create subsper --public --source=. --push
-```
+Releases must be **signed** — an unsigned build greets every buyer with
+"Subsper is damaged" on macOS or a SmartScreen block on Windows. The tag build
+now refuses to publish without the certificates. See
+[docs/SIGNING.md](docs/SIGNING.md) for what to buy and which secrets to set.
 
 ### Build locally instead (optional)
 ```
@@ -93,6 +106,21 @@ npm run dist:win    # on Windows → dist/Subsper-Setup-x.x.x.exe
 npm run dist:mac    # on macOS  → dist/*.dmg
 npm start           # run from source
 ```
+
+The bundled `ffmpeg` is built from source as **plain LGPL**
+(`scripts/build-ffmpeg-lgpl.sh`), because the `ffmpeg-static` package it used to
+come from is configured `--enable-nonfree` and may not be redistributed at all.
+The build fails on purpose if a GPL or non-free component ever creeps back in.
+
+### Tests
+```
+dev/test/run.sh            # unit suite (uses node, or JavaScriptCore if node is absent)
+dev/test/check-mirror.sh   # desktop and extension copies must stay identical
+dev/test/ffmpeg-smoke.sh   # the bundled ffmpeg can do everything the app asks
+node dev/v2-harness.js     # feature gating, desktop vs extension
+```
+CI runs all four on every push and PR, and the packaging jobs will not start
+until they pass.
 
 ---
 

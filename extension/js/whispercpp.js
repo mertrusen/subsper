@@ -665,6 +665,52 @@ async function enhanceMedia(appDir, inputPath, outPath, denoise, normalize, spaw
     return outPath;
 }
 
+// ── Video encoder selection ───────────────────────────────────────────────
+// cutMedia used to name no video encoder at all, so ffmpeg silently picked
+// libx264 — a GPL component we deliberately no longer ship (see
+// scripts/build-ffmpeg-lgpl.sh). Against the LGPL build that default resolves
+// to mpeg4 and then fails to open, so the encoder has to be chosen explicitly.
+//
+// Probe what the ffmpeg we actually got can do rather than hard-coding a name:
+// resolveBin may hand us the bundled build, the desktop app's copy, or the
+// user's own ffmpeg on PATH, and those differ.
+let _vencCache = null;
+function videoEncoder(appDir) {
+    if (_vencCache) return _vencCache;
+    const prefs = process.platform === "darwin" ? ["h264_videotoolbox"]
+                : process.platform === "win32"  ? ["h264_mf", "h264_qsv", "h264_nvenc", "h264_amf"]
+                : ["h264_v4l2m2m"];
+    let list = "";
+    try {
+        list = cp.execFileSync(ffmpegBin(appDir), ["-hide_banner", "-encoders"],
+                               { encoding: "utf8", timeout: 20000, windowsHide: true });
+    } catch (e) { dbg("encoder probe failed: " + e.message); }
+    const has = (n) => new RegExp("^\\s*\\S+\\s+" + n + "\\s", "m").test(list);
+
+    for (const e of prefs) if (has(e)) { _vencCache = e; break; }
+    // A user-supplied ffmpeg may well carry libx264. That is their build, not
+    // one we distribute, so using it is fine — and it looks better than mpeg4.
+    if (!_vencCache && has("libx264")) _vencCache = "libx264";
+    if (!_vencCache) _vencCache = "mpeg4";
+    dbg("video encoder: " + _vencCache + (list ? "" : " (probe returned nothing)"));
+    return _vencCache;
+}
+
+/* Encoder args for a re-encode. Constant quality everywhere, so a 20-second
+ * clip doesn't inherit a bitrate meant for a feature film.
+ * -fps_mode cfr is required: the concat filter emits a variable frame rate and
+ * mpeg4 refuses to open an encoder without a constant one. */
+function videoEncodeArgs(appDir) {
+    const enc = videoEncoder(appDir);
+    const a = ["-c:v", enc, "-fps_mode", "cfr", "-pix_fmt", "yuv420p"];
+    if (enc === "h264_videotoolbox") a.push("-b:v", "0", "-q:v", "60", "-tag:v", "avc1");
+    else if (enc === "libx264")      a.push("-crf", "18", "-preset", "veryfast");
+    else if (enc === "h264_mf")      a.push("-rate_control", "quality", "-quality", "60");
+    else if (enc === "mpeg4")        a.push("-q:v", "3");
+    else                             a.push("-b:v", "8M");
+    return a;
+}
+
 /* Cut a media file to only the KEEP ranges (complement of silences), trimming +
  * concatenating with ffmpeg. keep = [[startSec,endSec], …]. opts.video=false for
  * audio-only inputs. Re-encodes. */
@@ -689,7 +735,7 @@ async function cutMedia(appDir, inputPath, outPath, keep, opts) {
         ? ins.join("") + "concat=n=" + n + ":v=1:a=1[outv][outa]"
         : ins.join("") + "concat=n=" + n + ":v=0:a=1[outa]";
     const args = ["-y", "-i", normalizePath(inputPath), "-filter_complex", parts.join(";") + ";" + concat];
-    if (hasVideo) args.push("-map", "[outv]");
+    if (hasVideo) args.push("-map", "[outv]", ...videoEncodeArgs(appDir));
     args.push("-map", "[outa]", outPath);
     dbg("cutMedia: " + n + " keep-range(s), video=" + hasVideo);
     await _runFfmpeg(appDir, args, opts.spawnOpts || {});
@@ -748,6 +794,7 @@ module.exports = {
     parseWhisperJson, toWav16k, transcribeWav, dtwPreset,
     normalizePath, extractClipsToWav,
     detectSilence, enhanceMedia, cutMedia, beepRanges, beepTrackWav,
+    videoEncoder, videoEncodeArgs,
     setLogger, recentLog, logPath, dbg,
     flushLog, cleanupStaleDownloads, verifyModel,
 };

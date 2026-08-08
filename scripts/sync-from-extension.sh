@@ -5,7 +5,7 @@
 # the shared files AND restores the desktop footer so we never ship a broken
 # desktop build again (the v1.1.0 regression).
 set -e
-EXT="${SUBSPER_EXT:-/Users/mert/Library/Application Support/Adobe/CEP/extensions/com.whisper.studio}"
+EXT="${SUBSPER_EXT:-$HOME/Library/Application Support/Adobe/CEP/extensions/com.whisper.studio}"
 DESK="$(cd "$(dirname "$0")/.." && pwd)"
 
 for f in js/main.js js/whispercpp.js js/features-v2.js js/ui-v2.js \

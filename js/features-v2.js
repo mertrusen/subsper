@@ -2200,33 +2200,175 @@ ${_plainTranscript()}`);
 
     /* ═══ Faz D — licensing · stock B-roll · batch ═════════════════════ */
 
-    // #D1 license + 7-day trial. Everything stays invisible while main.js's
-    // LICENSING_ENABLED is false, so nothing changes until we actually sell.
-    const TRIAL_DAYS = 7;
-    const LICENSING = (typeof LICENSING_ENABLED !== "undefined") && LICENSING_ENABLED === true;
-    function trialStart() {
-        let s = +(localStorage.getItem("ws_trial_start") || 0);
-        if (!s || s > Date.now()) { s = Date.now(); localStorage.setItem("ws_trial_start", String(s)); }
-        return s;
+    // #D1 licence + trial.
+    //
+    // The previous version was decorative: the trial start sat in
+    // localStorage (clear it, trial resets) and activation wrote
+    // {ok:true} to localStorage (type that in by hand, you are licensed).
+    // Neither survives thirty seconds of DevTools, which is where every
+    // buyer's copy of this app runs.
+    //
+    // What this version does instead:
+    //   · the server signs an activation token; the client only ever trusts a
+    //     valid Ed25519 signature, so a forged localStorage entry is inert
+    //   · the token is bound to a device fingerprint, so it cannot be pasted
+    //     between machines
+    //   · the trial anchor is stored in two places and the EARLIEST wins, and
+    //     a clock rolled backwards is detected
+    //
+    // None of this makes the app uncrackable — nothing client-side does. It
+    // raises the cost from "edit one string" to "patch and re-sign the app",
+    // which is the honest goal.
+    const LIC = {
+        // Flip to true when you actually start selling. Until then everything
+        // below is inert and the UI stays hidden.
+        enabled:       false,
+        trialDays:     7,
+        // ▶ Fill these in before enabling. See docs/LICENSING.md.
+        productId:     "",
+        activationUrl: "",
+        // ▶ Ed25519 PUBLIC key, PEM. The matching PRIVATE key lives on your
+        //   server and must never ship. An empty value means no token can ever
+        //   verify — deliberately fail-closed rather than fail-open.
+        publicKeyPem:  "",
+    };
+
+    function nodeReq(m) {
+        try {
+            const r = (typeof _req === "function") ? _req
+                    : (window.require || (window.cep_node && window.cep_node.require));
+            return r ? r(m) : null;
+        } catch (e) { return null; }
     }
-    function savedLicense() {
-        try { return JSON.parse(localStorage.getItem("ws_license") || "null"); } catch (e) { return null; }
+
+    /* Stable-per-machine, not personally identifying: a hash of coarse
+     * hardware and OS facts. Survives reinstalls, changes if the user moves to
+     * a different computer — which is exactly the seat boundary we sell. */
+    function deviceId() {
+        try {
+            const os = nodeReq("os"), crypto = nodeReq("crypto");
+            if (!os || !crypto) return "unknown";
+            const cpus = os.cpus() || [];
+            const raw = [
+                os.platform(), os.arch(), os.hostname(),
+                (cpus[0] && cpus[0].model) || "", String(cpus.length),
+                String(os.totalmem()),
+            ].join("|");
+            return crypto.createHash("sha256").update(raw).digest("hex").slice(0, 24);
+        } catch (e) { return "unknown"; }
     }
+
+    function licDir() {
+        const os = nodeReq("os"), path = nodeReq("path");
+        if (!os || !path) return null;
+        const base = process.platform === "win32"
+            ? (process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"))
+            : process.platform === "darwin"
+                ? path.join(os.homedir(), "Library", "Application Support")
+                : (process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"));
+        return path.join(base, "Subsper");
+    }
+
+    function licFile(name) {
+        const fs = nodeReq("fs"), path = nodeReq("path"), dir = licDir();
+        if (!fs || !path || !dir) return null;
+        try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
+        return path.join(dir, name);
+    }
+
+    function readJson(file) {
+        const fs = nodeReq("fs");
+        if (!fs || !file) return null;
+        try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { return null; }
+    }
+    function writeJson(file, obj) {
+        const fs = nodeReq("fs");
+        if (!fs || !file) return;
+        try { fs.writeFileSync(file, JSON.stringify(obj), "utf8"); } catch (e) {}
+    }
+
+    /* Trial anchor. Kept in the app-data folder AND in localStorage, and the
+     * earliest of the two wins — clearing browser storage alone no longer
+     * buys another seven days. `seen` moves forward monotonically so winding
+     * the system clock back is detectable. */
+    function trialInfo() {
+        const file = licFile("trial.json");
+        const disk = readJson(file) || {};
+        const ls   = +(localStorage.getItem("ws_trial_start") || 0);
+        const now  = Date.now();
+
+        let start = Math.min(disk.start || Infinity, ls || Infinity);
+        if (!isFinite(start) || start <= 0 || start > now) start = now;
+
+        const seen = Math.max(disk.seen || 0, start);
+        const rolledBack = now < seen - 86400000;   // a day of tolerance for DST/NTP
+
+        writeJson(file, { start, seen: Math.max(seen, now) });
+        try { localStorage.setItem("ws_trial_start", String(start)); } catch (e) {}
+
+        // Treat a rolled-back clock as "the trial has run out" rather than
+        // silently handing back days.
+        const used = rolledBack ? LIC.trialDays
+                                : Math.floor((now - start) / 86400000);
+        return { start, daysLeft: Math.max(0, LIC.trialDays - used), rolledBack };
+    }
+
+    /* An activation token is  base64url(payload) "." base64url(signature).
+     * Only a signature that verifies against the embedded public key is
+     * accepted, so nothing a user can type into storage will ever pass. */
+    function verifyActivation(token) {
+        if (!token || !LIC.publicKeyPem) return null;
+        const crypto = nodeReq("crypto");
+        if (!crypto) return null;
+        try {
+            const [b64, sig] = String(token).split(".");
+            if (!b64 || !sig) return null;
+            const key = crypto.createPublicKey({ key: LIC.publicKeyPem, format: "pem" });
+            const ok = crypto.verify(null, Buffer.from(b64),
+                                     key, Buffer.from(sig, "base64url"));
+            if (!ok) return null;
+            const p = JSON.parse(Buffer.from(b64, "base64url").toString("utf8"));
+            if (p.product && LIC.productId && p.product !== LIC.productId) return null;
+            if (p.device && p.device !== deviceId()) return null;      // seat-bound
+            if (p.exp && Date.now() > p.exp) return null;              // expired
+            return p;
+        } catch (e) { return null; }
+    }
+
+    function savedToken() {
+        const disk = readJson(licFile("license.json"));
+        if (disk && disk.token) return disk.token;
+        try { return (JSON.parse(localStorage.getItem("ws_license") || "null") || {}).token || null; }
+        catch (e) { return null; }
+    }
+
     function licenseState() {
-        const lic = savedLicense();
-        if (lic && lic.key && lic.ok) return { status: "licensed", key: lic.key, daysLeft: null };
-        const used = Math.floor((Date.now() - trialStart()) / 86400000);
-        const daysLeft = Math.max(0, TRIAL_DAYS - used);
-        return { status: daysLeft > 0 ? "trial" : "expired", key: null, daysLeft };
+        const claims = verifyActivation(savedToken());
+        if (claims) {
+            return { status: "licensed", key: claims.key || null,
+                     plan: claims.plan || "", daysLeft: null };
+        }
+        const t = trialInfo();
+        return { status: t.daysLeft > 0 ? "trial" : "expired",
+                 key: null, daysLeft: t.daysLeft, rolledBack: t.rolledBack };
     }
-    window.__licenseState = licenseState; // unit-test hook
-    // Blocks the heavy actions once the trial is over (no-op until we sell)
+    window.__licenseState = licenseState;    // unit-test hook
+
+    const LICENSING = LIC.enabled === true;
+    // ui-v2.js reads this for the home-screen badge. One toggle, one place
+    // — main.js used to carry a second `LICENSING_ENABLED` that could
+    // disagree with this one.
+    window.__licensingEnabled = LICENSING;
+
     function licenseGate() {
         if (!LICENSING) return true;
         const st = licenseState();
         if (st.status !== "expired") return true;
-        showToast(L("Deneme süresi doldu — Ayarlar'dan lisans anahtarını gir",
-                    "Trial has ended — enter your license key in Settings"), "warning", 6000);
+        showToast(st.rolledBack
+            ? L("Sistem saati geri alınmış görünüyor — lisans anahtarını Ayarlar'dan gir",
+                "The system clock appears to have been set back — enter your licence key in Settings")
+            : L("Deneme süresi doldu — Ayarlar'dan lisans anahtarını gir",
+                "Trial has ended — enter your licence key in Settings"), "warning", 6000);
         return false;
     }
     window.__licenseGate = licenseGate;
@@ -2234,22 +2376,42 @@ ${_plainTranscript()}`);
     async function activateLicense(key) {
         key = String(key || "").trim();
         if (!key) { showToast(L("Anahtar boş", "Key is empty"), "info"); return; }
+        if (!LIC.activationUrl || !LIC.publicKeyPem) {
+            showToast(L("Lisans sunucusu yapılandırılmamış (docs/LICENSING.md)",
+                        "Licence server is not configured (docs/LICENSING.md)"), "error", 6000);
+            return;
+        }
         const btn = $id("lic-activate"); if (btn) btn.disabled = true;
         try {
-            let r = null;
-            if (typeof verifyLicenseKey === "function") r = await verifyLicenseKey(key);
-            const ok = !!(r && r.success);
-            localStorage.setItem("ws_license", JSON.stringify({
-                key, ok, at: Date.now(), email: (r && r.purchase && r.purchase.email) || "",
-            }));
+            const res = await fetch(LIC.activationUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ key, product: LIC.productId, device: deviceId() }),
+            });
+            const body = await res.json().catch(() => ({}));
+            const claims = verifyActivation(body && body.token);
+
+            if (!claims) {
+                // Covers a wrong key, a seat limit already reached, and a
+                // tampered or unsigned response — all the same to the user.
+                showToast(body && body.error
+                    ? String(body.error)
+                    : L("Anahtar doğrulanamadı — kontrol edip tekrar dene",
+                        "Key could not be verified — check it and try again"), "error", 6000);
+                return;
+            }
+            const record = { token: body.token, at: Date.now(), key };
+            writeJson(licFile("license.json"), record);
+            try { localStorage.setItem("ws_license", JSON.stringify(record)); } catch (e) {}
             renderLicense();
-            showToast(ok ? L("✓ Lisans etkinleştirildi — teşekkürler!", "✓ License activated — thank you!")
-                         : L("Anahtar doğrulanamadı — kontrol edip tekrar dene", "Key could not be verified — check it and retry"),
-                      ok ? "success" : "error", 5000);
+            showToast(L("✓ Lisans etkinleştirildi — teşekkürler!",
+                        "✓ Licence activated — thank you!"), "success", 5000);
         } catch (e) {
-            showToast(L("Doğrulama başarısız (internet?): ", "Verification failed (offline?): ") + e.message, "error", 5000);
+            showToast(L("Doğrulama başarısız (internet?): ",
+                        "Verification failed (offline?): ") + e.message, "error", 5000);
         } finally { if (btn) btn.disabled = false; }
     }
+
     function renderLicense() {
         const box = $id("lic-state"); if (!box) return;
         const st = licenseState();
@@ -2263,24 +2425,75 @@ ${_plainTranscript()}`);
                         : st.status === "expired" ? "var(--red, #c4726a)" : "var(--text2)";
         const inp = $id("lic-key");
         if (inp && st.key && !inp.value) inp.value = st.key;
+        const dev = $id("lic-device");
+        if (dev) dev.textContent = L("Cihaz kimliği: ", "Device ID: ") + deviceId();
     }
+
     function injectLicense() {
         if (!LICENSING) return;                 // hidden until we sell
         const sc = document.querySelector("#panel-su-main .setup-scroll");
         if (!sc || $id("lic-key")) return;
         const d = document.createElement("div");
         d.innerHTML = `
-          <div class="setup-section-title" style="margin-top:16px">${L("Lisans", "License")}</div>
+          <div class="setup-section-title" style="margin-top:16px">${L("Lisans", "Licence")}</div>
           <div class="setting-item" style="padding-top:12px; padding-bottom:12px">
             <div id="lic-state" class="setting-name" style="margin-bottom:8px"></div>
             <input type="text" id="lic-key" class="settings-textarea" style="height:32px; font-size:13px; padding:0 8px"
                    placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX">
             <button class="btn-transcribe btn-compact" id="lic-activate" style="margin-top:8px">${L("Etkinleştir", "Activate")}</button>
             <div class="setting-hint" style="margin-top:6px">${L("Satın alma e-postandaki anahtarı yapıştır. Doğrulama tek seferlik ve internet ister; sonrasında çevrimdışı çalışır.", "Paste the key from your purchase email. Verification is one-time and needs internet; everything works offline afterwards.")}</div>
+            <div class="setting-hint" id="lic-device" style="margin-top:4px;opacity:.6;font-size:10px"></div>
           </div>`;
         sc.appendChild(d);
         $id("lic-activate").onclick = () => activateLicense(($id("lic-key") || {}).value);
         renderLicense();
+    }
+
+    /* Named settings profiles. An editor juggling several clients otherwise
+     * re-dials the same style, reading speed and word lists on every job.
+     * Injected next to Licence in Settings; the storage and the snapshot rules
+     * live in main.js (PROFILE_KEYS). */
+    function injectProfiles() {
+        const sc = document.querySelector("#panel-su-main .setup-scroll");
+        if (!sc || $id("prof-name")) return;
+        const d = document.createElement("div");
+        d.innerHTML = `
+          <div class="setup-section-title" style="margin-top:16px">${t("prof_title")}</div>
+          <div class="setting-item" style="padding-top:12px; padding-bottom:12px">
+            <select id="prof-list" class="settings-textarea" style="height:32px; font-size:13px; padding:0 6px"></select>
+            <div style="display:flex; gap:6px; margin-top:8px">
+              <input type="text" id="prof-name" class="settings-textarea"
+                     style="flex:1; height:32px; font-size:13px; padding:0 8px"
+                     placeholder="${escHtml(t("prof_name_ph"))}">
+              <button class="btn-transcribe btn-compact" id="prof-save">${t("prof_save")}</button>
+              <button class="btn-secondary btn-compact" id="prof-del">${t("prof_delete")}</button>
+            </div>
+            <div class="setting-hint" style="margin-top:6px">${t("prof_hint")}</div>
+          </div>`;
+        sc.appendChild(d);
+
+        const refresh = (keep) => {
+            const sel = $id("prof-list"); if (!sel) return;
+            const names = Object.keys(listProfiles()).sort();
+            sel.innerHTML = names.length
+                ? names.map(n => `<option value="${escHtml(n)}">${escHtml(n)}</option>`).join("")
+                : `<option value="">${escHtml(t("prof_none"))}</option>`;
+            if (keep && names.indexOf(keep) !== -1) sel.value = keep;
+        };
+        refresh();
+
+        // Selecting a profile applies it straight away — a two-step
+        // "choose then press Load" is friction for the one thing this is for.
+        $id("prof-list").onchange = (e) => { if (e.target.value) loadProfile(e.target.value); };
+        $id("prof-save").onclick = () => {
+            const inp = $id("prof-name");
+            const name = (inp && inp.value) || ($id("prof-list") || {}).value || "";
+            if (saveProfile(name)) { if (inp) inp.value = ""; refresh(String(name).trim()); }
+        };
+        $id("prof-del").onclick = () => {
+            const sel = $id("prof-list");
+            if (sel && sel.value && deleteProfile(sel.value)) refresh();
+        };
     }
 
     // #D2 stock B-roll (Pexels) — strictly opt-in: needs a free API key and is
@@ -2435,11 +2648,12 @@ ${_plainTranscript()}`);
     }
 
     function fazD() {
-        gateActions();
-        injectLicense();
-        injectPexelsKey();
-        injectStockBroll();
-        injectBatch();
+        step("gateActions", gateActions);
+        step("injectLicence", injectLicense);
+        step("injectProfiles", injectProfiles);
+        step("injectPexelsKey", injectPexelsKey);
+        step("injectStockBroll", injectStockBroll);
+        step("injectBatch", injectBatch);
     }
 
     function fazA() {
@@ -2453,8 +2667,25 @@ ${_plainTranscript()}`);
         injectErrorCopy();
     }
 
+    /* Run each init step in its own try/catch.
+     *
+     * These used to share one: `try { injectAll(); fazA(); … } catch`. So the
+     * first step that threw took every later one down with it — one missing
+     * DOM node and five unrelated features quietly stopped existing, with
+     * nothing on screen to say so. The name is logged, so a failure points at
+     * the step instead of at a stack somewhere in the chain. */
+    function step(name, fn) {
+        try { fn(); }
+        catch (e) { console.error("[Subsper] init step '" + name + "' failed:", e); }
+    }
+
     setTimeout(() => {
-        try { injectAll(); fazA(); fazB(); fazC(); fazD(); injectListMirrors(); subPosPro(); }
-        catch (e) { console.error("[Subsper] features-v2 init:", e); }
+        step("injectAll", injectAll);
+        step("fazA", fazA);
+        step("fazB", fazB);
+        step("fazC", fazC);
+        step("fazD", fazD);
+        step("injectListMirrors", injectListMirrors);
+        step("subPosPro", subPosPro);
     }, 40);
 })();

@@ -246,12 +246,16 @@
         const badge = $("home-badge-text");
         if (badge) {
             // licence/trial state replaces the "free" badge once selling starts
-            let txt = L("%100 çevrimdışı · ücretsiz", "100% offline · free");
+            // "Çevrimdışı transkripsiyon", not "%100 çevrimdışı": the AI
+            // features, stock B-roll and the update check do use the network.
+            // An absolute claim on the home screen of a paid product is a
+            // claim someone can hold you to — see PRIVACY.md.
+            let txt = L("Çevrimdışı transkripsiyon", "Offline transcription");
             try {
-                if (typeof LICENSING_ENABLED !== "undefined" && LICENSING_ENABLED && window.__licenseState) {
+                if (window.__licensingEnabled && window.__licenseState) {
                     const st = window.__licenseState();
-                    txt = st.status === "licensed" ? L("%100 çevrimdışı · lisanslı", "100% offline · licensed")
-                        : st.status === "trial" ? L(`%100 çevrimdışı · deneme ${st.daysLeft} gün`, `100% offline · trial ${st.daysLeft}d`)
+                    txt = st.status === "licensed" ? L("Çevrimdışı transkripsiyon · lisanslı", "Offline transcription · licensed")
+                        : st.status === "trial" ? L(`Çevrimdışı transkripsiyon · deneme ${st.daysLeft} gün`, `Offline transcription · trial ${st.daysLeft}d`)
                         : L("Deneme bitti · Ayarlar'dan lisansla", "Trial ended · license in Settings");
                 }
             } catch (e) {}
@@ -259,6 +263,11 @@
         }
         const foot = $("home-foot");
         if (foot) foot.textContent = "Subsper v" + (typeof APP_VERSION !== "undefined" ? APP_VERSION : "") + " · zipheron";
+        // The header version used to be hardcoded in index.html and had drifted
+        // to v1.2.0 while the app shipped as 1.3.0. Fill it from the one source
+        // of truth so it cannot drift again.
+        const ver = document.querySelector(".brand-version");
+        if (ver && typeof APP_VERSION !== "undefined") ver.textContent = "v" + APP_VERSION;
         document.querySelectorAll(".ui2-adv > summary").forEach(s => { s.textContent = L("Ayarlar", "Settings"); });
         const key = document.body.getAttribute("data-ui2page");
         if (key && TOOLS[key]) { const ti = $("page-title"); if (ti) ti.textContent = TOOLS[key].name(); }

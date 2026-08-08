@@ -1,7 +1,11 @@
 # Subsper — Premiere Pro Extension
 
 By **zipheron**. Local AI subtitles, audio cleanup, silence cutting & auto-zoom for
-**Adobe Premiere Pro**. 100% offline & free. EN / TR interface.
+**Adobe Premiere Pro**. EN / TR interface.
+
+Transcription and editing run entirely on your machine. The optional AI features
+(grammar, translation, tags) send your **subtitle text** to whichever provider
+you configure with your own API key — see [PRIVACY.md](../PRIVACY.md).
 
 > Prefer a standalone app (CapCut / no Premiere)? Get **Subsper Desktop**:
 > https://github.com/mertrusen/subsper/releases (Windows `.exe` + macOS `.dmg`).
@@ -15,6 +19,7 @@ By **zipheron**. Local AI subtitles, audio cleanup, silence cutting & auto-zoom 
 - ⬇ Export SRT / VTT / ASS / TXT, send captions to the timeline (caption track or
   styled MOGRT graphics)
 - 🌍 English / Turkish UI + hover tooltips
+- 🔤 **Spelling & punctuation** — offline, rule-based, Turkish-aware (no AI, no network)
 - ⭐ **Pro (optional):** speaker labels (WhisperX) — needs Python + a free HuggingFace token
 
 ## The engine (no terminal)

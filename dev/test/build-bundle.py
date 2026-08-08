@@ -160,10 +160,21 @@ def extract(src: str, name: str) -> str:
     if cn:
         rest = src[cn.end()]
         if rest in "{[":
-            return src[cn.start():match_delimiter(src, cn.end())] + ";"
+            chunk = src[cn.start():match_delimiter(src, cn.end())] + ";"
+            _assert_no_overread(chunk, name)
+            return chunk
         # Scalar or arrow function: runs to the end of its statement.
-        end = src.index(";\n", cn.end())
-        return src[cn.start():end + 1]
+        # NOT `index(";\n")` — a trailing comment puts text between the
+        # semicolon and the newline (`let x = null;   // { a, b }`), so that
+        # search skips to some later statement and swallows everything in
+        # between, unbalanced braces and all. Match the semicolon that ends
+        # the line, comment or no comment.
+        m = re.compile(r";(?=[ \t]*(?://[^\n]*)?\r?\n)").search(src, cn.end())
+        if not m:
+            raise SystemExit(f"could not find the end of declaration {name!r}")
+        chunk = src[cn.start():m.end()]
+        _assert_no_overread(chunk, name)
+        return chunk
 
     raise SystemExit(f"symbol not found in main.js: {name}  (renamed? then update WANTED)")
 

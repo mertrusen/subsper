@@ -156,6 +156,7 @@ const I18N = {
     btn_play: "Play", btn_pause: "Pause",
     btn_enhance: "Enhance Audio — denoise + normalize",
     empty_p: "Click Transcribe to subtitle your whole timeline — or set In/Out (I/O) first for just a range.",
+    src_none: "No sequence open", src_whole: "%s of speech", src_range: "%s selected (In/Out)",
     empty_hint: "Click a word to split there · double-click text to edit.",
     // find / replace
     find_ph: "Find…", replace_ph: "Replace with… (optional)",
@@ -348,6 +349,7 @@ const I18N = {
     btn_play: "Oynat", btn_pause: "Duraklat",
     btn_enhance: "Sesi İyileştir — gürültü azalt + dengele",
     empty_p: "Transcribe'a bas — tüm timeline yazıya dökülür. Sadece bir aralık istersen önce In/Out (I/O) koy.",
+    src_none: "Açık sekans yok", src_whole: "%s konuşma", src_range: "%s seçili (In/Out)",
     empty_hint: "Bölmek için kelimeye tıkla (o kelime alttaki satırın başı olur) · düzenlemek için metne çift tıkla.",
     find_ph: "Ara…", replace_ph: "Şununla değiştir… (opsiyonel)",
     btn_close: "Kapat", btn_replaceall: "Tümünü Değiştir", btn_cancel: "İptal",
@@ -2888,11 +2890,19 @@ function handleError(rawErr) {
  */
 function renderSegments() {
     if (segments.length === 0) {
+        // Lead with what is there, not with an instruction. "Sequence 01 ·
+        // 4:12 of speech" tells the user what the button will act on; "press
+        // Transcribe" tells them nothing they had not already worked out.
+        const src = sourceInfo
+            ? `<p class="empty-src${sourceInfo.warn ? " warn" : ""}">
+                 <strong>${escHtml(sourceInfo.label)}</strong>${sourceInfo.detail ? " · " + escHtml(sourceInfo.detail) : ""}
+               </p>`
+            : "";
         segmentsWrap.innerHTML = `
           <div class="empty-state">
             <div class="icon">${icon("captions")}</div>
+            ${src}
             <p>${escHtml(t("empty_p"))}</p>
-            <p class="hint">${escHtml(t("empty_hint"))}</p>
           </div>`;
         return;
     }
@@ -2985,6 +2995,44 @@ function bindSegmentDelegation() {
     });
 }
 
+/* What will happen if the user presses Transcribe?
+ *
+ * The empty state used to say "Click Transcribe to subtitle your whole
+ * timeline" — an instruction, not information. It could not tell you whether
+ * there IS a timeline, how long it is, or whether an In/Out range is set, so
+ * the first press was always a guess. This caches a cheap probe so the empty
+ * state can answer that before anything is committed.
+ *
+ * Deliberately best-effort: a failed probe leaves the generic wording in place
+ * rather than showing an error for something the user did not ask for. */
+let sourceInfo = null;          // { label, detail } | null
+
+async function probeSource() {
+    if (IS_DESKTOP_APP) return;                 // desktop opens files, not sequences
+    try {
+        const r = await evalScript("getSequenceInfo()");
+        if (!r || !r.success) {
+            sourceInfo = { label: (r && r.error) || t("src_none"), detail: "", warn: true };
+        } else {
+            const span = Math.max(0, (r.outTime || 0) - (r.inTime || 0));
+            sourceInfo = {
+                label: r.name || "Sequence",
+                detail: r.wholeSequence
+                    ? t("src_whole").replace("%s", formatClock(span))
+                    : t("src_range").replace("%s", formatClock(span)),
+            };
+        }
+    } catch (e) { sourceInfo = null; }
+    if (!segments.length) renderSegments();     // repaint the empty state in place
+}
+
+/* mm:ss for humans — formatTime() is SRT format and reads as machinery here. */
+function formatClock(secs) {
+    secs = Math.max(0, Math.round(secs || 0));
+    const m = Math.floor(secs / 60), s = secs % 60;
+    return m + ":" + String(s).padStart(2, "0");
+}
+
 function escHtml(s) {
     return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
@@ -3025,8 +3073,16 @@ function selectSegment(idx) {
     }
 }
 
+/* Play is meaningless before there is a transcript, and it sits in the most
+ * crowded strip of a small panel. Hide it until it can do something. */
+function syncControlVisibility() {
+    const pp = $("playpause-btn");
+    if (pp) pp.style.display = segments.length ? "" : "none";
+}
+
 function updateSegCount() {
     if (segCountEl) segCountEl.textContent = `${segments.length} segment${segments.length !== 1 ? "s" : ""}`;
+    syncControlVisibility();
 }
 
 function editSegment(idx) {
@@ -4420,6 +4476,11 @@ setTimeout(function initFeaturePack() {
 
             maybeShowOnboarding();
             checkForUpdates();
+            // Tell the empty state what it is looking at, and refresh it when
+            // the panel comes back into focus — the user may have opened a
+            // different sequence or set In/Out while they were away.
+            probeSource();
+            window.addEventListener("focus", () => { if (!segments.length) probeSource(); });
         });
 
         } catch (e) { console.error("[Subsper] feature pack init failed:", e); }

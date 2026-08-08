@@ -9,6 +9,63 @@
   <link rel="stylesheet" href="css/panel.css">
 </head>
 <body class="ui2-home">
+  <!-- Boot guard.
+       If main.js throws while loading — a missing Node integration, a CEP
+       misconfiguration, a syntax error shipped by mistake — every later script
+       is skipped and the panel renders as an empty grey rectangle with nothing
+       to explain it. The user sees a broken product and has nothing to report.
+       This runs first, watches for that, and puts a readable page in its place. -->
+  <script>
+    (function () {
+      var firstError = null;
+      window.addEventListener("error", function (e) {
+        if (!firstError) firstError = (e && e.message) || "unknown error";
+      }, true);
+
+      function bootFailed(detail) {
+        if (document.getElementById("boot-error")) return;
+        var d = document.createElement("div");
+        d.id = "boot-error";
+        d.setAttribute("role", "alert");
+        d.style.cssText = "position:fixed;inset:0;z-index:99999;overflow:auto;padding:22px;" +
+          "background:#15191c;color:#e8eef1;font:13px/1.6 system-ui,-apple-system,sans-serif";
+        d.innerHTML =
+          '<div style="max-width:38ch;margin:0 auto;padding-top:8vh">' +
+          '<div style="font-size:16px;font-weight:700;margin-bottom:8px">Subsper başlatılamadı</div>' +
+          '<div style="color:#8ea0aa;margin-bottom:16px">Panel açıldı ama uygulama yüklenemedi. ' +
+          'Altyazıların ve projelerin etkilenmedi — hepsi diskte duruyor.</div>' +
+          '<div style="font-weight:600;margin-bottom:6px">Sırayla dene</div>' +
+          '<ol style="margin:0 0 16px;padding-left:20px;color:#8ea0aa">' +
+          '<li>Paneli kapat, yeniden aç</li>' +
+          '<li>Premiere\'i yeniden başlat</li>' +
+          '<li>Eklentiyi yeniden kur</li></ol>' +
+          '<div style="font-weight:600;margin-bottom:6px">Destek için bu satır</div>' +
+          '<code id="boot-detail" style="display:block;background:#0f1316;border:1px solid #2a333a;' +
+          'border-radius:7px;padding:9px 11px;color:#c9d6dd;font-size:11.5px;word-break:break-word"></code>' +
+          '<button id="boot-copy" style="margin-top:12px;background:#3b8fe0;color:#fff;border:0;' +
+          'border-radius:7px;padding:9px 15px;font:600 12.5px system-ui;cursor:pointer">Kopyala</button>' +
+          '</div>';
+        document.body.appendChild(d);
+        var line = "Subsper boot failed · " + detail + " · " + navigator.userAgent;
+        document.getElementById("boot-detail").textContent = line;
+        document.getElementById("boot-copy").onclick = function () {
+          var ta = document.createElement("textarea");
+          ta.value = line; document.body.appendChild(ta); ta.select();
+          try { document.execCommand("copy"); } catch (e) {}
+          ta.remove(); this.textContent = "Kopyalandı";
+        };
+      }
+
+      // main.js defines these at top level. If they are still missing well
+      // after load, it did not run — whatever the reason.
+      setTimeout(function () {
+        var alive = typeof window.startTranscription === "function" ||
+                    typeof window.renderSegments === "function";
+        if (!alive) bootFailed(firstError || "main.js did not initialise");
+      }, 4000);
+    })();
+  </script>
+
 
   <!-- Header -->
   <div class="header">

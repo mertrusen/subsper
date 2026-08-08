@@ -31,6 +31,14 @@
 .panel,
 #home-screen       { min-height: 0; }
 
+/* ── Empty state ─────────────────────────────────────────────────────────
+   The source line is the one thing worth reading before the first press, so
+   it gets the emphasis and the instruction below it goes quiet. */
+.empty-state .empty-src        { font-size: 13px; color: var(--text); margin: 0; }
+.empty-state .empty-src strong { font-weight: 650; }
+.empty-state .empty-src.warn   { color: var(--yellow, #d9a75e); }
+.empty-state p                 { margin: 0; }
+
 /* ── Controls ────────────────────────────────────────────────────────────
    These were inline-styled in the markup (`style="display:flex…"`,
    `style="width:100%"`), which meant no stylesheet could adapt them without

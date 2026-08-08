@@ -34,8 +34,9 @@ WANTED = [
     "escRe", "WORD_CHARS", "wordRe", "upperIn", "matchCase",
     "p2", "p3", "formatTime", "escHtml", "highlightMatches",
     "splitPoint", "cutSegment", "splitSegmentHalf", "splitAtWord",
+    "sourceInfo", "formatClock",
     "renderSegments", "_segDelegationBound", "bindSegmentDelegation", "selectSegment",
-    "deleteSegment", "editSegment", "updateSegCount",
+    "deleteSegment", "editSegment", "syncControlVisibility", "updateSegCount",
 ]
 
 STUBS = """
@@ -172,6 +173,42 @@ for (var i = 0; i < 5; i++) renderSegments();
 els = segmentsWrap.querySelectorAll(".segment");
 click(els[0].querySelector(".seg-index"));
 eq("still exactly one handler after five rebuilds", calls, ["seek:0"]);
+
+group("empty state");
+// Nothing here runs while a transcript exists, which is why it went untested
+// and why a change to it can break unnoticed.
+segments = [];
+sourceInfo = null;
+renderSegments();
+ok("shows an empty state", !!segmentsWrap.querySelector(".empty-state"));
+ok("no segments rendered", segmentsWrap.querySelectorAll(".segment").length === 0);
+ok("no source line before the probe answers", !segmentsWrap.querySelector(".empty-src"));
+
+sourceInfo = { label: "Sequence 01", detail: "4:12 konuşma" };
+renderSegments();
+var srcEl = segmentsWrap.querySelector(".empty-src");
+ok("source line appears once known", !!srcEl);
+ok("names the sequence", srcEl && srcEl.textContent.indexOf("Sequence 01") !== -1);
+ok("says how much speech", srcEl && srcEl.textContent.indexOf("4:12") !== -1);
+
+sourceInfo = { label: "Açık sekans yok", detail: "", warn: true };
+renderSegments();
+ok("a missing sequence is flagged, not silent",
+   segmentsWrap.querySelector(".empty-src.warn") !== null);
+
+// The label comes from Premiere and is not ours to trust.
+sourceInfo = { label: '<img src=x onerror="window.__XSS__=1">', detail: "" };
+renderSegments();
+// escHtml turns the tags into text, so "onerror=" still appears in innerHTML
+// as escaped characters — searching for that string reports a break that is
+// not there. What matters is that no element was created and nothing ran.
+ok("sequence name is escaped, not executed",
+   !window.__XSS__ && segmentsWrap.querySelector("img") === null);
+ok("and it is still shown to the user as text",
+   (segmentsWrap.querySelector(".empty-src") || {}).textContent.indexOf("<img") !== -1);
+
+eq("mm:ss for humans", [formatClock(0), formatClock(9), formatClock(252), formatClock(3661)],
+   ["0:00", "0:09", "4:12", "61:01"]);
 
 group("scale");
 segments = [];

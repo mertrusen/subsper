@@ -63,6 +63,25 @@
                      name: () => L("AI Araçları", "AI Tools"),
                      desc: () => L("Özet, çeviri, dilbilgisi ve içerik fikirleri", "Summary, translation, grammar and content ideas"),
                      open: () => { const p = $("ai-panel"); if (p && p.style.display === "none" && typeof toggleAiPanel === "function") toggleAiPanel(); } },
+        /* Batch used to be a card stapled onto the Subtitles page, where it sat
+           on every session whether or not anyone wanted it and ate ~140px of a
+           panel that has none to spare. It is a separate job — many sequences,
+           unattended, SRT to disk — so it gets its own page.
+
+           The two products reach it differently: the extension walks the
+           project's sequences, the desktop app opens a file picker. Same card,
+           same name, two implementations; on desktop there is no page to show,
+           so it opens as an overlay action. */
+        batch:     DESK
+            ? { cat: "sub", group: "make", overlay: true, color: "#7fb1c9",
+                name: () => L("Toplu Transcribe", "Batch Transcribe"),
+                desc: () => L("Birden çok dosya seç; her birinin yanına SRT kaydedilir",
+                              "Pick several files; an SRT is saved next to each"),
+                open: () => { if (typeof window.batchTranscribe === "function") window.batchTranscribe(null); } }
+            : { cat: "sub", group: "make", tab: "transcribe", color: "#7fb1c9",
+                name: () => L("Toplu Transcribe", "Batch Transcribe"),
+                desc: () => L("Projedeki birden çok sekansı sırayla yazıya döker",
+                              "Transcribes several sequences of the project in a row") },
         silence:   { cat: "edit", group: "time", tab: "edit", view: "#silence-btn", color: "#c89a62",
                      name: () => L("Sessizlikleri Kes", "Cut Silences"),
                      desc: () => DESK ? L("Sessiz boşlukları bulur, kırpılmış bir kopya dışa aktarır", "Finds silent gaps; exports a trimmed copy")

@@ -2619,8 +2619,13 @@ ${_plainTranscript()}`);
         const sc = document.querySelector("#panel-tx-work .controls");
         if (!sc || $id("batch-scan")) return;
         const d = document.createElement("div");
+        /* Sibling of .controls, not a child of it. Inside .controls this card
+           rode along on the Subtitles page forever — applyView could never
+           hide it, because it is injected after applyView has already run.
+           As its own element with an id, CSS owns its visibility, and CSS has
+           no ordering problem: see the ui2page rules in ui-v2.css. */
+        d.id = "batch-card";
         d.className = "setting-item tool-card";
-        d.style.marginTop = "10px";
         d.innerHTML = `
           <div class="setting-row"><div class="setting-info">
             <div class="setting-name">${L("Toplu Transcribe (sekanslar)", "Batch Transcribe (sequences)")}</div>
@@ -2629,7 +2634,7 @@ ${_plainTranscript()}`);
           <button class="btn-load-srt" id="batch-scan" style="width:100%; margin-top:4px">${L("1 · Sekansları Tara", "1 · Scan Sequences")}</button>
           <div id="batch-list"></div>
           <button class="btn-transcribe btn-compact" id="batch-run" style="display:none; margin-top:8px">${L("2 · Toplu Başlat", "2 · Run Batch")}</button>`;
-        sc.appendChild(d);
+        sc.parentNode.insertBefore(d, sc.nextSibling);
         $id("batch-scan").onclick = () => batchScan().catch(e => showToast(e.message, "error", 4000));
         $id("batch-run").onclick = () => batchRun().catch(e => showToast(e.message, "error", 4000));
     }

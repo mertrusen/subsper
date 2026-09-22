@@ -1,17 +1,12 @@
 name: Build
 
-# Tests run on every push and PR; the expensive packaging jobs still only run
-# for tags and manual dispatch. Before this, nothing ran between releases —
-# which is how a split-at-last-word regression survived for months.
+# Build only when a release is explicitly requested by pushing a v* tag.
+# Run development checks locally; ordinary pushes and PRs consume no Actions time.
 on:
   push:
-    branches: [ main ]
     tags: [ 'v*' ]
-  pull_request:
-  workflow_dispatch:
 
-# A new run supersedes an in-progress one for the same ref (no piled-up builds),
-# but different branches and PRs no longer cancel each other.
+# Avoid duplicate builds of the same release tag.
 concurrency:
   group: build-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -44,6 +39,11 @@ jobs:
       # rather than a silent skip.
       - name: DOM harness (segment list interactions)
         run: REQUIRE_BROWSER=1 bash dev/test/dom-harness.sh
+      # Subtitles and Batch share one panel, so which page you are on is a CSS
+      # contract. It broke silently once already — the batch card was injected
+      # after applyView() had run, so nothing ever hid it.
+      - name: Page isolation (one page shows one tool)
+        run: REQUIRE_BROWSER=1 bash dev/test/page-isolation.sh
       - name: Feature-gate harness
         run: node dev/v2-harness.js
       - name: Desktop and extension copies stay in sync
@@ -76,7 +76,6 @@ jobs:
 
   windows:
     needs: [test, ffmpeg-smoke]
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -134,17 +133,9 @@ jobs:
             dist/latest.yml
           generate_release_notes: true
           fail_on_unmatched_files: true
-      - uses: actions/upload-artifact@v4
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        continue-on-error: true          # quota must never fail a build
-        with:
-          name: win-installer
-          path: dist/*.exe
-          retention-days: 1
 
   macos:
     needs: [windows]
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -194,12 +185,3 @@ jobs:
             dist/*.zxp
             dist/latest-mac.yml
           fail_on_unmatched_files: true
-      - uses: actions/upload-artifact@v4
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        continue-on-error: true
-        with:
-          name: mac-installer
-          path: |
-            dist/*.dmg
-            dist/*.zxp
-          retention-days: 1

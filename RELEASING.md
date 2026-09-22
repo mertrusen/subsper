@@ -1,5 +1,15 @@
 # Releasing Subsper
 
+## Release policy
+
+The source of truth is `~/Documents/subsper-new`, including `extension/`.
+Normal pushes and pull requests do not start Actions. Test locally while developing.
+Only push a new `v*` tag when a release is explicitly needed; the tag must match
+the app version. Tagging starts tests and Windows/macOS/Premiere packaging.
+Installers go directly to GitHub Releases, without Actions artifact uploads.
+Actions logs expire after seven days; engine caches avoid unnecessary rebuilds.
+Do not reset version numbers or reuse old tags: installed clients rely on them.
+
 ## macOS — signing & notarization (required before selling)
 
 macOS 26 (Tahoe) blocks ad-hoc-signed binaries. Without a Developer ID the
@@ -52,6 +62,16 @@ build has to ship first.
 `~/Documents` is iCloud-synced here, and iCloud strips `.app` bundle internals,
 which breaks `node_modules/electron`. Use `npm run dev:mac` (`dev/run.sh`) — it
 stages a working Electron outside iCloud and launches the repo with it.
+
+## Known release blockers (2026-09-22)
+
+- `node dev/v2-harness.js` reports six existing failures (tool visibility and
+  licensing expectations), also reproducible on the previous committed source.
+  Resolve these before tagging; keep the CI gate enabled.
+- Browser checks require Chrome/Chromium; it was unavailable on the local machine
+  during the workspace migration, so DOM and page-isolation checks remain unverified.
+- No repository Actions secrets were configured during the migration. Configure
+  the signing/notarization secrets required by the workflow before tagging.
 
 ## Checklist
 

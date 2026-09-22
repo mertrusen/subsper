@@ -84,15 +84,17 @@ Download `Subsper-x.x.x-mac-arm64.dmg` from **Releases**, drag to Applications, 
 The Windows `.exe` is **built automatically in the cloud by GitHub Actions** — you
 don't need a Windows PC.
 
-1. Push this folder to a GitHub repo (see below).
-2. Every push to `main` builds the installer and uploads it as an **artifact**
-   (Actions tab → latest run → Artifacts).
-3. To publish a downloadable **Release** your friend can grab:
-   ```
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
-   GitHub Actions builds and attaches `Subsper-Setup-1.0.0.exe` to a Release.
+1. Develop in `~/Documents/subsper-new`; the Premiere extension lives in `extension/`.
+2. Run the checks below locally. Normal pushes and pull requests do **not** run
+   GitHub Actions, build installers, or upload artifacts.
+3. Only when a release is needed, update the version fields together, commit and
+   push `main`, then push a matching version tag (for example `v1.3.1`). A `v*`
+   tag runs validation and packaging, and publishes installers directly to Releases.
+   Do not create a tag for routine development or reuse an existing release tag.
+
+There are no temporary installer artifacts. Actions logs are retained for seven
+days. Engine caches are reused to avoid repeated compilation. Existing releases
+remain available to users.
 
 Releases must be **signed** — an unsigned build greets every buyer with
 "Subsper is damaged" on macOS or a SmartScreen block on Windows. The tag build
@@ -139,8 +141,9 @@ The page asserts that nothing overlaps and nothing escapes its container, and
 not the same as looking: an earlier version reported sensible widths while a
 Play button with an inherited `flex: 1` sat on top of Transcribe.
 
-CI runs the suite, both audits, the DOM harness and the ffmpeg smoke test on
-every push and pull request. The packaging jobs do not start until they pass.
+Release CI runs the suite, both audits, browser checks and the ffmpeg smoke test
+when a version tag is pushed. Packaging does not start until they pass. Run the
+local checks above during everyday development.
 
 ---
 

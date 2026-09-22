@@ -677,6 +677,8 @@
   }
 
   // Batch transcribe: pick/drop multiple files → SRT saved next to each source.
+  // Exported because the home card in ui-v2.js opens it; assigned here rather
+  // than in the deferred injection block so it exists even if that block throws.
   let _batchRunning = false;
   async function batchTranscribe(paths) {
     if (_batchRunning) { showToast("Batch already running", "info", 2000); return; }
@@ -706,6 +708,7 @@
       showToast(`Batch: ${done} ok, ${failed} failed`, failed ? "warning" : "success", 6000);
     } finally { _batchRunning = false; showProgress(false); }
   }
+  window.batchTranscribe = batchTranscribe;
 
   // Filler cut on desktop = trim-export with filler ranges removed
   window.cutFillerWordsDesktop = function () {
@@ -1064,12 +1067,10 @@
           settings.uiLang === "tr" ? "Videoya göm (burn-in MP4)" : "Burn into video (MP4)",
           exportBurnedVideo, "Renders the styled subtitles INTO a new video file");
       }
-      // Batch → compact secondary-actions row
-      if (window.secondaryAdd) {
-        secondaryAdd(settings.uiLang === "tr" ? "📁 Toplu transcribe" : "📁 Batch transcribe",
-          () => batchTranscribe(null),
-          settings.uiLang === "tr" ? "Birden çok dosya seç; her birinin yanına .srt kaydedilir" : "Pick multiple files; an .srt is saved next to each");
-      }
+      // Batch is reached from its own home card now (ui-v2 TOOLS.batch), so the
+      // secondary-row button is gone: two entry points for one action is the
+      // clutter this redesign is removing. Drag-and-drop of several files still
+      // works, and the card calls straight through to batchTranscribe().
       // Edit tools: filler-cut card
       const edPanel = (document.querySelector("#panel-ed-work .setup-scroll") || document.getElementById("panel-ed-work"));
       if (edPanel) {

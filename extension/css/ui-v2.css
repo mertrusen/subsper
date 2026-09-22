@@ -15,6 +15,20 @@ body.ui2-home #page-bar { display: none !important; }
 #home-screen { display: none; }
 body.ui2-home #home-screen { display: flex; }
 
+/* ── Transcribe panel: two pages, one panel ───────────────────────
+   Subtitles and Batch both live in #panel-tx-work, so which one you are on
+   is decided here rather than in applyView(). applyView walks the DOM once,
+   when the page opens; the batch card is injected later than that and could
+   never be caught. CSS is declarative, so injection order stops mattering.
+
+   Batch is unattended: pick sequences, walk away, collect SRTs. The transcribe
+   controls and the live transcript belong to the other job and only add noise
+   to this one. */
+#batch-card { display: none; margin-top: 10px; }
+body[data-ui2page="batch"] #batch-card { display: block; }
+body[data-ui2page="batch"] #panel-tx-work .controls,
+body[data-ui2page="batch"] #panel-tx-work .work-right { display: none !important; }
+
 /* ── Page bar (‹ Back · Title · ⚙) ───────────────────────────────── */
 #page-bar {
   position: relative; display: flex; align-items: center; gap: 8px;

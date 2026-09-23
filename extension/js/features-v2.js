@@ -862,18 +862,21 @@ ${_plainTranscript()}`);
         updateStylePreview();
     }
     function chipPreviewSpan(s, small) {
+        const cssHex = v => /^[0-9a-fA-F]{6}$/.test(String(v || "")) ? v : "000000";
+        const font = /^[\p{L}\p{N}_ ,.-]{1,80}$/u.test(String(s.font || "")) ? s.font : "Arial";
+        const size = Math.max(8, Math.min(120, Number(s.size) || 54));
         const sh = [];
-        const ow = Math.max(1, Math.min(3, s.outlineW));
+        const ow = Math.max(1, Math.min(3, Number(s.outlineW) || 1));
         if (s.outlineW > 0 || s.glow) {
             const g = s.glow ? 5 : 0;
             for (const [dx, dy] of [[-ow, 0], [ow, 0], [0, -ow], [0, ow]])
-                sh.push(`${dx}px ${dy}px ${g}px #${s.outline}`);
+                sh.push(`${dx}px ${dy}px ${g}px #${cssHex(s.outline)}`);
         }
         if (s.shadow) sh.push(`2px 2px 3px rgba(0,0,0,.9)`);
-        const bg = s.box ? `background:#${s.boxColor}${Math.round(255 - s.boxAlpha).toString(16).padStart(2, "0")}; padding:2px 8px; border-radius:3px;` : "";
-        return `<span style="font-family:${s.font},sans-serif; font-size:${small ? 15 : 20}px; line-height:1.3;
+        const bg = s.box ? `background:#${cssHex(s.boxColor)}${Math.max(0, Math.min(255, Math.round(255 - (Number(s.boxAlpha) || 0)))).toString(16).padStart(2, "0")}; padding:2px 8px; border-radius:3px;` : "";
+        return `<span style="font-family:${font},sans-serif; font-size:${small ? 15 : size}px; line-height:1.3;
             font-weight:${s.bold ? 700 : 400}; font-style:${s.italic ? "italic" : "normal"};
-            color:#${s.primary}; ${bg} text-shadow:${sh.join(",") || "none"}">Örnek altyazı</span>`;
+            color:#${cssHex(s.primary)}; ${bg} text-shadow:${sh.join(",") || "none"}">Örnek altyazı</span>`;
     }
     function galleryItems() {
         return GALLERY.concat((settings.galleryMine || []).map(x => ({ name: x.name, s: x.s, mine: true })));
@@ -894,7 +897,7 @@ ${_plainTranscript()}`);
                 <button class="ui2-gal-chip" data-i="${i}">
                   ${g.mine ? `<span class="ui2-gal-del" data-i="${i}" title="${L("Sil", "Delete")}">✕</span>` : ""}
                   <span class="ui2-gal-prev">${chipPreviewSpan(g.s, true)}</span>
-                  <span class="ui2-gal-name">${g.mine ? "★ " : ""}${g.name}</span>
+                  <span class="ui2-gal-name">${g.mine ? "★ " : ""}${String(g.name).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")}</span>
                 </button>`).join("")}
             </div>
             <div class="ui2-gal-share">
@@ -1196,7 +1199,7 @@ ${_plainTranscript()}`);
             if (!info.success) throw new Error(info.error || "Error reading timeline");
             if (!info.clips || !info.clips.length) throw new Error(L("Timeline'da klip yok", "No clips on the timeline"));
             _mcInfo = info;
-            const labels = [...new Set(info.clips.map(c => c.track))];
+            const labels = [...new Set((info.allClips || info.clips).map(c => c.track))];
             const auds = labels.filter(l => /^a/i.test(String(l)));
             const vids = labels.filter(l => /^v/i.test(String(l)));
             if (auds.length < 2 || vids.length < 2)
@@ -1239,7 +1242,7 @@ ${_plainTranscript()}`);
             for (const spk of spks) {
                 n++;
                 setSilenceStatus(L(`Konuşmacı ${n}/${spks.length} sesi analiz ediliyor…`, `Analyzing speaker ${n}/${spks.length}…`), "info");
-                const clips = info.clips.filter(c => aMap[c.track] === spk);
+                const clips = (info.allClips || info.clips).filter(c => aMap[c.track] === spk);
                 if (!clips.length) continue;
                 const tmp = path.join(os.tmpdir(), `subsper_mc_${spk}_${Date.now()}.wav`);
                 await W.extractClipsToWav(extDir(), { clips, duration: info.duration }, tmp, { env: spawnEnv() });
@@ -2572,39 +2575,49 @@ ${_plainTranscript()}`);
 
     // #D3 batch transcribe across project sequences (desktop already batches
     // files in desktop-app.js; this is the Premiere-side equivalent)
+    let batchOriginalSequence = null;
     async function batchScan() {
         const wrap = $id("batch-list"); if (!wrap) return;
         wrap.innerHTML = `<div class="setting-hint">${L("Taranıyor…", "Scanning…")}</div>`;
         await loadHostJSX();
         const r = await evalScript("wsListSequences()");
         if (!(r && r.success)) { wrap.innerHTML = `<div class="setting-hint">${(r && r.error) || "?"}</div>`; return; }
+        batchOriginalSequence = (r.sequences || []).find(s => s.active)?.id || null;
         const seqs = (r.sequences || []).filter(s => s.clips > 0);
         if (!seqs.length) { wrap.innerHTML = `<div class="setting-hint">${L("Dolu sekans yok", "No non-empty sequences")}</div>`; return; }
+        const htmlSafe = v => String(v == null ? "" : v).replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
         wrap.innerHTML = `<div class="ui2-checks" style="grid-template-columns:1fr">` + seqs.map(s => `
             <label class="ui2-check">
-              <input type="checkbox" class="batch-seq" data-id="${s.id}" data-name="${String(s.name).replace(/"/g, "&quot;")}"${s.active ? " checked" : ""}>
-              <span>${s.name} · ${s.clips} ${L("klip", "clips")}</span></label>`).join("") + `</div>`;
+              <input type="checkbox" class="batch-seq" data-id="${htmlSafe(s.id)}" data-name="${htmlSafe(s.name)}"${s.active ? " checked" : ""}>
+              <span>${htmlSafe(s.name)} · ${s.clips} ${L("klip", "clips")}</span></label>`).join("") + `</div>`;
         const run = $id("batch-run"); if (run) run.style.display = "block";
     }
     async function batchRun() {
         const picks = [...document.querySelectorAll(".batch-seq")].filter(c => c.checked);
         if (!picks.length) { showToast(L("En az bir sekans seç", "Pick at least one sequence"), "info", 3000); return; }
         const btn = $id("batch-run"); if (btn) btn.disabled = true;
+        const previousSegments = segments;
+        const previousInTime = seqInTime;
+        const previousLanguage = lastLanguage;
+        const previousBaseline = typeof _originalSegments !== "undefined" ? _originalSegments : null;
         const dir = path.join(os.homedir(), "Desktop", "subsper_batch");
         try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
         let done = 0, failed = 0;
         try {
             for (let i = 0; i < picks.length; i++) {
-                const id = +picks[i].getAttribute("data-id");
+                const id = picks[i].getAttribute("data-id");
                 const name = picks[i].getAttribute("data-name") || ("seq" + (i + 1));
                 setStatus(L(`Toplu ${i + 1}/${picks.length}: `, `Batch ${i + 1}/${picks.length}: `) + name, "info");
-                const act = await evalScript(`wsActivateSequence(${id})`);
+                const act = await evalScript(`wsActivateSequence(${JSON.stringify(id)})`);
                 if (!(act && act.success)) { failed++; continue; }
                 try {
+                    segments = [];
                     await startTranscription();
                     if (segments && segments.length) {
                         const safe = name.replace(/[^\w\-. ]+/g, "_").slice(0, 60);
-                        fs.writeFileSync(path.join(dir, safe + ".srt"), segmentsToSRT(), "utf8");
+                        const suffix = String(id).replace(/[^\w-]/g, "_").slice(0, 40);
+                        fs.writeFileSync(path.join(dir, safe + "_" + suffix + ".srt"), segmentsToSRT(), "utf8");
                         done++;
                     } else failed++;
                 } catch (e) { failed++; }
@@ -2612,7 +2625,18 @@ ${_plainTranscript()}`);
             setStatus(L(`✓ Toplu bitti — ${done} SRT → Masaüstü/subsper_batch`, `✓ Batch done — ${done} SRT → Desktop/subsper_batch`) +
                       (failed ? L(` · ${failed} atlandı`, ` · ${failed} skipped`) : ""), failed ? "warning" : "success");
             if (done) try { revealInFolder(dir); } catch (e) {}
-        } finally { if (btn) btn.disabled = false; }
+        } finally {
+            if (batchOriginalSequence != null)
+                try { await evalScript(`wsActivateSequence(${JSON.stringify(String(batchOriginalSequence))})`); } catch (e) {}
+            segments = previousSegments;
+            seqInTime = previousInTime;
+            lastLanguage = previousLanguage;
+            if (typeof _originalSegments !== "undefined") _originalSegments = previousBaseline;
+            renderSegments(); updateSegCount();
+            if (actionsBar) actionsBar.style.display = segments.length ? "flex" : "none";
+            if (sendBtn) sendBtn.disabled = segments.length === 0;
+            if (btn) btn.disabled = false;
+        }
     }
     function injectBatch() {
         if (DESK) return;                       // desktop batches files, not sequences

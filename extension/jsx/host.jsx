@@ -152,18 +152,21 @@ function getSequenceInfo() {
         var seen = {};
         var uniqueClips = [];
         for (var ci = 0; ci < clips.length; ci++) {
-            var key = clips[ci].path + "|" + Math.round(clips[ci].srcStart * 100) + "|" + Math.round(clips[ci].duration * 100);
+            var key = clips[ci].path + "|" + Math.round(clips[ci].srcStart * 100) + "|" +
+                      Math.round(clips[ci].duration * 100) + "|" + Math.round(clips[ci].timelineStart * 100);
             if (!seen[key]) { seen[key] = true; uniqueClips.push(clips[ci]); }
         }
 
-        // Prefer video-track clips — they carry the main mic/camera audio.
-        // Audio-only tracks are almost always background music or SFX, not speech.
-        // Only fall back to audio-only clips if there are no video clips at all.
+        // Premiere places linked camera audio on audio tracks. Prefer those
+        // tracks for transcription so a separate microphone is not discarded.
+        // Keep every track for tools such as multicam that need both kinds.
         var videoClips = [];
+        var audioClips = [];
         for (var vi = 0; vi < uniqueClips.length; vi++) {
             if (uniqueClips[vi].track.indexOf("video") === 0) videoClips.push(uniqueClips[vi]);
+            else if (uniqueClips[vi].track.indexOf("audio") === 0) audioClips.push(uniqueClips[vi]);
         }
-        var finalClips = videoClips.length > 0 ? videoClips : uniqueClips;
+        var finalClips = audioClips.length > 0 ? audioClips : videoClips;
 
         return JSON.stringify({
             success:       true,
@@ -172,7 +175,8 @@ function getSequenceInfo() {
             outTime:       outTimeSecs,
             duration:      duration,
             wholeSequence: wholeSequence,
-            clips:         finalClips
+            clips:         finalClips,
+            allClips:      clips
         });
 
     } catch (e) {
@@ -879,7 +883,7 @@ function importSRTToProject(srtContent) {
 
         // Write SRT to a file Premiere can access.
         // Folder.temp is sandboxed on macOS — use the project dir or Desktop instead.
-        var stamp    = Math.floor(Date.now() / 1000);
+        var stamp    = Date.now();
         var filename = "whisper_" + stamp + ".srt";
         var tmpPath;
 
@@ -896,19 +900,6 @@ function importSRTToProject(srtContent) {
             var home = $.getenv("HOME") || "/Users/" + $.getenv("USER");
             tmpPath = home + "/Desktop/" + filename;
         }
-
-        // Clean up previous whisper_*.srt files in the same folder so they don't
-        // pile up on the user's Desktop / project folder every time we send.
-        try {
-            var newName = new File(tmpPath).name;
-            var folder  = new File(tmpPath).parent;
-            if (folder && folder.exists) {
-                var stale = folder.getFiles(function (fl) {
-                    return (fl instanceof File) && fl.name !== newName && /^whisper_\d+\.srt$/.test(fl.name);
-                });
-                for (var st = 0; st < stale.length; st++) { try { stale[st].remove(); } catch (eRm) {} }
-            }
-        } catch (eClean) {}
 
         // ExtendScript on macOS defaults to CR-only (\r) line endings.
         // Premiere's SRT importer requires CRLF (\r\n) — set lineFeed explicitly.
@@ -927,32 +918,10 @@ function importSRTToProject(srtContent) {
         var root = app.project.rootItem;
         var BIN_NAME = "Whisper Captions";
 
-        // (A) Delete the previous "Whisper Captions" bin. Deleting a bin removes the SRT
-        //     items it holds, which also removes the caption clips those items back from
-        //     the timeline — so old whisper captions disappear and we don't stack up.
-        for (var i = root.children.numItems - 1; i >= 0; i--) {
-            var ch = root.children[i];
-            try {
-                if (ch && ch.name === BIN_NAME && ch.type === 2 /* BIN */) {
-                    ch.deleteBin();
-                    diag.push("deleted old bin");
-                }
-            } catch(eDel) { diag.push("deleteBin threw: " + eDel.toString()); }
-        }
-
-        // (B) Best-effort: remove tracks left empty by the deletion above (QE DOM)
-        try {
-            app.enableQE();
-            var qeClean = qe.project.getActiveSequence();
-            if (qeClean) {
-                try { qeClean.removeEmptyVideoTracks(); diag.push("removeEmptyVideoTracks ok"); } catch(eV) { diag.push("removeEmptyVideoTracks: " + eV.toString()); }
-                try { qeClean.removeEmptyAudioTracks(); } catch(eA) {}
-            }
-        } catch(eQE) { diag.push("QE cleanup skipped: " + eQE.toString()); }
-
-        // (C) Fresh bin to hold this SRT
+        // Keep existing imports and tracks intact. A failed new import must not
+        // remove captions belonging to this or another sequence.
         var bin = null;
-        try { bin = root.createBin(BIN_NAME); } catch(eBin) { diag.push("createBin threw: " + eBin.toString()); }
+        try { bin = root.createBin(BIN_NAME + " " + stamp); } catch(eBin) { diag.push("createBin threw: " + eBin.toString()); }
         var target = bin || root;
 
         // (D) Import the SRT into the bin, then locate the new caption projectItem
@@ -1403,14 +1372,25 @@ function wsCutRangesSync(payloadJson) {
             try { if (qt && qt.setLock) { qt.setLock(state); return true; } } catch (e) {}
             return false;
         }
+        function lockState(kind, idx) {
+            var qt = qeTrack(kind, idx);
+            if (!qt || typeof qt.isLocked !== "function") throw new Error("Cannot inspect track lock state; no cut was made.");
+            return !!qt.isLocked();
+        }
 
         // lock every track that is NOT selected; remember what we locked
         var vN = 0, aN = 0;
         try { vN = qeSeq.numVideoTracks; } catch (e) {}
         try { aN = qeSeq.numAudioTracks; } catch (e) {}
         var locked = [], lockFail = 0, k;
-        for (k = 0; k < vN; k++) if (!inList(vSel, k)) { if (setLock("v", k, true)) locked.push(["v", k]); else lockFail++; }
-        for (k = 0; k < aN; k++) if (!inList(aSel, k)) { if (setLock("a", k, true)) locked.push(["a", k]); else lockFail++; }
+        for (k = 0; k < vN; k++) {
+            if (inList(vSel, k)) { if (lockState("v", k)) throw new Error("Selected video track is locked."); }
+            else if (!lockState("v", k)) { if (setLock("v", k, true)) locked.push(["v", k]); else lockFail++; }
+        }
+        for (k = 0; k < aN; k++) {
+            if (inList(aSel, k)) { if (lockState("a", k)) throw new Error("Selected audio track is locked."); }
+            else if (!lockState("a", k)) { if (setLock("a", k, true)) locked.push(["a", k]); else lockFail++; }
+        }
         function unlockAll() {
             for (var u = 0; u < locked.length; u++) setLock(locked[u][0], locked[u][1], false);
         }
@@ -1532,12 +1512,7 @@ function wsCutRangesSync(payloadJson) {
         unlockAll();
         return JSON.stringify({ success: true, removed: removed, holes: holes, diag: diag });
     } catch (e) {
-        try {
-            // best-effort unlock if something blew up mid-way
-            var vN2 = qeSeq.numVideoTracks, aN2 = qeSeq.numAudioTracks, z;
-            for (z = 0; z < vN2; z++) { try { qeSeq.getVideoTrackAt(z).setLock(false); } catch (u1) {} }
-            for (z = 0; z < aN2; z++) { try { qeSeq.getAudioTrackAt(z).setLock(false); } catch (u2) {} }
-        } catch (eU) {}
+        try { if (typeof unlockAll === "function" && locked) unlockAll(); } catch (eU) {}
         return JSON.stringify({ success: false, error: e.toString(), diag: diag });
     }
 }
@@ -1653,8 +1628,18 @@ function wsSpeedUpRanges(payloadJson) {
         try { vN = qeSeq.numVideoTracks; } catch (e) {}
         try { aN = qeSeq.numAudioTracks; } catch (e) {}
         var locked = [], lockFail = 0, k;
-        for (k = 0; k < vN; k++) if (!inList(vSel, k)) { var q1 = qeTrack("v", k); try { if (q1 && q1.setLock) { q1.setLock(true); locked.push(["v", k]); } else lockFail++; } catch (eL1) { lockFail++; } }
-        for (k = 0; k < aN; k++) if (!inList(aSel, k)) { var q2 = qeTrack("a", k); try { if (q2 && q2.setLock) { q2.setLock(true); locked.push(["a", k]); } else lockFail++; } catch (eL2) { lockFail++; } }
+        for (k = 0; k < vN; k++) {
+            var q1 = qeTrack("v", k);
+            if (!q1 || typeof q1.isLocked !== "function") { lockFail++; continue; }
+            if (inList(vSel, k)) { if (q1.isLocked()) { lockFail++; } }
+            else if (!q1.isLocked()) { try { q1.setLock(true); locked.push(["v", k]); } catch (eL1) { lockFail++; } }
+        }
+        for (k = 0; k < aN; k++) {
+            var q2 = qeTrack("a", k);
+            if (!q2 || typeof q2.isLocked !== "function") { lockFail++; continue; }
+            if (inList(aSel, k)) { if (q2.isLocked()) { lockFail++; } }
+            else if (!q2.isLocked()) { try { q2.setLock(true); locked.push(["a", k]); } catch (eL2) { lockFail++; } }
+        }
         function unlockAll() {
             for (var u = 0; u < locked.length; u++) {
                 var qt = qeTrack(locked[u][0], locked[u][1]);
@@ -1734,6 +1719,7 @@ function wsSpeedUpRanges(payloadJson) {
         return JSON.stringify({ success: sped > 0, sped: sped, holes: holes,
                                 error: sped ? undefined : "Could not speed any range (see diag)", diag: diag });
     } catch (e) {
+        try { if (typeof unlockAll === "function" && locked) unlockAll(); } catch (eU) {}
         return JSON.stringify({ success: false, error: e.toString(), diag: diag });
     }
 }
@@ -1766,7 +1752,7 @@ function wsActivateSequence(seqId) {
     try {
         for (var i = 0; i < app.project.sequences.numSequences; i++) {
             var s = app.project.sequences[i];
-            if (s.sequenceID === seqId) {
+            if (String(s.sequenceID) === String(seqId)) {
                 app.project.activeSequence = s;
                 try { app.project.openSequence(seqId); } catch (eO) {}
                 return JSON.stringify({ success: true, name: s.name });

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The desktop app and the Premiere extension share their front-end verbatim.
-# scripts/sync-from-extension.sh keeps them in step by hand, which means a fix
+# scripts/sync-to-extension.sh keeps them in step by hand, which means a fix
 # landed in one copy and forgotten in the other ships as a silent behaviour
 # difference between the two products. This turns that invariant into a check.
 #
@@ -12,13 +12,17 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 fail=0
 
-for f in js/main.js js/whispercpp.js js/features-v2.js js/ui-v2.js css/style.css css/ui-v2.css; do
+for f in js/main.js js/whispercpp.js js/features-v2.js js/ui-v2.js js/ui-v3.js css/style.css css/ui-v2.css css/ui-v3.css css/panel.css; do
     if ! diff -q "extension/$f" "$f" >/dev/null 2>&1; then
         echo "OUT OF SYNC: extension/$f differs from $f"
         diff "extension/$f" "$f" | head -20 || true
         fail=1
     fi
 done
+if ! diff -qr assets/fonts extension/assets/fonts >/dev/null 2>&1; then
+    echo "OUT OF SYNC: extension/assets/fonts differs from assets/fonts"
+    fail=1
+fi
 
 for f in scripts/check_setup.py scripts/detect_silence.py scripts/enhance_audio.py \
          scripts/extract_audio.py scripts/transcribe.py; do

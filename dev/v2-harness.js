@@ -70,6 +70,7 @@ function run(desktop, opts) {
     });
     const beepBtn = makeEl(); beepBtn._closest = makeEl();
     const txControls = makeEl();
+    txControls.parentNode = makeEl();
     const errHeader = makeEl();
 
     const doc = {
@@ -130,7 +131,9 @@ function run(desktop, opts) {
         initEditSettingsUI() {}, initAudioSettingsUI() {},
         maybeShowOnboarding() {}, toggleAiPanel() {},
         setLanguage() {},
-        LICENSING_ENABLED: !!opts.licensing,
+        t: key => key,
+        escHtml: text => String(text),
+        listProfiles: () => ({}), saveProfile() {}, loadProfile() {}, deleteProfile() {},
         verifyLicenseKey: async () => ({ success: true }),
         segmentsToSRT: () => "1\n00:00:00,000 --> 00:00:01,000\nx\n",
         startTranscription: async () => {},
@@ -155,7 +158,13 @@ function run(desktop, opts) {
 
     const ctx = vm.createContext(sandbox);
     for (const f of ["js/features-v2.js", "js/ui-v2.js"]) {
-        vm.runInContext(fsReal.readFileSync(f, "utf8"), ctx, { filename: f });
+        let source = fsReal.readFileSync(f, "utf8");
+        if (f === "js/features-v2.js" && opts.licensing) {
+            const configured = source.replace("enabled:       false,", "enabled:       true,");
+            if (configured === source) throw new Error("License fixture no longer matches configuration");
+            source = configured;
+        }
+        vm.runInContext(source, ctx, { filename: f });
     }
     return new Promise(res => setTimeout(() => res({
         REG, CARDS, sandbox, origApply, origFiller,
@@ -187,14 +196,14 @@ function ok(cond, label) {
     ok(d.sandbox.cutFillerWords === d.origFiller, "cutFillerWords NOT replaced");
     const hidden = ["zoom", "multicam", "markercut", "resize", "ducking"];
     ok(hidden.every(k => !d.CARDS.includes(k)), "home grid hides Premiere-only tools");
-    ok(["subtitles", "silence", "repeat", "filler", "beep", "enhance", "chapters",
-        "viral", "pace", "social", "broll", "settings", "help", "ai"]
+    ok(["silence", "repeat", "filler", "beep", "enhance", "chapters",
+        "viral", "pace", "social", "broll", "settings", "help", "ai", "batch"]
         .every(k => d.CARDS.includes(k)), "home grid keeps desktop tools (14)");
     ok(has(d, "beep-words-mirror") && has(d, "filler-words-mirror"), "list mirrors (desktop)");
     ok(has(d, "subposx") && has(d, "subposy") && has(d, "submaxw"), "position+width sliders (desktop)");
     ok(has(d, "set-pexels") && has(d, "broll-dl"), "Faz D stock B-roll (desktop)");
     ok(!has(d, "batch-scan"), "sequence batch ABSENT on desktop");
-    ok(!has(d, "lic-key"), "license UI hidden while LICENSING_ENABLED=false");
+    ok(!has(d, "lic-key"), "license UI hidden while licensing is disabled");
     const lsD = d.sandbox.__licenseState();
     ok(lsD.status === "trial" && lsD.daysLeft === 7, "fresh trial = 7 days left");
     ok(d.sandbox.__licenseGate() === true, "gate open while licensing disabled");

@@ -282,6 +282,11 @@ body.ui2-zoompro #panel-ed-work .tool-card > .panel-intro { display: none; }
 }
 
 /* ── Collapsed per-tool settings box (<details class="ui2-adv">) ──── */
+details.home-advanced { margin-top: 12px; }
+details.home-advanced > summary { cursor: pointer; list-style: none; }
+details.home-advanced > summary::after { content: " +"; }
+details.home-advanced[open] > summary::after { content: " −"; }
+details.home-advanced > .home-list { margin-top: 7px; }
 details.ui2-adv {
   margin-top: 4px; margin-bottom: 16px;
   background: var(--card-bg); border: 1px solid var(--border);

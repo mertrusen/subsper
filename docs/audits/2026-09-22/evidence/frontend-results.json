@@ -1,0 +1,119 @@
+{
+  "errors": [],
+  "buttons": 139,
+  "tools": [
+    "ai",
+    "silence",
+    "repeat",
+    "filler",
+    "zoom",
+    "multicam",
+    "markercut",
+    "resize",
+    "ducking",
+    "beep",
+    "enhance",
+    "batch",
+    "chapters",
+    "viral",
+    "pace",
+    "social",
+    "broll",
+    "settings",
+    "help"
+  ],
+  "sourceVersion": "1.3.0",
+  "directButton": {
+    "segments": 1,
+    "original": null,
+    "mediaSaved": null
+  },
+  "profileSettings": {
+    "model": "large",
+    "language": "en"
+  },
+  "languageSwitch": {
+    "before": "Find & Cut Repeats",
+    "after": "Find & Cut Repeats"
+  },
+  "staleWords": {
+    "wordSRT": "1\n00:00:00,000 --> 00:00:01,000\noriginal\n\n",
+    "ass": " 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,{\\kf100}original\n"
+  },
+  "importedProjectHtmlInjection": true,
+  "textEditingCard": {
+    "exists": true,
+    "display": "none"
+  },
+  "orphanCardVisibility": [
+    {
+      "key": "ai",
+      "textCutDisplay": ""
+    },
+    {
+      "key": "silence",
+      "textCutDisplay": "none"
+    },
+    {
+      "key": "repeat",
+      "textCutDisplay": "none"
+    },
+    {
+      "key": "filler",
+      "textCutDisplay": "none"
+    },
+    {
+      "key": "zoom",
+      "textCutDisplay": "none"
+    },
+    {
+      "key": "multicam",
+      "textCutDisplay": "none"
+    },
+    {
+      "key": "markercut",
+      "textCutDisplay": "none"
+    },
+    {
+      "key": "resize",
+      "textCutDisplay": "none"
+    },
+    {
+      "key": "ducking",
+      "textCutDisplay": "none"
+    },
+    {
+      "key": "beep",
+      "textCutDisplay": ""
+    },
+    {
+      "key": "enhance",
+      "textCutDisplay": ""
+    },
+    {
+      "key": "chapters",
+      "textCutDisplay": "none"
+    },
+    {
+      "key": "viral",
+      "textCutDisplay": "none"
+    },
+    {
+      "key": "pace",
+      "textCutDisplay": "none"
+    },
+    {
+      "key": "social",
+      "textCutDisplay": "none"
+    },
+    {
+      "key": "broll",
+      "textCutDisplay": "none"
+    },
+    {
+      "key": "settings",
+      "textCutDisplay": ""
+    }
+  ],
+  "finalErrors": []
+}

@@ -133,7 +133,7 @@ def run(clips_json_str, output_path):
 
     tmpdir = tempfile.mkdtemp(prefix="whisper_ext_")
     try:
-        if len(clips) == 1:
+        if len(clips) == 1 and float(clips[0].get("timelineStart", 0)) <= 0.001 and duration <= float(clips[0].get("duration", 0)) + 0.001:
             ok, err = extract_single(ffmpeg, clips[0], output_path)
             if not ok:
                 return {"success": False, "error": f"ffmpeg failed on:\n{clips[0]['path']}\n\n{err}"}
@@ -152,10 +152,6 @@ def run(clips_json_str, output_path):
         if not extracted:
             detail = "\n".join(errors) if errors else "All clips failed with no error output."
             return {"success": False, "error": f"All audio extractions failed.\n\n{detail}"}
-
-        if len(extracted) == 1:
-            shutil.move(extracted[0][0], output_path)
-            return {"success": True}
 
         ok, err = mix_clips(ffmpeg, extracted, output_path, duration)
         if not ok:

@@ -182,6 +182,7 @@ jobs:
         with:
           files: |
             dist/*.dmg
+            dist/*.zip
             dist/*.zxp
             dist/latest-mac.yml
           fail_on_unmatched_files: true

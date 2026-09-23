@@ -1,0 +1,9 @@
+{
+  "title": "SUBSPER-DOM pass=34 fail=0",
+  "text": "\n— rendering —\n  ok   renders one node per segment\n  ok   first segment shows its index\n  ok   timecodes rendered\n  ok   words are split into spans\n  ok   no inline onclick attributes remain\n\n— word click splits —\n  ok   clicking the last word splits it off\n  ok   first half\n  ok   second half\n  ok   clicking a word does not also seek\n\n— action buttons —\n  ok   delete button removes the segment\n  ok   clicking the icon inside Split does not also seek\n\n— seek —\n  ok   index seeks\n  ok   timecode seeks\n  ok   clicking the row seeks\n\n— edit —\n  ok   double-click opens a textarea\n  ok   Enter saves and collapses whitespace\n  ok   textarea is gone after saving\n\n— selection —\n  ok   one segment is selected\n  ok   selecting another moves it, not adds\n  ok   the right one is selected\n\n— delegation survives rebuilds —\n  ok   still exactly one handler after five rebuilds\n\n— empty state —\n  ok   shows an empty state\n  ok   no segments rendered\n  ok   no source line before the probe answers\n  ok   source line appears once known\n  ok   names the sequence\n  ok   says how much speech\n  ok   a missing sequence is flagged, not silent\n  ok   sequence name is escaped, not executed\n  ok   and it is still shown to the user as text\n  ok   mm:ss for humans\n\n— scale —\n  ok   renders 800 segments\n        800-segment render: 143.5 ms\n  ok   under 400 ms\n  ok   last of 800 still responds\n\n34 passed, 0 failed",
+  "errors": [
+    "Uncaught [ReferenceError: $ is not defined]",
+    "Uncaught [ReferenceError: $ is not defined]",
+    "Uncaught [ReferenceError: $ is not defined]"
+  ]
+}

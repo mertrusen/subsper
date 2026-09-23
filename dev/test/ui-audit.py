@@ -196,7 +196,7 @@ def audit_tools() -> None:
     prem_only = [n for n, b in tools if re.search(r"\bpp:\s*true", b)]
     add("info", "platform-split",
         f"{len(prem_only)} of {len(tools)} tools are Premiere-only "
-        f"({', '.join(prem_only)}) — shown disabled on the desktop with a reason, not hidden")
+        f"({', '.join(prem_only)}) — hidden from the desktop home screen")
 
     # Every tool has to land in a group, or renderHome drops it silently.
     ungrouped = [n for n, b in tools if not re.search(r'\bgroup:\s*"', b)]

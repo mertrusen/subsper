@@ -1,0 +1,18 @@
+[
+  {
+    "id": "batch-failed-transcription-exports-old-segments",
+    "writes": [
+      {
+        "path": "/tmp/subsper-audit/Desktop/subsper_batch/failed-sequence.srt",
+        "text": "PREVIOUS SEQUENCE"
+      }
+    ],
+    "status": "✓ Batch done — 1 SRT → Desktop/subsper_batch"
+  },
+  {
+    "id": "corrupt-cached-model-trusted",
+    "modelExists": true,
+    "ensureResult": "/tmp/subsper-audit/isolated-model-home/Library/Application Support/Subsper/models/ggml-tiny.bin",
+    "verify": "File too small (0 MB, expected at least 66 MB) — download may be incomplete"
+  }
+]

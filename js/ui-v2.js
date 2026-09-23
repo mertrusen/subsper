@@ -120,8 +120,8 @@
                      desc: () => DESK ? L("YouTube bölüm metni — kopyala ya da kaydet", "YouTube chapter text — copy or save")
                                       : L("YouTube bölümleri + timeline marker'ları", "YouTube chapters + timeline markers") },
         viral:     { cat: "content", group: "make", tab: "edit", view: "#viral-btn", color: "#c89a62",
-                     name: () => L("Viral Klipler", "Viral Clips"),
-                     desc: () => L("Kısa içerik için en güçlü anları bulur", "Finds the strongest moments for shorts") },
+                     name: () => L("Klip Önerileri", "Clip Suggestions"),
+                     desc: () => L("Kısa içerik için olası anları önerir", "Suggests possible moments for shorts") },
         pace:      { cat: "content", group: "make", tab: "edit", view: "#pace-btn", color: "#8f8cc9",
                      name: () => L("Konuşma Analizi", "Speech Pace"),
                      desc: () => DESK ? L("Hız grafiği — 180+ wpm bölgeler kırmızı", "WPM chart — 180+ wpm zones in red")
@@ -141,6 +141,7 @@
                      desc: () => L("30 saniyede başlangıç turu", "The 30-second starter tour"),
                      open: () => { localStorage.removeItem("ws_onboarded"); if (typeof maybeShowOnboarding === "function") maybeShowOnboarding(); } },
     };
+    window.__ui2Tools = TOOLS;
     /* Grouped by what a tool CHANGES, because that is the question in the
        user's head — "will this touch my text or my timeline?" — not by which
        tab it happens to live in. */
@@ -229,6 +230,7 @@
     }
 
     function renderHome() {
+        if (typeof window.__v3RenderHome === "function") return window.__v3RenderHome();
         const wrap = $("home-cats"); if (!wrap) return;
         wrap.innerHTML = "";
 
@@ -273,37 +275,34 @@
            Rows, not tiles: a tool is a label and a sentence, and a 280px
            panel cannot give two columns of those enough width to read. */
         GROUPS.forEach(g => {
-            const keys = Object.keys(TOOLS).filter(k => TOOLS[k].group === g.id);
+            const keys = Object.keys(TOOLS).filter(k => TOOLS[k].group === g.id && !(DESK && TOOLS[k].pp));
             if (!keys.length) return;
-            const lab = document.createElement("div");
+            const advanced = g.id === "make";
+            const group = advanced ? document.createElement("details") : wrap;
+            if (advanced) { group.className = "home-advanced"; wrap.appendChild(group); }
+            const lab = document.createElement(advanced ? "summary" : "div");
             lab.className = "home-cat-label";
             lab.textContent = g.label();
-            wrap.appendChild(lab);
+            group.appendChild(lab);
 
             const list = document.createElement("div");
             list.className = "home-list";
             keys.forEach(k => {
                 const t = TOOLS[k];
-                // Premiere-only tools are shown disabled on the desktop rather
-                // than vanishing. Disappearing made the two products feel like
-                // different apps and hid what the extension is for.
-                const unavailable = DESK && t.pp;
                 const btn = document.createElement("button");
-                btn.className = "home-row" + (unavailable ? " is-off" : "");
+                btn.className = "home-row";
                 btn.setAttribute("data-tool", k);
-                if (unavailable) btn.setAttribute("aria-disabled", "true");
                 btn.innerHTML =
                     `<span class="hr-dot" style="background:${t.color || "var(--accent)"}"></span>` +
                     `<span class="hr-text">` +
                       `<span class="hr-label">${t.name()}</span>` +
-                      `<span class="hr-desc">${unavailable ? L("Premiere zaman çizgisi gerekir", "Needs a Premiere timeline") : t.desc()}</span>` +
+                      `<span class="hr-desc">${t.desc()}</span>` +
                     `</span>`;
-                btn.title = unavailable ? L("Bu araç Premiere eklentisinde çalışır", "This tool runs in the Premiere extension")
-                                        : t.desc();
-                if (!unavailable) btn.addEventListener("click", () => ui2Open(k));
+                btn.title = t.desc();
+                btn.addEventListener("click", () => ui2Open(k));
                 list.appendChild(btn);
             });
-            wrap.appendChild(list);
+            group.appendChild(list);
         });
 
         const back = $("page-back-label"); if (back) back.textContent = L("Geri", "Back");

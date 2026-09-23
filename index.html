@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="css/ui-v2.css">
   <!-- last: adapts the shell to however the panel is docked -->
   <link rel="stylesheet" href="css/panel.css">
+  <link rel="stylesheet" href="css/ui-v3.css">
 </head>
 <body class="ui2-home">
   <!-- Boot guard.
@@ -73,7 +74,6 @@
       <span class="brand-mark" data-icon="captions"></span>
       <div class="brand-text">
         <span class="brand-title">Sub<span>sper</span></span>
-        <span class="brand-tagline" data-i18n="tagline">AI Subtitles</span>
         <span class="brand-version" style="font-size: 10px; color: var(--text3); margin-left: 6px; font-weight: 500;"></span>
       </div>
     </div>
@@ -82,6 +82,17 @@
       <span class="setup-indicator" id="setup-indicator" data-i18n-tip="tip_tab_setup"></span>
     </div>
   </div>
+
+  <div id="app-shell">
+    <nav id="v3-sidebar" aria-label="Workspace">
+      <button class="v3-nav active" data-v3-page="subtitles" onclick="ui2Open('subtitles')"><span class="v3-nav-num">01</span><span data-v3-text="transcript">Altyazılar</span></button>
+      <button class="v3-nav" data-v3-page="style" onclick="ui3Open('style')"><span class="v3-nav-num">02</span><span data-v3-text="style">Görünüm</span></button>
+      <button class="v3-nav" data-v3-page="export" onclick="ui3Open('export')"><span class="v3-nav-num">03</span><span data-v3-text="export">Çıktı al</span></button>
+      <div class="v3-nav-divider"></div>
+      <button class="v3-nav" data-v3-page="tools" onclick="ui3Open('tools')"><span class="v3-nav-symbol">✦</span><span data-v3-text="tools">Araçlar</span></button>
+      <button class="v3-nav" data-v3-page="settings" onclick="ui2Open('settings')"><span class="v3-nav-symbol">⚙</span><span data-v3-text="settings">Ayarlar</span></button>
+    </nav>
+    <main id="app-content">
 
   <!-- ── UI v2: page bar (‹ Back · Title · ⚙) ─────────────────────── -->
   <div id="page-bar">
@@ -96,11 +107,8 @@
   </div>
 
   <!-- ── UI v2: home screen (card grid) ───────────────────────────── -->
-  <div id="home-screen">
-    <div class="home-badge"><span class="dot"></span><span id="home-badge-text">Offline transcription</span></div>
-    <div id="home-cats"></div>
-    <div class="home-foot" id="home-foot"></div>
-  </div>
+  <section id="v3-tools-page" class="v3-page" aria-label="Tools" style="display:none"></section>
+  <section id="v3-export-page" class="v3-page" aria-label="Export" style="display:none"></section>
 
   <!-- ── Main tabs (top level) ───────────────────────────────────────── -->
   <div class="tabs">
@@ -989,17 +997,18 @@
 
     </div>
   </div><!-- /panel-setup -->
+    </main>
+  </div><!-- /app-shell -->
 
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
-  <!-- DESKTOP footer (NOT the extension's CSInterface). Order matters:
-       desktop-shim defines fake CSInterface + __APP_DIR__ BEFORE main.js,
-       desktop-app overrides the Premiere I/O boundary AFTER main.js. -->
+  <!-- Runtime adapter loads before shared application scripts. -->
   <script src="js/desktop-shim.js"></script>
   <script src="js/main.js"></script>
   <script src="js/desktop-app.js"></script>
   <script src="js/features-v2.js"></script>
   <script src="js/ui-v2.js"></script>
+  <script src="js/ui-v3.js"></script>
 </body>
 </html>

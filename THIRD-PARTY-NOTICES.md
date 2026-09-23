@@ -79,6 +79,19 @@ Downloaded on first use, not bundled in the installer.
 
 ---
 
+## Bundled subtitle fonts — SIL Open Font License 1.1
+
+The app bundles Inter, Montserrat, Oswald and Bebas Neue from the
+[Google Fonts repository](https://github.com/google/fonts). Each family is
+licensed under SIL OFL 1.1. Their copyright notices and complete licence texts
+are included alongside the font files in `assets/fonts/<family>/OFL.txt` and
+in the Premiere extension's `assets/fonts` directory. These font files may be
+used for commercial video, but they may only be redistributed under their own
+OFL terms. User-imported fonts remain the user's responsibility and are not
+redistributed with Subsper.
+
+---
+
 ## Electron, Node.js, Chromium — desktop app only
 
 - Electron — MIT — <https://github.com/electron/electron>

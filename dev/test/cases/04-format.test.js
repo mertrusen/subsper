@@ -11,6 +11,34 @@ group("subtitle formatting");
     eq("SRT timecode format", formatTime(0), "00:00:00,000");
     eq("sub-second precision", formatTime(4.98), "00:00:04,980");
     eq("minutes and hours roll over", formatTime(3661.5), "01:01:01,500");
+    eq("SRT rounding carries into next minute", formatTime(59.9996), "00:01:00,000");
+    eq("ASS rounding carries into next minute", fmtASS(59.999), "0:01:00.00");
+})();
+
+(function editedWordsAndFormats() {
+    resetEnv({ segments: [seg("corrected", 0, 1, [W("original", 0, 1)])] });
+    eq("word export uses corrected text", buildWordSRT().indexOf("corrected") > 0, true);
+    segments = [seg("two edited", 0, 1, [W("original", 0, 1)])];
+    ok("word count change still exports edited tokens", buildWordSRT().indexOf("two\n\n2\n") !== -1 && buildWordSRT().indexOf("edited") !== -1);
+    settings.gapFill = true; settings.gapMax = 2;
+    segments = [seg("A", 0, 1), seg("B", 2, 3)];
+    ok("SRT shares gap fill policy", segmentsToSRT().indexOf("00:00:00,000 --> 00:00:02,000") !== -1);
+    settings.gapFill = false;
+})();
+
+(function subtitleAnimations() {
+    var cue = seg("Deneme", 1, 3);
+    settings.styleAnimation = "none";
+    eq("no animation leaves ASS text plain", assEffectTag(cue), "");
+    settings.styleAnimation = "fade"; settings.styleAnimationMs = 220;
+    eq("fade exports ASS entry and exit", assEffectTag(cue), "{\\fad(220,220)}");
+    settings.styleAnimation = "pop";
+    ok("pop exports scale transition", assEffectTag(cue).indexOf("\\t(0,220,\\fscx100\\fscy100)") !== -1);
+    settings.styleAnimation = "bounce";
+    ok("bounce exports two-stage scale", (assEffectTag(cue).match(/\\t\(/g) || []).length === 2);
+    settings.styleAnimationMs = 700;
+    ok("short cue caps animation duration", assEffectTag(seg("x", 0, .3)).indexOf("700") === -1);
+    settings.styleAnimation = "none";
 })();
 
 group("auto-format (smart split)");

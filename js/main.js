@@ -29,6 +29,8 @@ const DEFAULT_SETTINGS = {
     gapFill:         false,
     gapMax:          2.0,
     stylePreset:     "clean",
+    styleAnimation:  "none",    // none | fade | pop | bounce (ASS and burned video)
+    styleAnimationMs: 220,
     karaoke:         false,
     karaokeHi:       "FFE000",   // highlight (spoken word) colour for karaoke .ass
     silenceThreshold: -30,
@@ -36,7 +38,7 @@ const DEFAULT_SETTINGS = {
     silencePad:       0.05,       // seconds kept around speech when ripple-cutting
     customStyle:      null,
     bilingualOrder:   "source-first", // source-first | translation-first
-    uiLang:           "en",       // interface language: en | tr
+    uiLang:           (typeof navigator !== "undefined" && /^tr/i.test(navigator.language || "")) ? "tr" : "en",
     theme:            "dark",     // dark | light | auto
     // ── Transcript clean-up ──
     punctAllowed:    ".,?!:;\"'()[]{}-", // which punctuation to keep
@@ -320,7 +322,7 @@ const I18N = {
     tip_recheck: "Re-scan the system — press after installing something missing",
     tip_reload: "Reload the panel — applies code updates (without restarting Premiere)",
     tip_uilang: "Interface & tooltip language",
-    tip_seek: "Jump here and play", tip_edit: "Edit text (double-click also works)",
+    tip_seek: "Jump to this subtitle", tip_edit: "Edit text (double-click also works)",
     tip_split: "Split this segment in half", tip_del: "Delete this segment",
     // new tabs
     tab_edit: "Edit", tab_audio: "Audio", sub_actions: "Tools",
@@ -506,7 +508,7 @@ const I18N = {
     tip_recheck: "Sistemi yeniden tara — eksik bir şey kurduktan sonra buna bas",
     tip_reload: "Paneli yeniden yükle — kod güncellemelerini devreye alır (Premiere'i kapatmadan)",
     tip_uilang: "Arayüz ve tooltip dili",
-    tip_seek: "Bu ana git ve oynat", tip_edit: "Metni düzenle (çift tıklama da olur)",
+    tip_seek: "Bu altyazıya git", tip_edit: "Metni düzenle (çift tıklama da olur)",
     tip_split: "Bu segmenti ortadan ikiye böl", tip_del: "Bu segmenti sil",
     tab_edit: "Düzen", tab_audio: "Ses", sub_actions: "İşlemler",
     tip_tab_edit: "Otomatik kurgu — sessizlik/dolgu kes, duraklama kısalt, oto-zoom",
@@ -559,6 +561,13 @@ function setLanguage(lang) {
         ? icon("pause") + "<span>" + t("btn_pause") + "</span>"
         : icon("play")  + "<span>" + t("btn_play")  + "</span>";
     const langSel = $("set-uilang"); if (langSel) langSel.value = settings.uiLang;
+    const repeat = $("repeat-btn");
+    if (repeat) repeat.textContent = settings.uiLang === "tr" ? "Tekrarları Bul ve Kes" : "Find & Cut Repeats";
+    const keep = $("repeat-keep");
+    if (keep && keep.options.length >= 2) {
+        keep.options[0].textContent = settings.uiLang === "tr" ? "Son take" : "Last take";
+        keep.options[1].textContent = settings.uiLang === "tr" ? "En akıcı (kısa)" : "Fastest read";
+    }
 }
 
 // ── Icon system (clean line icons, no emoji) ───────────────────────────────
@@ -2091,7 +2100,7 @@ async function askAi(type) {
     // be mapped back 1:1 to segments by line number (no fragile word-diffing).
     let transcript = "";
     segments.forEach((seg, i) => {
-        transcript += `${i + 1} [${fmtMMSS(seg.start)}] ${(seg.text || "").replace(/\s+/g, " ").trim()}\n`;
+        transcript += `${i + 1} [${fmtMMSS(seg.seqStart)}] ${(seg.text || "").replace(/\s+/g, " ").trim()}\n`;
     });
     const lineCount = segments.length;
 
@@ -2222,15 +2231,13 @@ function applyAiToSubtitles() {
 
     const map = parseNumberedAi(text);
     const keys = Object.keys(map);
-    if (keys.length === 0) {
-        // No numbered lines found → fall back to the old word-sync path.
-        let plain = text.replace(/\[?\d{1,2}:\d{2}(:\d{2})?\]?/g, m => (m.includes("[") ? " " : m))
-                        .replace(/(\*\*|__|\*|_)/g, "");
-        $("sync-input").value = plain;
-        doSyncText();
+    if (keys.length !== segments.length || segments.some((_, i) => !map[i])) {
+        showToast(settings.uiLang === "tr"
+            ? "AI yanıtındaki satır sayısı altyazıyla eşleşmiyor; hiçbir satır değiştirilmedi."
+            : "AI response does not match every subtitle line; nothing was changed.", "error", 5000);
         return;
     }
-
+    pushUndo();
     let changed = 0;
     keys.forEach(k => {
         const i = +k;
@@ -2513,26 +2520,21 @@ function readPlayheadSecs() {
 // STATELESS play/pause: instead of trusting a toggle flag (which desyncs the
 // moment the user starts playback from Premiere itself), sample the playhead
 // twice — moving → stop, still → play.
+async function premierePlayingNow() {
+    const probe = await evalScript("wsIsPlayingProbe()");
+    if (probe && probe.success && probe.known) return !!probe.playing;
+    const p1 = await readPlayheadSecs();
+    await new Promise(r => setTimeout(r, 160));
+    const p2 = await readPlayheadSecs();
+    if (p1 >= 0 && p2 >= 0) return Math.abs(p2 - p1) > 0.0005;
+    return _isPlaying;
+}
 async function playPause() {
     if (_playBusy) return;
     _playBusy = true;
     const btn = $("playpause-btn");
     try {
-        // Layer 1: ask QE directly (some builds expose player.isPlaying)
-        let playing = null;
-        const probe = await evalScript("wsIsPlayingProbe()");
-        if (probe && probe.success && probe.known) playing = !!probe.playing;
-
-        // Layer 2: playhead motion sampling
-        if (playing === null) {
-            const p1 = await readPlayheadSecs();
-            await new Promise(r => setTimeout(r, 160));
-            const p2 = await readPlayheadSecs();
-            if (p1 >= 0 && p2 >= 0) playing = Math.abs(p2 - p1) > 0.0005;
-        }
-
-        // Layer 3: last resort — our own toggle flag
-        if (playing === null) playing = _isPlaying;
+        const playing = await premierePlayingNow();
 
         const res = await evalScript(playing ? "wsStop()" : "wsPlay()");
         if (!res || res.success === false) {
@@ -2549,16 +2551,17 @@ async function playPause() {
     } finally { _playBusy = false; }
 }
 
-// ── Seek timeline + play ───────────────────────────────────────────────────
-// Clicking a segment seeks AND starts playback.
+// ── Seek timeline, preserving the existing playback state ─────────────────
 async function seekToSegment(idx) {
     const seg = segments[idx];
     if (!seg) return;
     selectSegment(idx);
+    const wasPlaying = await premierePlayingNow();
     await evalScript(`seekToTime(${seg.seqStart})`);
-    // Start playing after seek — stateless wsPlay (seek always stops playback)
-    const playRes = await evalScript("wsPlay()");
-    _isPlaying = !!(playRes && playRes.success !== false);
+    if (wasPlaying) {
+        const playRes = await evalScript("wsPlay()");
+        _isPlaying = !!(playRes && playRes.success !== false);
+    } else _isPlaying = false;
     const btn = $("playpause-btn");
     if (btn) {
         btn.innerHTML = _isPlaying ? icon("pause") + "<span>" + t("btn_pause") + "</span>" : icon("play") + "<span>" + t("btn_play") + "</span>";
@@ -2609,10 +2612,11 @@ function showError(what, why, fixText, fixBtnLabel, fixAction) {
 }
 
 function formatTime(secs) {
-    const h  = Math.floor(secs / 3600);
-    const m  = Math.floor((secs % 3600) / 60);
-    const s  = Math.floor(secs % 60);
-    const ms = Math.round((secs % 1) * 1000);
+    const total = Math.max(0, Math.round((Number(secs) || 0) * 1000));
+    const h  = Math.floor(total / 3600000);
+    const m  = Math.floor(total / 60000) % 60;
+    const s  = Math.floor(total / 1000) % 60;
+    const ms = total % 1000;
     return `${p2(h)}:${p2(m)}:${p2(s)},${p3(ms)}`;
 }
 const p2 = n => String(n).padStart(2, "0");
@@ -3185,8 +3189,11 @@ function deleteSegment(idx) {
 
 function clearAll() {
     if (!confirm("Clear all segments?")) return;
+    pushUndo();
     segments = []; selectedIndex = -1;
-    renderSegments(); actionsBar.style.display = "none";
+    try { localStorage.removeItem("ws_autosave"); } catch (e) {}
+    renderSegments(); updateSegCount(); actionsBar.style.display = "none";
+    sendBtn.disabled = true;
     setStatus("Ready", "info"); hideError();
 }
 
@@ -3209,7 +3216,7 @@ function wrapText(text, maxCharsPerLine, maxLines) {
 }
 
 function segmentsToSRT(segsOverride) {
-    const segs = segsOverride || segments;
+    const segs = segsOverride || _exportSegs();
     return segs.map((seg, i) => {
         const text = settings.autoSplit
             ? wrapText(seg.text, settings.maxCharsPerLine, settings.maxLines)
@@ -3223,10 +3230,11 @@ function fmtVTT(secs) {
     return formatTime(secs).replace(",", ".");
 }
 function fmtASS(secs) {
-    const h  = Math.floor(secs / 3600);
-    const m  = Math.floor((secs % 3600) / 60);
-    const s  = Math.floor(secs % 60);
-    const cs = Math.round((secs % 1) * 100);
+    const total = Math.max(0, Math.round((Number(secs) || 0) * 100));
+    const h  = Math.floor(total / 360000);
+    const m  = Math.floor(total / 6000) % 60;
+    const s  = Math.floor(total / 100) % 60;
+    const cs = total % 100;
     return `${h}:${p2(m)}:${p2(s)}.${p2(cs)}`;
 }
 
@@ -3270,10 +3278,24 @@ function escAssText(s) {
     return (s || "").replace(/[{}]/g, "").replace(/\r?\n/g, "\\N");
 }
 
+// Edited text is authoritative. Reuse timing only when each edited token can
+// still be matched to one timed word; otherwise exporters split proportionally.
+function currentWords(seg) {
+    const words = Array.isArray(seg.words) ? seg.words.filter(w => w && Number.isFinite(+w.start) && Number.isFinite(+w.end)) : [];
+    const tokens = String(seg.text || "").trim().split(/\s+/).filter(Boolean);
+    if (words.length !== tokens.length) {
+        const start = Number.isFinite(+seg.start) ? +seg.start : +seg.seqStart || 0;
+        const end = Number.isFinite(+seg.end) ? +seg.end : +seg.seqEnd || start;
+        const step = Math.max(0.01, (end - start) / Math.max(1, tokens.length));
+        return tokens.map((word, i) => ({ word, start: start + i * step, end: Math.min(end, start + (i + 1) * step) }));
+    }
+    return words.map((w, i) => ({ ...w, word: tokens[i] }));
+}
+
 // Build a karaoke dialogue body: {\kf<cs>}word for each word, durations absorb
 // inter-word gaps so the highlight stays in sync with the audio.
 function karaokeBody(seg) {
-    const words = (seg.words || []).filter(w => w && w.start != null && w.end != null && w.word);
+    const words = currentWords(seg).filter(w => w && w.start != null && w.end != null && w.word);
     if (!words.length) return escAssText(seg.text);
     // Keyword emphasis for social captions: context words, ALL-CAPS words and
     // numbers pop bigger. Cheap heuristic, no AI call needed.
@@ -3296,6 +3318,20 @@ function karaokeBody(seg) {
     }
     return parts.join("").trim();
 }
+
+function assEffectTag(seg) {
+    const mode = settings.styleAnimation || "none";
+    if (!["fade", "pop", "bounce"].includes(mode)) return "";
+    const cueMs = Math.max(1, Math.round((seg.seqEnd - seg.seqStart) * 1000));
+    const ms = Math.min(Math.max(80, Math.round(+settings.styleAnimationMs || 220)), 700, Math.floor(cueMs / 3));
+    if (ms < 30) return "";
+    const out = Math.min(ms, Math.floor(cueMs / 3));
+    if (mode === "fade") return `{\\fad(${ms},${out})}`;
+    if (mode === "pop") return `{\\fad(${Math.min(80, ms)},${out})\\fscx75\\fscy75\\t(0,${ms},\\fscx100\\fscy100)}`;
+    const peak = Math.max(30, Math.round(ms * .55));
+    return `{\\fad(${Math.min(60, ms)},${out})\\fscx72\\fscy72\\t(0,${peak},\\fscx112\\fscy112)\\t(${peak},${ms},\\fscx100\\fscy100)}`;
+}
+if (typeof window !== "undefined") window.__assEffectTag = assEffectTag;
 
 // Distinct text colours per speaker (diarization) — cycled in order of appearance.
 const SPEAKER_COLORS = ["FFFFFF", "7DD3FC", "FDE68A", "86EFAC", "F9A8D4", "FCA5A5", "C4B5FD", "FDBA74"];
@@ -3335,7 +3371,7 @@ ${styleLines}
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
     const lines = segs.map(seg => {
-        const text = karaoke ? karaokeBody(seg) : _wrap(seg.text).replace(/\n/g, "\\N");
+        const text = assEffectTag(seg) + (karaoke ? karaokeBody(seg) : _wrap(seg.text).replace(/\n/g, "\\N"));
         const style = (seg.speaker && styleFor[seg.speaker]) || "Default";
         const name  = seg.speaker ? seg.speaker.replace("SPEAKER_", "S") : "";
         return `Dialogue: 0,${fmtASS(seg.seqStart)},${fmtASS(seg.seqEnd)},${style},${name},0,0,0,,${text}`;
@@ -3370,8 +3406,9 @@ function exportAs(fmt) {
             const res = window.cep.fs.showSaveDialogEx("Export captions", "", [fmt], defName, fmt.toUpperCase());
             if (res && res.data) outPath = res.data;
             else if (res && res.err === 0 && typeof res === "string") outPath = res;
+            else return; // user cancelled
         }
-    } catch (e) {}
+    } catch (e) { showToast("Save dialog failed: " + e.message, "error"); return; }
 
     if (!outPath) {
         outPath = path.join(os.homedir(), "Desktop", defName);
@@ -3845,7 +3882,7 @@ function initTooltips() {
    files (and the extension↔desktop footer sync) stay untouched.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.4.0-preview.1";
 const GH_REPO = "mertrusen/subsper";
 const IS_DESKTOP_APP = (typeof window !== "undefined" && window.IS_DESKTOP === true);
 
@@ -4113,9 +4150,9 @@ async function cutFillerWords() {
 function buildWordSRT() {
     let out = "", n = 0;
     for (const seg of segments) {
-        const words = (seg.words || []).filter(w => w && w.start != null && w.end != null && (w.word || "").trim());
+        const words = currentWords(seg).filter(w => w && w.start != null && w.end != null && (w.word || "").trim());
         if (words.length) {
-            const off = seg.seqStart - seg.start;
+            const off = seg.seqStart - (Number.isFinite(+seg.start) ? +seg.start : seg.seqStart);
             for (let i = 0; i < words.length; i++) {
                 const w = words[i];
                 const start = off + w.start;
@@ -4158,11 +4195,12 @@ async function sendWordCaptions() {
 // person, not the project.
 const PROFILE_KEYS = [
     "stylePreset", "customStyle", "karaoke", "karaokeHi",
+    "styleAnimation", "styleAnimationMs",
     "autoSplit", "maxCharsPerLine", "maxLines", "maxCps", "maxDur",
     "gapFill", "gapMax",
     "punctAllowed", "customDict", "promptWords", "autoCleanup",
     "fillerWords", "fillerOn", "profanityList", "profanityMode", "profStem",
-    "model", "language", "engine", "diarize",
+    "whisperModel", "spokenLang", "engine", "diarize",
 ];
 
 function listProfiles() {
@@ -4188,7 +4226,9 @@ function saveProfile(name) {
 function loadProfile(name) {
     const p = listProfiles()[name];
     if (!p) { showToast(t("prof_missing"), "error", 3000); return false; }
-    Object.assign(settings, p.settings);
+    for (const k of PROFILE_KEYS) {
+        if (p.settings && Object.prototype.hasOwnProperty.call(p.settings, k)) settings[k] = p.settings[k];
+    }
     saveSettings();
     // Repaint every control from the restored values, then re-apply formatting
     // so the segment list matches the profile immediately rather than at the
@@ -4478,7 +4518,6 @@ setTimeout(function initFeaturePack() {
                 }
             } catch (eMig) { console.error("[Subsper] settings migration failed:", eMig); }
 
-            maybeShowOnboarding();
             checkForUpdates();
             // Tell the empty state what it is looking at, and refresh it when
             // the panel comes back into focus — the user may have opened a
@@ -4495,183 +4534,6 @@ setTimeout(function initFeaturePack() {
    MOGRT styled graphics, translation→Premiere, style favorites, notifications,
    extra UI languages. Same rules: dynamic injection, defensive, shared.
    ═══════════════════════════════════════════════════════════════════════════ */
-
-// ── Extra UI languages (core subset — anything missing falls back to English)
-Object.assign(I18N, {
-  es: {
-    tagline: "Subtítulos con IA", status_ready: "Listo — pulsa Transcribir",
-    tab_transcribe: "Subtítulos", tab_edit: "Edición", tab_audio: "Audio", tab_setup: "Ajustes",
-    sub_work_tx: "Editar", sub_settings: "Ajustes", sub_actions: "Herramientas",
-    lbl_model: "Modelo", lbl_language: "Idioma", opt_auto: "Detección automática",
-    btn_transcribe: "Transcribir", btn_loadsrt: "Cargar SRT", btn_play: "Reproducir", btn_pause: "Pausa",
-    empty_p: "Pulsa Transcribir para subtitular tu vídeo.",
-    empty_hint: "Clic en una palabra = dividir · doble clic = editar.",
-    act_clear: "Borrar", act_send: "Enviar a Premiere",
-    export_title: "Exportar como…", clean_title: "Limpiar…",
-    sec_engine: "Motor de transcripción", sec_cleanup: "Limpieza del texto",
-    sec_quality: "Calidad de subtítulos", sec_style: "Estilo", sec_interface: "Interfaz",
-    sec_modellang: "Modelo e idioma", sec_api: "IA y API", sec_timing: "Sincronización", sec_karaoke: "Karaoke",
-    lbl_uilang: "Idioma", lbl_theme: "Apariencia", theme_dark: "Oscuro", theme_light: "Claro", theme_auto: "Auto",
-    btn_replaceall: "Reemplazar todo", btn_cancel: "Cancelar", btn_close: "Cerrar",
-    nm_engine: "Motor", opt_eng_cpp: "Motor integrado — sin instalación ★",
-    nm_hwaccel: "Aceleración por hardware", nm_threads: "Núcleos de CPU",
-    nm_autoformat: "Autoformatear subtítulos", lbl_cpl: "Máx. caracteres por línea",
-  },
-  de: {
-    tagline: "KI-Untertitel", status_ready: "Bereit — klicke auf Transkribieren",
-    tab_transcribe: "Untertitel", tab_edit: "Schnitt", tab_audio: "Audio", tab_setup: "Setup",
-    sub_work_tx: "Bearbeiten", sub_settings: "Einstellungen", sub_actions: "Werkzeuge",
-    lbl_model: "Modell", lbl_language: "Sprache", opt_auto: "Automatisch erkennen",
-    btn_transcribe: "Transkribieren", btn_loadsrt: "SRT laden", btn_play: "Abspielen", btn_pause: "Pause",
-    empty_p: "Klicke auf Transkribieren, um dein Video zu untertiteln.",
-    empty_hint: "Klick auf ein Wort = teilen · Doppelklick = bearbeiten.",
-    act_clear: "Leeren", act_send: "An Premiere senden",
-    export_title: "Exportieren als…", clean_title: "Bereinigen…",
-    sec_engine: "Transkriptions-Engine", sec_cleanup: "Textbereinigung",
-    sec_quality: "Untertitel-Qualität", sec_style: "Stil", sec_interface: "Oberfläche",
-    sec_modellang: "Modell & Sprache", sec_api: "KI & API", sec_timing: "Timing", sec_karaoke: "Karaoke",
-    lbl_uilang: "Sprache", lbl_theme: "Erscheinungsbild", theme_dark: "Dunkel", theme_light: "Hell", theme_auto: "Auto",
-    btn_replaceall: "Alle ersetzen", btn_cancel: "Abbrechen", btn_close: "Schließen",
-    nm_engine: "Engine", opt_eng_cpp: "Integrierte Engine — keine Installation ★",
-    nm_hwaccel: "Hardware-Beschleunigung", nm_threads: "CPU-Threads",
-    nm_autoformat: "Untertitel autoformatieren", lbl_cpl: "Max. Zeichen pro Zeile",
-  },
-  pt: {
-    tagline: "Legendas com IA", status_ready: "Pronto — clique em Transcrever",
-    tab_transcribe: "Legendas", tab_edit: "Edição", tab_audio: "Áudio", tab_setup: "Config",
-    sub_work_tx: "Editar", sub_settings: "Configurações", sub_actions: "Ferramentas",
-    lbl_model: "Modelo", lbl_language: "Idioma", opt_auto: "Detecção automática",
-    btn_transcribe: "Transcrever", btn_loadsrt: "Carregar SRT", btn_play: "Reproduzir", btn_pause: "Pausar",
-    empty_p: "Clique em Transcrever para legendar seu vídeo.",
-    empty_hint: "Clique numa palavra = dividir · duplo clique = editar.",
-    act_clear: "Limpar", act_send: "Enviar ao Premiere",
-    export_title: "Exportar como…", clean_title: "Limpar…",
-    sec_engine: "Motor de transcrição", sec_cleanup: "Limpeza do texto",
-    sec_quality: "Qualidade das legendas", sec_style: "Estilo", sec_interface: "Interface",
-    sec_modellang: "Modelo e idioma", sec_api: "IA e API", sec_timing: "Sincronização", sec_karaoke: "Karaokê",
-    lbl_uilang: "Idioma", lbl_theme: "Aparência", theme_dark: "Escuro", theme_light: "Claro", theme_auto: "Auto",
-    btn_replaceall: "Substituir tudo", btn_cancel: "Cancelar", btn_close: "Fechar",
-    nm_engine: "Motor", opt_eng_cpp: "Motor integrado — sem instalação ★",
-    nm_hwaccel: "Aceleração de hardware", nm_threads: "Threads de CPU",
-    nm_autoformat: "Autoformatar legendas", lbl_cpl: "Máx. de caracteres por linha",
-  },
-});
-Object.assign(I18N, {
-  fr: {
-    tagline: "Sous-titres IA", status_ready: "Prêt — cliquez sur Transcrire",
-    tab_transcribe: "Sous-titres", tab_edit: "Montage", tab_audio: "Audio", tab_setup: "Réglages",
-    sub_work_tx: "Éditer", sub_settings: "Réglages", sub_actions: "Outils",
-    lbl_model: "Modèle", lbl_language: "Langue", opt_auto: "Détection auto",
-    btn_transcribe: "Transcrire", btn_loadsrt: "Charger SRT", btn_play: "Lecture", btn_pause: "Pause",
-    empty_p: "Cliquez sur Transcrire pour sous-titrer votre vidéo.",
-    empty_hint: "Clic sur un mot = couper · double-clic = éditer.",
-    act_clear: "Effacer", act_send: "Envoyer à Premiere",
-    export_title: "Exporter en…", clean_title: "Nettoyer…",
-    sec_engine: "Moteur de transcription", sec_cleanup: "Nettoyage du texte",
-    sec_quality: "Qualité des sous-titres", sec_style: "Style", sec_interface: "Interface",
-    sec_modellang: "Modèle et langue", sec_api: "IA et API", sec_timing: "Synchronisation", sec_karaoke: "Karaoké",
-    lbl_uilang: "Langue", lbl_theme: "Apparence", theme_dark: "Sombre", theme_light: "Clair", theme_auto: "Auto",
-    btn_replaceall: "Tout remplacer", btn_cancel: "Annuler", btn_close: "Fermer",
-    nm_engine: "Moteur", opt_eng_cpp: "Moteur intégré — sans installation ★",
-    nm_hwaccel: "Accélération matérielle", nm_threads: "Threads CPU",
-    nm_autoformat: "Formater automatiquement", lbl_cpl: "Caractères max par ligne",
-  },
-  ru: {
-    tagline: "ИИ-субтитры", status_ready: "Готово — нажмите «Транскрибировать»",
-    tab_transcribe: "Субтитры", tab_edit: "Монтаж", tab_audio: "Аудио", tab_setup: "Настройки",
-    sub_work_tx: "Правка", sub_settings: "Настройки", sub_actions: "Инструменты",
-    lbl_model: "Модель", lbl_language: "Язык", opt_auto: "Автоопределение",
-    btn_transcribe: "Транскрибировать", btn_loadsrt: "Загрузить SRT", btn_play: "Играть", btn_pause: "Пауза",
-    empty_p: "Нажмите «Транскрибировать», чтобы создать субтитры.",
-    empty_hint: "Клик по слову — разделить · двойной клик — правка.",
-    act_clear: "Очистить", act_send: "Отправить в Premiere",
-    export_title: "Экспорт как…", clean_title: "Очистка…",
-    sec_engine: "Движок транскрипции", sec_cleanup: "Очистка текста",
-    sec_quality: "Качество субтитров", sec_style: "Стиль", sec_interface: "Интерфейс",
-    sec_modellang: "Модель и язык", sec_api: "ИИ и API", sec_timing: "Тайминг", sec_karaoke: "Караоке",
-    lbl_uilang: "Язык", lbl_theme: "Оформление", theme_dark: "Тёмное", theme_light: "Светлое", theme_auto: "Авто",
-    btn_replaceall: "Заменить все", btn_cancel: "Отмена", btn_close: "Закрыть",
-    nm_engine: "Движок", opt_eng_cpp: "Встроенный движок — без установки ★",
-    nm_hwaccel: "Аппаратное ускорение", nm_threads: "Потоки CPU",
-    nm_autoformat: "Автоформат субтитров", lbl_cpl: "Макс. символов в строке",
-  },
-  ar: {
-    tagline: "ترجمة بالذكاء الاصطناعي", status_ready: "جاهز — اضغط تفريغ",
-    tab_transcribe: "الترجمة", tab_edit: "تحرير", tab_audio: "الصوت", tab_setup: "الإعداد",
-    sub_work_tx: "تحرير", sub_settings: "الإعدادات", sub_actions: "أدوات",
-    lbl_model: "النموذج", lbl_language: "اللغة", opt_auto: "كشف تلقائي",
-    btn_transcribe: "تفريغ", btn_loadsrt: "تحميل SRT", btn_play: "تشغيل", btn_pause: "إيقاف",
-    empty_p: "اضغط تفريغ لإنشاء ترجمة للفيديو.",
-    empty_hint: "انقر كلمة = تقسيم · نقر مزدوج = تحرير.",
-    act_clear: "مسح", act_send: "أرسل إلى Premiere",
-    export_title: "تصدير كـ…", clean_title: "تنظيف…",
-    sec_engine: "محرك التفريغ", sec_cleanup: "تنظيف النص",
-    sec_quality: "جودة الترجمة", sec_style: "النمط", sec_interface: "الواجهة",
-    sec_modellang: "النموذج واللغة", sec_api: "ذكاء اصطناعي وAPI", sec_timing: "التوقيت", sec_karaoke: "كاريوكي",
-    lbl_uilang: "اللغة", lbl_theme: "المظهر", theme_dark: "داكن", theme_light: "فاتح", theme_auto: "تلقائي",
-    btn_replaceall: "استبدال الكل", btn_cancel: "إلغاء", btn_close: "إغلاق",
-    nm_engine: "المحرك", opt_eng_cpp: "محرك مدمج — بدون تثبيت ★",
-    nm_hwaccel: "تسريع عتادي", nm_threads: "خيوط المعالج",
-    nm_autoformat: "تنسيق تلقائي للترجمة", lbl_cpl: "أقصى حروف بالسطر",
-  },
-  az: {
-    tagline: "Süni intellekt altyazı", status_ready: "Hazır — Transkript düyməsinə basın",
-    tab_transcribe: "Altyazı", tab_edit: "Montaj", tab_audio: "Səs", tab_setup: "Quraşdırma",
-    sub_work_tx: "Redaktə", sub_settings: "Parametrlər", sub_actions: "Alətlər",
-    lbl_model: "Model", lbl_language: "Dil", opt_auto: "Avtomatik",
-    btn_transcribe: "Transkript", btn_loadsrt: "SRT yüklə", btn_play: "Oynat", btn_pause: "Fasilə",
-    empty_p: "Videonuza altyazı üçün Transkript düyməsinə basın.",
-    empty_hint: "Sözə klik = böl · ikiqat klik = redaktə.",
-    act_clear: "Təmizlə", act_send: "Premiere-ə göndər",
-    export_title: "Belə ixrac et…", clean_title: "Təmizlik…",
-    sec_engine: "Transkript mühərriki", sec_cleanup: "Mətn təmizliyi",
-    sec_quality: "Altyazı keyfiyyəti", sec_style: "Üslub", sec_interface: "İnterfeys",
-    sec_modellang: "Model və dil", sec_api: "Sİ və API", sec_timing: "Zamanlama", sec_karaoke: "Karaoke",
-    lbl_uilang: "Dil", lbl_theme: "Görünüş", theme_dark: "Tünd", theme_light: "Açıq", theme_auto: "Avto",
-    btn_replaceall: "Hamısını əvəz et", btn_cancel: "Ləğv et", btn_close: "Bağla",
-    nm_engine: "Mühərrik", opt_eng_cpp: "Daxili mühərrik — quraşdırma yoxdur ★",
-    nm_hwaccel: "Aparat sürətləndirmə", nm_threads: "CPU axınları",
-    nm_autoformat: "Altyazını avto-formatla", lbl_cpl: "Sətirdə maks. simvol",
-  },
-  uz: {
-    tagline: "SI subtitrlar", status_ready: "Tayyor — Transkripsiya'ni bosing",
-    tab_transcribe: "Subtitr", tab_edit: "Tahrir", tab_audio: "Audio", tab_setup: "Sozlama",
-    sub_work_tx: "Tahrirlash", sub_settings: "Sozlamalar", sub_actions: "Vositalar",
-    lbl_model: "Model", lbl_language: "Til", opt_auto: "Avto aniqlash",
-    btn_transcribe: "Transkripsiya", btn_loadsrt: "SRT yuklash", btn_play: "Ijro", btn_pause: "Pauza",
-    empty_p: "Videoga subtitr uchun Transkripsiya'ni bosing.",
-    empty_hint: "So'zga bosing = bo'lish · ikki marta bosing = tahrir.",
-    act_clear: "Tozalash", act_send: "Premiere'ga yuborish",
-    export_title: "Sifatida eksport…", clean_title: "Tozalash…",
-    sec_engine: "Transkripsiya dvigateli", sec_cleanup: "Matn tozalash",
-    sec_quality: "Subtitr sifati", sec_style: "Uslub", sec_interface: "Interfeys",
-    sec_modellang: "Model va til", sec_api: "SI va API", sec_timing: "Vaqt", sec_karaoke: "Karaoke",
-    lbl_uilang: "Til", lbl_theme: "Ko'rinish", theme_dark: "Qorong'i", theme_light: "Yorug'", theme_auto: "Avto",
-    btn_replaceall: "Hammasini almashtirish", btn_cancel: "Bekor", btn_close: "Yopish",
-    nm_engine: "Dvigatel", opt_eng_cpp: "O'rnatilgan dvigatel — o'rnatishsiz ★",
-    nm_hwaccel: "Apparat tezlashtirish", nm_threads: "CPU oqimlari",
-    nm_autoformat: "Subtitrni avto-format", lbl_cpl: "Qatordagi maks. belgi",
-  },
-  kk: {
-    tagline: "ЖИ субтитрлер", status_ready: "Дайын — «Транскрипциялау» басыңыз",
-    tab_transcribe: "Субтитр", tab_edit: "Өңдеу", tab_audio: "Аудио", tab_setup: "Баптау",
-    sub_work_tx: "Өңдеу", sub_settings: "Баптаулар", sub_actions: "Құралдар",
-    lbl_model: "Модель", lbl_language: "Тіл", opt_auto: "Авто анықтау",
-    btn_transcribe: "Транскрипциялау", btn_loadsrt: "SRT жүктеу", btn_play: "Ойнату", btn_pause: "Кідірту",
-    empty_p: "Видеоға субтитр үшін «Транскрипциялау» басыңыз.",
-    empty_hint: "Сөзге басу = бөлу · қос басу = өңдеу.",
-    act_clear: "Тазалау", act_send: "Premiere-ге жіберу",
-    export_title: "Былай экспорттау…", clean_title: "Тазалау…",
-    sec_engine: "Транскрипция қозғалтқышы", sec_cleanup: "Мәтінді тазалау",
-    sec_quality: "Субтитр сапасы", sec_style: "Стиль", sec_interface: "Интерфейс",
-    sec_modellang: "Модель мен тіл", sec_api: "ЖИ және API", sec_timing: "Уақыт", sec_karaoke: "Караоке",
-    lbl_uilang: "Тіл", lbl_theme: "Көрінісі", theme_dark: "Қараңғы", theme_light: "Ашық", theme_auto: "Авто",
-    btn_replaceall: "Барлығын алмастыру", btn_cancel: "Болдырмау", btn_close: "Жабу",
-    nm_engine: "Қозғалтқыш", opt_eng_cpp: "Кірістірілген қозғалтқыш — орнатусыз ★",
-    nm_hwaccel: "Аппараттық жеделдету", nm_threads: "CPU ағындары",
-    nm_autoformat: "Субтитрді авто-пішімдеу", lbl_cpl: "Жолдағы макс. таңба",
-  },
-});
 
 // ── Profanity ranges (word-timing based, for audio beeping) ────────────────
 function computeProfanityRanges() {
@@ -4717,23 +4579,76 @@ function computeProfanityRanges() {
 }
 
 // ── Project save / load (.subsper JSON) + crash-safe autosave ──────────────
+const PROJECT_SETTING_KEYS = [
+    "stylePreset", "customStyle", "karaoke", "karaokeHi",
+    "styleAnimation", "styleAnimationMs",
+    "subPosX", "subPosY", "subMaxW", "speakerColors",
+];
+function projectSettings() {
+    const out = {};
+    for (const key of PROJECT_SETTING_KEYS) if (settings[key] !== undefined) out[key] = settings[key];
+    return out;
+}
+function safeProjectStyle(raw) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const s = { ...DEFAULT_CUSTOM_STYLE };
+    if (/^[\p{L}\p{N}_ ,.-]{1,80}$/u.test(String(raw.font || ""))) s.font = raw.font;
+    for (const key of ["primary", "outline", "boxColor"]) {
+        if (/^[0-9a-fA-F]{6}$/.test(String(raw[key] || ""))) s[key] = raw[key].toUpperCase();
+    }
+    for (const [key, lo, hi] of [["size", 8, 160], ["outlineW", 0, 20], ["shadow", 0, 20],
+                                  ["align", 1, 9], ["boxAlpha", 0, 255], ["glow", 0, 20], ["marginV", 0, 500]]) {
+        if (Number.isFinite(+raw[key])) s[key] = Math.max(lo, Math.min(hi, +raw[key]));
+    }
+    for (const key of ["bold", "italic", "box"]) if (typeof raw[key] === "boolean") s[key] = raw[key];
+    return s;
+}
 function _projectData() {
     return {
         app: "subsper", version: APP_VERSION, savedAt: new Date().toISOString(),
         mediaPath: (typeof window !== "undefined" && window.__SUBSPER_MEDIA__) || null,
         seqInTime, lastLanguage,
         segments,
-        settings: { stylePreset: settings.stylePreset, customStyle: settings.customStyle,
-                    karaoke: settings.karaoke, karaokeHi: settings.karaokeHi },
+        originalSegments: typeof _originalSegments !== "undefined" ? _originalSegments : null,
+        settings: projectSettings(),
     };
 }
 function _loadProjectData(data) {
     if (!data || data.app !== "subsper" || !Array.isArray(data.segments)) throw new Error("Not a Subsper project file.");
+    if (data.segments.length > 100000 || data.segments.some(s => !s || !Number.isFinite(+s.seqStart) ||
+        !Number.isFinite(+s.seqEnd) || +s.seqStart < 0 || +s.seqEnd < +s.seqStart || typeof s.text !== "string"))
+        throw new Error("Invalid subtitle segments in project file.");
     pushUndo();
     segments = data.segments;
+    if (typeof _originalSegments !== "undefined") {
+        _originalSegments = Array.isArray(data.originalSegments) && data.originalSegments.every(s => s &&
+            Number.isFinite(+s.seqStart) && Number.isFinite(+s.seqEnd) && +s.seqEnd >= +s.seqStart)
+            ? data.originalSegments : null;
+    }
     seqInTime = data.seqInTime || 0;
     lastLanguage = data.lastLanguage || "";
-    if (data.settings) { Object.assign(settings, data.settings); saveSettings(); }
+    if (data.settings && typeof data.settings === "object") {
+        for (const key of PROJECT_SETTING_KEYS) {
+            if (!Object.prototype.hasOwnProperty.call(data.settings, key)) continue;
+            const value = data.settings[key];
+            if (key === "stylePreset" && Object.prototype.hasOwnProperty.call(STYLE_PRESETS, value)) settings[key] = value;
+            else if (key === "customStyle") settings[key] = safeProjectStyle(value);
+            else if (key === "karaoke" && typeof value === "boolean") settings[key] = value;
+            else if (key === "karaokeHi" && /^[0-9a-fA-F]{6}$/.test(String(value))) settings[key] = value;
+            else if (key === "styleAnimation" && ["none", "fade", "pop", "bounce"].includes(value)) settings[key] = value;
+            else if (key === "styleAnimationMs" && Number.isFinite(value) && value >= 80 && value <= 700) settings[key] = Math.round(value);
+            else if (["subPosX", "subPosY", "subMaxW"].includes(key) && (value === null || (Number.isFinite(value) && value >= 0 && value <= 100))) settings[key] = value;
+            else if (key === "speakerColors" && value && typeof value === "object" && !Array.isArray(value)) {
+                const colors = {};
+                for (const speaker of Object.keys(value).slice(0, 32)) {
+                    if (speaker !== "__proto__" && /^[0-9a-fA-F]{6}$/.test(String(value[speaker]))) colors[speaker.slice(0, 80)] = value[speaker];
+                }
+                settings[key] = colors;
+            }
+        }
+        saveSettings();
+    }
+    if (typeof window !== "undefined") window.__SUBSPER_MEDIA__ = typeof data.mediaPath === "string" ? data.mediaPath : null;
     renderSegments(); updateSegCount();
     actionsBar.style.display = segments.length ? "flex" : "none";
     sendBtn.disabled = segments.length === 0;
@@ -4749,8 +4664,9 @@ function saveProject() {
         if (window.cep && window.cep.fs && window.cep.fs.showSaveDialogEx) {
             const res = window.cep.fs.showSaveDialogEx("Save Subsper project", "", ["subsper"], defName, "SUBSPER");
             if (res && res.data) outPath = res.data;
+            else return; // user cancelled
         }
-    } catch (e) {}
+    } catch (e) { showToast("Save dialog failed: " + e.message, "error"); return; }
     if (!outPath) outPath = path.join(os.homedir(), "Desktop", defName);
     try {
         fs.writeFileSync(outPath, json, "utf8");
@@ -4764,6 +4680,7 @@ function openProject() {
             const res = window.cep.fs.showOpenDialogEx(false, false, "Open Subsper project", "", ["subsper"]);
             const p = res && res.data && res.data[0];
             if (p) { _loadProjectData(JSON.parse(fs.readFileSync(p, "utf8"))); return; }
+            return; // user cancelled
         }
     } catch (e) { showToast("Open failed: " + e.message, "error"); return; }
     // fallback: hidden input (desktop overrides with native dialog)
@@ -4780,6 +4697,7 @@ function openProject() {
 setInterval(() => {
     try {
         if (segments && segments.length) localStorage.setItem("ws_autosave", JSON.stringify(_projectData()));
+        else localStorage.removeItem("ws_autosave");
     } catch (e) {}
 }, 20000);
 function maybeOfferRestore() {
@@ -4796,7 +4714,16 @@ function maybeOfferRestore() {
           <button class="btn-secondary" id="rest-yes" style="padding:3px 12px">${isTr ? "Geri yükle" : "Restore"}</button>
           <button class="btn-secondary" id="rest-no" style="padding:3px 12px">${isTr ? "Sil" : "Discard"}</button>`;
         document.body.appendChild(bar);
-        $("rest-yes").onclick = () => { try { _loadProjectData(data); } catch (e) {} bar.remove(); };
+        $("rest-yes").onclick = () => {
+            try {
+                _loadProjectData(data);
+                if (IS_DESKTOP_APP && data.mediaPath && window.__loadMedia) {
+                    if (fs.existsSync(data.mediaPath)) window.__loadMedia(data.mediaPath, true);
+                    else showToast("Saved media is missing: " + data.mediaPath, "warning", 6000);
+                }
+            } catch (e) { showToast("Restore failed: " + e.message, "error"); }
+            bar.remove();
+        };
         $("rest-no").onclick = () => { localStorage.removeItem("ws_autosave"); bar.remove(); };
     } catch (e) {}
 }
@@ -4982,13 +4909,18 @@ async function sendStyledGraphics() {
 async function sendTranslationToPremiere() {
     if (IS_DESKTOP_APP) { exportTranslationSRT(); return; }
     const map = parseNumberedAi($("ai-output") ? $("ai-output").value : "");
-    if (!Object.keys(map).length) { showToast("Run Translate first", "info", 2500); return; }
+    if (Object.keys(map).length !== segments.length || segments.some((_, i) => !map[i])) {
+        showToast("Translation must contain one numbered line per subtitle", "error", 4000); return;
+    }
     const srt = segments.map((seg, i) =>
         `${i + 1}\n${formatTime(seg.seqStart)} --> ${formatTime(seg.seqEnd)}\n${map[i] != null ? map[i] : seg.text}\n`).join("\n");
     setStatus("Sending translated captions…", "info");
     const escaped = srt.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\r?\n/g, "\\n");
     const r = await evalScript(`importSRTToProject('${escaped}')`);
-    if (r && r.success) { setStatus("✓ Translated caption track added", "success"); showToast("Translation on the timeline", "success"); }
+    if (r && r.success) {
+        setStatus(r.autoAdded ? "✓ Translated caption track added" : "SRT saved — import it manually: " + r.srtPath, "success");
+        showToast(r.autoAdded ? "Translation on the timeline" : "Translation SRT saved for manual import", "success");
+    }
     else handleError((r && r.error) || "Failed");
 }
 
@@ -5099,11 +5031,19 @@ function snapshotOriginalSegments() {
 }
 function computeDeletedRanges() {
     if (!_originalSegments || !_originalSegments.length) return [];
-    const covered = (t) => segments.some(s => t >= s.seqStart - 0.02 && t <= s.seqEnd + 0.02);
+    const kept = segments.map(s => ({ start: +s.seqStart, end: +s.seqEnd }))
+        .filter(r => Number.isFinite(r.start) && Number.isFinite(r.end) && r.end > r.start)
+        .sort((a, b) => a.start - b.start);
     const removed = [];
     for (const o of _originalSegments) {
-        const mid = (o.seqStart + o.seqEnd) / 2;
-        if (!covered(mid)) removed.push({ start: o.seqStart, end: o.seqEnd });
+        let cursor = o.seqStart;
+        for (const k of kept) {
+            if (k.end <= cursor || k.start >= o.seqEnd) continue;
+            if (k.start > cursor + 0.02) removed.push({ start: cursor, end: Math.min(k.start, o.seqEnd) });
+            cursor = Math.max(cursor, Math.min(k.end, o.seqEnd));
+            if (cursor >= o.seqEnd) break;
+        }
+        if (cursor < o.seqEnd - 0.02) removed.push({ start: cursor, end: o.seqEnd });
     }
     removed.sort((a, b) => a.start - b.start);
     const merged = [];
@@ -5128,9 +5068,11 @@ async function applyTextCuts() {
         const arg = JSON.stringify(chosen).replace(/'/g, "\\'");
         const r = await evalScript(`rippleDeleteRanges('${arg}')`);
         if (r && r.success) {
-            snapshotOriginalSegments();   // current state becomes the new baseline
+            // Ripple edits shift sequence time. The current transcript still
+            // uses the old time axis; require a fresh transcript before another cut.
+            _originalSegments = null;
             setEditStatus(`✓ Removed ${r.removed} item(s) — timeline follows your text`, "success");
-            showToast(settings.uiLang === "tr" ? "Video metnini takip etti ✂ (geri almak: Premiere'de Cmd+Z)" : "Video now follows your text ✂ (undo in Premiere: Cmd+Z)", "success", 6000);
+            showToast(settings.uiLang === "tr" ? "Kesim yapıldı. Yeni kesimden önce tekrar transcribe et (geri al: Cmd+Z)." : "Cut complete. Transcribe again before another cut (undo: Cmd+Z).", "success", 6000);
         } else setEditStatus((r && r.error) || "Cut failed", "error");
     });
 }

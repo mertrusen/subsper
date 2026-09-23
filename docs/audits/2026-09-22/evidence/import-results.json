@@ -1,0 +1,18 @@
+{
+  "events": [
+    "new-srt-written",
+    "old-bin-deleted",
+    "new-import-failed"
+  ],
+  "result": {
+    "success": true,
+    "autoAdded": false,
+    "srtPath": "/tmp/audit-project/whisper_1790101836.srt",
+    "diag": [
+      "deleted old bin",
+      "QE cleanup skipped: ReferenceError: qe is not defined",
+      "importFiles=false",
+      "NO new item found"
+    ]
+  }
+}

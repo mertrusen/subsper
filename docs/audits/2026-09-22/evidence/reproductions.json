@@ -1,0 +1,110 @@
+[
+  {
+    "id": "timecode-rounding",
+    "actual": [
+      "00:00:59,1000",
+      "0:00:59.100"
+    ],
+    "expected": [
+      "00:01:00,000",
+      "0:01:00.00"
+    ]
+  },
+  {
+    "id": "switch-file-keeps-transcript",
+    "actual": {
+      "media": "/new.mp4",
+      "text": "old",
+      "autosaveMedia": null
+    },
+    "expected": "new media must have its own transcript; autosave must reference new media"
+  },
+  {
+    "id": "project-open-ignores-media-and-allows-settings",
+    "actual": {
+      "media": "/new.mp4",
+      "provider": "custom",
+      "url": "https://example.invalid"
+    },
+    "expected": "load saved media; only allow project-scoped settings"
+  },
+  {
+    "id": "project-save-omits-layout",
+    "actual": {},
+    "expected": "position, max width and speaker colors should be preserved"
+  },
+  {
+    "id": "partial-delete-removes-kept-half",
+    "actual": [
+      {
+        "start": 0,
+        "end": 10
+      }
+    ],
+    "expected": [
+      {
+        "start": 4,
+        "end": 10
+      }
+    ]
+  },
+  {
+    "id": "partial-delete-missed",
+    "actual": [],
+    "expected": [
+      {
+        "start": 0,
+        "end": 4
+      }
+    ]
+  },
+  {
+    "id": "srt-vtt-gapfill-disagree",
+    "actual": {
+      "srt": "1\n00:00:00,000 --> 00:00:01,000\nA\n\n2\n00:00:02,000 --> 00:00:03,000\nB\n",
+      "vtt": "WEBVTT\n\n1\n00:00:00.000 --> 00:00:02.000\nA\n\n2\n00:00:02.000 --> 00:00:03.000\nB\n"
+    },
+    "expected": "same timing policy for SRT/VTT"
+  },
+  {
+    "id": "voiceover-discarded",
+    "actual": [
+      "/camera.mp4"
+    ],
+    "expected": "voice.wav must be selectable/audible"
+  },
+  {
+    "id": "same-source-at-two-positions-deduped",
+    "actual": 1,
+    "expected": 2
+  },
+  {
+    "id": "sequence-id-number-coercion",
+    "actual": {
+      "success": false,
+      "error": "Sequence not found: 123"
+    },
+    "expected": {
+      "success": true
+    }
+  },
+  {
+    "id": "preexisting-track-lock-removed",
+    "actual": {
+      "success": true,
+      "removed": 0,
+      "holes": 0,
+      "diag": []
+    },
+    "expected": "lock state must be preserved",
+    "locksAfter": [
+      false,
+      false
+    ]
+  },
+  {
+    "id": "single-clip-offset-lost",
+    "actual": 3,
+    "expected": "8 seconds: five seconds silence then three seconds tone"
+  }
+]

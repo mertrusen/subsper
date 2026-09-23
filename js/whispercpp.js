@@ -167,7 +167,10 @@ function modelPath(modelKey) {
     return path.join(modelsDir(), file);
 }
 
-function modelExists(modelKey) { return safeExists(modelPath(modelKey)); }
+function modelExists(modelKey) {
+    const file = modelPath(modelKey);
+    return safeExists(file) && verifyModel(file, modelKey) === null;
+}
 
 function verifyModel(filepath, modelKey) {
     if (!safeExists(filepath)) return "File does not exist";
@@ -199,8 +202,9 @@ function cleanupStaleDownloads() {
                 const fp = path.join(dir, f);
                 try {
                     const stat = fs.statSync(fp);
-                    // Delete .part files older than 1 hour (stale downloads)
-                    if (Date.now() - stat.mtimeMs > 3600000) {
+                    // Keep recent partial downloads so a large model can resume
+                    // after the app is closed overnight.
+                    if (Date.now() - stat.mtimeMs > 30 * 86400000) {
                         dbg('cleanup: removing stale ' + f);
                         fs.unlinkSync(fp);
                     }
@@ -217,7 +221,12 @@ const RETRIABLE = /ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|socket hang up|timed
  * onProgress(fraction, bytes, total[, phase]). */
 function ensureModel(modelKey, onProgress) {
     const dest = modelPath(modelKey);
-    if (safeExists(dest)) return Promise.resolve(dest);
+    if (safeExists(dest)) {
+        const problem = verifyModel(dest, modelKey);
+        if (!problem) return Promise.resolve(dest);
+        try { fs.unlinkSync(dest); dbg("Removing damaged cached model: " + problem); }
+        catch (e) { return Promise.reject(new Error(problem + " — could not replace the damaged model: " + e.message)); }
+    }
     const file = GGML_FILES[modelKey] || GGML_FILES.turbo;
     const url  = HF_BASE + file;
     const dir = path.dirname(dest);
@@ -470,7 +479,9 @@ async function extractClipsToWav(appDir, clipsData, outWav, spawnOpts) {
     const missing = clips.find(c => !safeExists(c.path));
     if (missing) throw new Error("Source media file not found on disk:\n" + missing.path +
                                  "\nRe-link the offline clip in Premiere and try again.");
-    if (clips.length === 1) return _ffSingleClip(appDir, clips[0], outWav, spawnOpts);
+    if (clips.length === 1 && !(+clips[0].timelineStart > 0.001) &&
+        !(+clipsData.duration > +clips[0].duration + 0.001))
+        return _ffSingleClip(appDir, clips[0], outWav, spawnOpts);
 
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "subsper_ext_"));
     try {
@@ -482,7 +493,6 @@ async function extractClipsToWav(appDir, clipsData, outWav, spawnOpts) {
             catch (e) { /* skip a bad clip, keep going */ }
         }
         if (!parts.length) throw new Error("All audio extractions failed.");
-        if (parts.length === 1) { fs.copyFileSync(parts[0].wav, outWav); return outWav; }
         return await _ffMixClips(appDir, parts, outWav, parseFloat(clipsData.duration) || 0, spawnOpts);
     } finally {
         try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}

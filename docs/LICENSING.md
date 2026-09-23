@@ -69,7 +69,7 @@ MCowBQYDK2VwAyEA…
 };
 ```
 
-Remember to run `scripts/sync-from-extension.sh` so the desktop copy matches, or
+Remember to run `scripts/sync-to-extension.sh` so the Premiere copy matches, or
 CI's mirror check will fail.
 
 An empty `publicKeyPem` **fails closed**: no token can verify, so the app stays
@@ -190,7 +190,7 @@ support.
 - [ ] Key pair generated, private key on the server only
 - [ ] `/activate` live, returning signed tokens
 - [ ] `LIC.enabled = true`, other three values filled in
-- [ ] `scripts/sync-from-extension.sh` run, `dev/test/check-mirror.sh` green
+- [ ] `scripts/sync-to-extension.sh` run, `dev/test/check-mirror.sh` green
 - [ ] Bought a licence end-to-end yourself with a real card
 - [ ] Checked a token from machine A is rejected on machine B
 - [ ] Decided what happens at seat limit and written that `error` string

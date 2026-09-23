@@ -30,6 +30,8 @@ WANTED = [
     "escRe", "WORD_CHARS", "wordRe", "upperIn", "matchCase", "stemAlt",
     "tidyText", "capFirst", "parseDictRules", "wrapText",
     "p2", "p3", "formatTime",
+    "fmtASS", "applyGapFill", "_exportSegs", "segmentsToSRT", "currentWords", "buildWordSRT", "assEffectTag",
+    "PROJECT_SETTING_KEYS", "projectSettings", "safeProjectStyle", "_projectData", "_loadProjectData", "computeDeletedRanges",
     # transcript clean-up
     "BUILTIN_FILLERS", "BUILTIN_PROFANITY",
     "getFillerList", "applyDictionary", "removeFillers", "censorProfanity",

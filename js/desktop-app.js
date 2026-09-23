@@ -55,13 +55,27 @@
   evalScript  = function () { return Promise.resolve({ success: false, error: "Not available in desktop mode" }); };
 
   // ── File pickers (via main process dialogs) ───────────────────────────────
-  async function pickMedia() {
+  async function pickMedia(preserveTranscript) {
     const res = await ipcRenderer.invoke("dialog:openMedia");
-    if (res && res.filePath) loadMedia(res.filePath);
+    if (res && res.filePath) loadMedia(res.filePath, preserveTranscript);
   }
 
-  function loadMedia(p) {
+  function loadMedia(p, preserveTranscript) {
+    if (p !== mediaPath && !preserveTranscript) {
+      if (segments.length && !confirm(settings.uiLang === "tr"
+          ? "Mevcut altyazılar temizlenecek. Önce projeyi kaydettiğinden emin misin?"
+          : "The current subtitles will be cleared. Have you saved the project?")) return;
+      if (_transcribeAbort) _transcribeAbort.abort();
+      segments = [];
+      selectedIndex = -1;
+      _originalSegments = null;
+      renderSegments(); updateSegCount();
+      if (actionsBar) actionsBar.style.display = "none";
+      if (sendBtn) sendBtn.disabled = true;
+      try { localStorage.removeItem("ws_autosave"); } catch (e) {}
+    }
     mediaPath = p;
+    window.__SUBSPER_MEDIA__ = p;
     if (mediaEl) {
       mediaEl.src = fileUrl(p);
       mediaEl.style.display = "block";
@@ -143,6 +157,7 @@
 
     const model    = document.getElementById("model-select").value;
     const language = document.getElementById("lang-select").value;
+    const transcriptionMedia = mediaPath;
 
     try {
       showProgress(true);
@@ -169,6 +184,7 @@
           stderr => { if (/download/i.test(stderr)) setStatus("Downloading model… (one-time)", "info"); });
       }
 
+      if (transcriptionMedia !== mediaPath) return;
       if (!txRes.success) { handleError(txRes.error || "Transcription failed."); return; }
 
       lastLanguage = txRes.language || (language !== "auto" ? language : "");
@@ -194,6 +210,7 @@
 
       // No timeline offset on desktop
       segments = segs.map(s => ({ ...s, seqStart: s.start, seqEnd: s.end }));
+      snapshotOriginalSegments();
       renderSegments();
 
       if (segments.length === 0) {
@@ -250,10 +267,14 @@
     if (!seg) return;
     selectSegment(idx);
     if (mediaEl && mediaPath) {
+      const wasPlaying = !mediaEl.paused;
       mediaEl.currentTime = seg.seqStart;
-      await mediaEl.play().catch(e => console.warn("Seek play error:", e));
+      if (wasPlaying && mediaEl.paused) await mediaEl.play().catch(e => console.warn("Seek play error:", e));
       const btn = document.getElementById("playpause-btn");
-      if (btn) { btn.innerHTML = "⏸&nbsp; Pause"; btn.classList.add("playing"); }
+      if (btn) {
+        btn.innerHTML = wasPlaying ? "⏸&nbsp; Pause" : "▶&nbsp; Play";
+        btn.classList.toggle("playing", wasPlaying);
+      }
     }
   };
 
@@ -414,15 +435,16 @@
     const controls = document.querySelector("#panel-tx-work .controls");
     if (controls) {
       const openBtn = document.createElement("button");
+      openBtn.id = "desktop-open-media";
       openBtn.className = "btn-transcribe";
       openBtn.style.cssText = "margin-top:0;margin-bottom:10px;background:var(--bg3);border:1px solid var(--border2);box-shadow:none;color:var(--text)";
-      openBtn.innerHTML = '<span class="ic">' + (typeof icon === "function" ? icon("folder") : "") + '</span><span>Open Video / Audio File</span>';
+      openBtn.innerHTML = '<span class="ic">' + (typeof icon === "function" ? icon("folder") : "") + '</span><span>' + (settings.uiLang === "tr" ? "Video / Ses Dosyası Aç" : "Open Video / Audio File") + '</span>';
       openBtn.setAttribute("data-tip", "Bilgisayardan bir video/ses dosyası seç (pencereye sürükle-bırak da olur)");
       openBtn.onclick = pickMedia;
 
       const nameRow = document.createElement("div");
       nameRow.style.cssText = "font-size:10px;color:var(--text3);margin-bottom:10px;text-align:center;word-break:break-all";
-      nameRow.innerHTML = '<span id="media-name">No file loaded — drag a file here</span>';
+      nameRow.innerHTML = '<span id="media-name">' + (settings.uiLang === "tr" ? "Dosya seçilmedi — buraya sürükleyebilirsin" : "No file loaded — drag a file here") + '</span>';
 
       mediaEl = document.createElement("video");
       mediaEl.id = "media-preview";
@@ -502,7 +524,9 @@
               if (span && span.textContent !== txt) span.textContent = txt;
               if (subOverlay.dataset.ready !== "1") applyOverlayStyle();   // geometry retry
               subOverlay.style.display = (txt && subOverlay.dataset.ready === "1") ? "block" : "none";
+              applyOverlayAnimation(activeIdx >= 0 ? segments[activeIdx] : null, t);
           }
+          syncWavePlayhead(true);
       };
 
       controls.insertBefore(openBtn, controls.firstChild);
@@ -570,7 +594,7 @@
     Object.assign(I18N.tr, {
       btn_transcribe: "Dosyayı Yazıya Dök",
       tip_transcribe: "Yüklü video/ses dosyasını yazıya döker",
-      empty_p: "Bir video/ses dosyası aç, sonra Transcribe'a bas.",
+      empty_p: "Bir video veya ses dosyası aç, ardından Yazıya Dök'e bas.",
       status_ready: "Başlamak için bir video/ses dosyası aç",
       btn_cut: "Sessizlikleri Kes (kırpılmış dosya)",
       tip_cut: "Sessiz boşlukları bulup kırpılmış bir kopya çıkarır (CapCut için ideal)",
@@ -641,7 +665,7 @@
       fsD.writeFileSync(assPath, segmentsToASS(), "utf8");
       // ffmpeg subtitles filter: escape ' : \ for the filter graph
       const esc = assPath.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
-      const fdEsc = fontsDir().replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
+      const fdEsc = fontSearchDir().replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
       await new Promise((resolve, reject) => {
         // Name the video encoder. With no -c:v, ffmpeg picks the container
         // default: that used to resolve to libx264, and against the LGPL build
@@ -750,6 +774,20 @@
     if (!scroll) return 0;
     return Math.max(scroll.clientWidth, Math.round(scroll.clientWidth * _waveZoom));
   }
+  function syncWavePlayhead(follow) {
+    const scroll = document.getElementById("waveform-scroll");
+    const ph = document.getElementById("waveform-ph");
+    if (!scroll || !ph || !mediaEl || !Number.isFinite(mediaEl.duration) || mediaEl.duration <= 0) return;
+    const x = mediaEl.currentTime / mediaEl.duration * waveVirtualW();
+    ph.style.left = x + "px";
+    if (follow && _waveZoom > 1) {
+      const left = scroll.scrollLeft, view = scroll.clientWidth;
+      if (x < left + view * .16 || x > left + view * .84)
+        scroll.scrollLeft = Math.max(0, x - view * .5);
+    }
+    const readout = document.getElementById("waveform-time");
+    if (readout) readout.textContent = `${Math.floor(mediaEl.currentTime / 60)}:${String(Math.floor(mediaEl.currentTime % 60)).padStart(2, "0")}`;
+  }
   // Virtualized draw: the canvas is viewport-sized and sticky — only the
   // visible slice is rendered, so any zoom level stays fast and never hits
   // the 32k canvas width limit (that was the "freeze").
@@ -791,6 +829,15 @@
     const d = pathD.join(base, "fonts");
     try { fsD.mkdirSync(d, { recursive: true }); } catch (e) {}
     return d;
+  }
+  function fontSearchDir() {
+    const family = typeof getActivePreset === "function" ? getActivePreset().font : "";
+    if (["Inter", "Montserrat", "Oswald", "Bebas Neue"].includes(family)) {
+      const root = extDir();
+      const dev = pathD.join(root, "assets", "fonts");
+      return fsD.existsSync(dev) ? dev : pathD.join(root, "fonts");
+    }
+    return fontsDir();
   }
   // family name from the sfnt 'name' table (nameID 1) — libass matches by
   // family, not filename, so the burned output needs the real name
@@ -927,6 +974,27 @@
       else if (p.align === 5) { s.top = "50%"; s.bottom = "auto"; s.transform = "translate(-50%,-50%)"; }
       else                    { s.bottom = "5%"; s.top = "auto"; }
     }
+    span.dataset.baseTransform = s.transform;
+  }
+  function applyOverlayAnimation(seg, currentTime) {
+    const span = document.getElementById("sub-overlay-t");
+    if (!span) return;
+    const mode = settings.styleAnimation || "none";
+    if (!seg || mode === "none" || (mediaEl && mediaEl.paused)) {
+      span.style.opacity = "1";
+      span.style.transform = span.dataset.baseTransform || "translateX(-50%)";
+      return;
+    }
+    const duration = Math.min(.7, Math.max(.08, (+settings.styleAnimationMs || 220) / 1000));
+    const elapsed = Math.max(0, currentTime - seg.seqStart);
+    const remaining = Math.max(0, seg.seqEnd - currentTime);
+    const enter = Math.min(1, elapsed / duration);
+    const leave = Math.min(1, remaining / duration);
+    span.style.opacity = String(Math.min(enter, leave));
+    let scale = 1;
+    if (mode === "pop") scale = .75 + .25 * (1 - Math.pow(1 - enter, 3));
+    if (mode === "bounce") scale = enter < .55 ? .72 + .4 * (enter / .55) : 1.12 - .12 * ((enter - .55) / .45);
+    span.style.transform = (span.dataset.baseTransform || "translateX(-50%)") + ` scale(${scale.toFixed(3)})`;
   }
   // restyle whenever the style UI changes (chains after features-v2's own wrapper)
   setTimeout(() => {
@@ -935,6 +1003,7 @@
       window.updateStylePreview = function () {
         const r = _usp.apply(this, arguments);
         try { applyOverlayStyle(); } catch (e) {}
+        try { if (mediaEl && typeof mediaEl.ontimeupdate === "function") mediaEl.ontimeupdate(); } catch (e) {}
         return r;
       };
     applyOverlayStyle();
@@ -950,15 +1019,15 @@
     if (!scroll) {
       scroll = document.createElement("div");
       scroll.id = "waveform-scroll";
-      scroll.style.cssText = "position:relative;width:100%;overflow-x:auto;overflow-y:hidden;background:var(--bg3,#111);border-radius:6px;margin-bottom:10px";
+      scroll.style.cssText = "position:relative;width:100%;overflow-x:auto;overflow-y:hidden;background:var(--bg3,#111);border-radius:8px;margin-bottom:10px";
       scroll.title = settings.uiLang === "tr"
-        ? "Dikey kaydır: yakınlaş · yatay kaydır: gezin · tık: o ana git"
-        : "Scroll ↕ to zoom · scroll ↔ to pan · click to seek";
+        ? "Sürükle: gezin · tekerlek: yakınlaştır · Shift+tekerlek: kaydır · tık: o ana git"
+        : "Drag to pan · wheel to zoom · Shift+wheel to scroll · click to seek";
       // sticky viewport-sized canvas + a spacer that provides the scroll width
       canvas = document.createElement("canvas");
       canvas.id = "waveform-canvas";
       // 12px gap above the wave = grab zone for the playhead triangle
-      canvas.style.cssText = "height:44px;display:block;cursor:pointer;position:sticky;left:0;margin-top:12px";
+      canvas.style.cssText = "height:44px;display:block;cursor:grab;position:sticky;left:0;margin-top:12px";
       const spacer = document.createElement("div");
       spacer.id = "waveform-spacer";
       spacer.style.cssText = "height:1px;margin-top:-1px;pointer-events:none";
@@ -966,14 +1035,47 @@
       scroll.appendChild(spacer);
       // after the video WRAP (not the video) — the overlay must not cover the strip
       (document.getElementById("video-wrap") || mediaEl).insertAdjacentElement("afterend", scroll);
+      const bar = document.createElement("div");
+      bar.id = "waveform-controls";
+      bar.innerHTML = `<span class="wave-label">${settings.uiLang === "tr" ? "Zaman çizgisi" : "Timeline"}</span><span id="waveform-time">0:00</span><div class="wave-zoom"><button type="button" id="wave-minus" aria-label="${settings.uiLang === "tr" ? "Uzaklaştır" : "Zoom out"}">−</button><button type="button" id="wave-fit">${settings.uiLang === "tr" ? "Sığdır" : "Fit"}</button><button type="button" id="wave-plus" aria-label="${settings.uiLang === "tr" ? "Yakınlaştır" : "Zoom in"}">+</button></div>`;
+      scroll.insertAdjacentElement("beforebegin", bar);
+      const zoomTo = z => {
+        const anchor = mediaEl && mediaEl.duration > 0 ? mediaEl.currentTime / mediaEl.duration : .5;
+        _waveZoom = Math.max(1, Math.min(60, z));
+        _drawWave();
+        scroll.scrollLeft = anchor * waveVirtualW() - scroll.clientWidth * .5;
+        _drawWave(); syncWavePlayhead(false);
+      };
+      document.getElementById("wave-minus").onclick = () => zoomTo(_waveZoom / 1.5);
+      document.getElementById("wave-fit").onclick = () => zoomTo(1);
+      document.getElementById("wave-plus").onclick = () => zoomTo(_waveZoom * 1.5);
       // Cursor x in VIEWPORT space (within the visible strip)
       const relX = e => e.clientX - scroll.getBoundingClientRect().left;
+      let suppressClick = false;
+      canvas.addEventListener("mousedown", ev => {
+        if (ev.button !== 0) return;
+        const startX = ev.clientX, startScroll = scroll.scrollLeft;
+        let moved = false;
+        const move = mv => {
+          if (Math.abs(mv.clientX - startX) > 3) moved = true;
+          if (moved) scroll.scrollLeft = startScroll - (mv.clientX - startX);
+        };
+        const up = () => {
+          document.removeEventListener("mousemove", move);
+          document.removeEventListener("mouseup", up);
+          if (moved) { suppressClick = true; setTimeout(() => { suppressClick = false; }, 0); }
+        };
+        document.addEventListener("mousemove", move);
+        document.addEventListener("mouseup", up);
+      });
       canvas.onclick = (e) => {
+        if (suppressClick) return;
         if (!mediaEl.duration) return;
         const frac = (scroll.scrollLeft + relX(e)) / Math.max(1, waveVirtualW());
         mediaEl.currentTime = Math.max(0, Math.min(1, frac)) * mediaEl.duration;
       };
       scroll.addEventListener("wheel", (e) => {
+        if (e.shiftKey) { e.preventDefault(); scroll.scrollLeft += e.deltaY; return; }
         // horizontal scroll = native pan — don't steal it (it used to freeze)
         if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
         e.preventDefault();
@@ -1017,10 +1119,10 @@
         document.addEventListener("mouseup", up);
       });
       scroll.appendChild(ph);
+      mediaEl.addEventListener("seeked", () => syncWavePlayhead(true));
       canvas._phTimer = setInterval(() => {
         if (!mediaEl.duration || !scroll.isConnected) return;
-        // content-space left — the marker scrolls with the content
-        ph.style.left = (mediaEl.currentTime / mediaEl.duration * waveVirtualW()) + "px";
+        syncWavePlayhead(!mediaEl.paused);
       }, 100);
     }
     try {
@@ -1046,8 +1148,12 @@
     } catch (e) { console.warn("waveform failed:", e); }
   }
   const _origLoadMedia = loadMedia;
-  loadMedia = function (p) { _origLoadMedia(p); setTimeout(buildWaveform, 50); };
-  window.__loadMedia = p => loadMedia(p);   // test hook (loadMedia is IIFE-private)
+  loadMedia = function (p, preserveTranscript) {
+    const before = mediaPath;
+    _origLoadMedia(p, preserveTranscript);
+    if (mediaPath !== before) setTimeout(buildWaveform, 50);
+  };
+  window.__loadMedia = (p, preserveTranscript) => loadMedia(p, preserveTranscript);   // test hook
 
   // Multi-file drag & drop → batch
   document.addEventListener("drop", e => {
@@ -1137,7 +1243,23 @@
     const res = await ipcRenderer.invoke("dialog:openProject");
     const p = res && res.filePath;
     if (!p) return;
-    try { _loadProjectData(JSON.parse(fsD.readFileSync(p, "utf8"))); }
+    try {
+      const data = JSON.parse(fsD.readFileSync(p, "utf8"));
+      const missingMedia = data.mediaPath && !fsD.existsSync(data.mediaPath);
+      if (_transcribeAbort) _transcribeAbort.abort();
+      _loadProjectData(data);
+      if (data.mediaPath && !missingMedia) loadMedia(data.mediaPath, true);
+      else {
+        mediaPath = null; window.__SUBSPER_MEDIA__ = null;
+        if (mediaEl) { mediaEl.removeAttribute("src"); mediaEl.style.display = "none"; mediaEl.load(); }
+        const lbl = document.getElementById("media-name"); if (lbl) lbl.textContent = "";
+        const tb = document.getElementById("transcribe-btn"); if (tb) tb.disabled = true;
+      }
+      if (missingMedia) {
+        showToast("Project loaded. Choose the moved media file to relink it.", "warning", 6000);
+        await pickMedia(true);
+      }
+    }
     catch (e) { showToast("Open failed: " + e.message, "error"); }
   };
   // Native project save
@@ -1286,7 +1408,8 @@
     setStatus(`Cutting ${removed.length} range(s)…`, "info"); showProgress(true);
     try {
       await WCPP.cutMedia(extDir(), mediaPath, res.filePath, keep, { video: !isAudio });
-      snapshotOriginalSegments();
+      // Keep the baseline on the original media. A second export must include
+      // every deleted range, or previously removed material reappears.
       setStatus(`✓ Edited file → ${res.filePath}`, "success");
       showToast("Video now follows your text ✂", "success", 5000);
     } catch (e) { setStatus(e.message, "error"); }
@@ -1307,7 +1430,7 @@
       if (segments.length) {
         fsD.writeFileSync(assPath, segmentsToASS(), "utf8");
         const esc = assPath.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
-        const fdEsc = fontsDir().replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
+        const fdEsc = fontSearchDir().replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
         vf += ",subtitles='" + esc + "':fontsdir='" + fdEsc + "'";
       }
       await new Promise((resolve, reject) => {

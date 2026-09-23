@@ -5,6 +5,14 @@
 var segments = [];
 var selectedIndex = -1;
 var lastLanguage = "";
+var seqInTime = 0;
+var _originalSegments = null;
+var APP_VERSION = "1.3.0";
+var DEFAULT_CUSTOM_STYLE = { font: "Arial", size: 54, primary: "FFFFFF", outline: "000000", boxColor: "000000" };
+var STYLE_PRESETS = { clean: {}, custom: {} };
+var window = {};
+var actionsBar = { style: {} };
+var sendBtn = { disabled: false };
 var activeFindRegex = null;
 var findMatchSegs = [];
 

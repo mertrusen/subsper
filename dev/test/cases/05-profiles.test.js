@@ -1,5 +1,15 @@
 group("settings profiles");
 
+(function modelAndLanguageRoundTrip() {
+    resetEnv({}); localStorage.clear();
+    settings.whisperModel = "tiny"; settings.spokenLang = "tr";
+    saveProfile("model-language");
+    settings.whisperModel = "large"; settings.spokenLang = "en";
+    loadProfile("model-language");
+    eq("model restored", settings.whisperModel, "tiny");
+    eq("spoken language restored", settings.spokenLang, "tr");
+})();
+
 (function roundTrip() {
     resetEnv({});
     localStorage.clear();

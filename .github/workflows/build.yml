@@ -107,11 +107,12 @@ jobs:
           path: bin
           key: engine-${{ runner.os }}-gpu1-${{ hashFiles('scripts/fetch-binaries.mjs') }}
       # Signed when the certificate secrets exist, unsigned otherwise so that
-      # forks and dry runs still build. A TAGGED release must be signed — the
-      # guard below refuses to publish an unsigned installer, because unsigned
-      # means every buyer meets a SmartScreen "unknown publisher" wall.
+      # forks and dry runs still build. A final TAGGED release must be signed —
+      # the guard below refuses to publish an unsigned installer, because
+      # unsigned means every buyer meets a SmartScreen "unknown publisher" wall.
+      # Preview tags (v1.4.0-preview.2) may ship unsigned until certificates exist.
       - name: Refuse to release Windows unsigned
-        if: startsWith(github.ref, 'refs/tags/') && env.WIN_CSC_LINK == ''
+        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-') && env.WIN_CSC_LINK == ''
         shell: bash
         env:
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
@@ -153,8 +154,9 @@ jobs:
       # Unsigned + un-notarized macOS builds are quarantined by Gatekeeper with
       # "Subsper is damaged and can't be opened" — which reads as a virus
       # warning to a paying customer. A tagged release must carry a Developer ID.
+      # Preview tags may ship unsigned, like the Windows guard above.
       - name: Refuse to release macOS unsigned
-        if: startsWith(github.ref, 'refs/tags/') && env.MAC_CSC_LINK == ''
+        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-') && env.MAC_CSC_LINK == ''
         shell: bash
         env:
           MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
@@ -172,7 +174,9 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       - name: Verify the .dmg is signed and notarized
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') && env.MAC_CSC_LINK != ''
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
         run: |
           DMG="$(ls dist/*.dmg | head -1)"
           spctl --assess --type open --context context:primary-signature -vv "$DMG"

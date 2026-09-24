@@ -67,6 +67,7 @@ const DEFAULT_SETTINGS = {
     hwAccel:         "cpu",       // cpu (default — most compatible) | auto = use GPU (Windows Vulkan)
     whisperModel:    "turbo",     // persisted Whisper model choice
     spokenLang:      "auto",      // persisted spoken-language choice
+    transcriptionAudioSource: "auto", // video source first; specific audio track can be chosen
     hfToken:         "",          // HuggingFace token (Speaker Labels / diarization)
     beepShift:       0,           // ms — shift beep earlier(-) / later(+)
     beepPad:         40,          // ms — extra beep before & after the word
@@ -158,6 +159,10 @@ const I18N = {
     sub_work_tx: "Edit", sub_settings: "Settings", sub_detect: "Detect", sub_install: "Setup",
     // transcribe controls
     lbl_model: "Model", lbl_language: "Language", opt_auto: "Auto detect",
+    nm_audio_source: "Speech source", ds_audio_source: "If automatic selection picks the wrong sound, choose the track containing speech.",
+    opt_audio_auto: "Auto · prefer video sound",
+    sec_line_preview: "Line preview", ds_line_preview: "Match Premiere's font, size and caption-box width. A possible third line is an estimate; it never auto-splits or blocks sending.",
+    lbl_preview_font: "Font", lbl_preview_size: "Size", lbl_preview_width: "Box width (px)", lbl_preview_bold: "Bold",
     btn_transcribe: "Transcribe", btn_loadsrt: "Load SRT",
     btn_play: "Play", btn_pause: "Pause",
     btn_enhance: "Enhance Audio — denoise + normalize",
@@ -351,6 +356,10 @@ const I18N = {
     tab_transcribe: "Altyazı", tab_silence: "Sessizlik", tab_setup: "Ayarlar",
     sub_work_tx: "Düzenle", sub_settings: "Ayarlar", sub_detect: "Tespit", sub_install: "Kurulum",
     lbl_model: "Model", lbl_language: "Dil", opt_auto: "Otomatik algıla",
+    nm_audio_source: "Konuşma kaynağı", ds_audio_source: "Otomatik seçim yanlış sesi alırsa konuşmanın olduğu track'i seç.",
+    opt_audio_auto: "Otomatik · video sesi öncelikli",
+    sec_line_preview: "Satır önizlemesi", ds_line_preview: "Premiere'deki font, punto ve kutu genişliğini seç. Olası üçüncü satır tahmindir; otomatik bölmez ve gönderimi engellemez.",
+    lbl_preview_font: "Font", lbl_preview_size: "Punto", lbl_preview_width: "Kutu genişliği (px)", lbl_preview_bold: "Kalın",
     btn_transcribe: "In/Out Aralığını Yazıya Dök", btn_loadsrt: "SRT Yükle",
     btn_play: "Oynat", btn_pause: "Duraklat",
     btn_enhance: "Sesi İyileştir — gürültü azalt + dengele",
@@ -2696,6 +2705,40 @@ function classifyError(raw) {
     return null;
 }
 
+function chooseTranscriptionClips(info, preference) {
+    const all = Array.isArray(info && info.allClips) && info.allClips.length ? info.allClips : (info && info.clips) || [];
+    const video = all.filter(c => /^video\d+$/.test(c.track || ""));
+    const audio = all.filter(c => /^audio\d+$/.test(c.track || ""));
+    if (preference === "video") return { clips: video, label: "video" };
+    if (/^audio\d+$/.test(preference || "")) return { clips: audio.filter(c => c.track === preference), label: preference };
+    // Camera sound is the most predictable default in Premiere. Mixing every
+    // audio track can include music/effects and drown out speech. Editors with
+    // a separate microphone can select its track explicitly in Settings.
+    if (video.length) return { clips: video, label: "video" };
+    const first = audio.length ? audio.map(c => c.track).sort()[0] : null;
+    return { clips: first ? audio.filter(c => c.track === first) : [], label: first || "none" };
+}
+
+function isLikelyHallucinatedTranscript(rawSegments, duration) {
+    if (!Array.isArray(rawSegments) || rawSegments.length < 2 || duration < 20) return false;
+    const phrases = rawSegments.map(s => String(s.text || "").toLocaleLowerCase().replace(/[^\p{L}\p{N} ]/gu, "").trim()).filter(Boolean);
+    const words = phrases.join(" ").split(/\s+/).filter(Boolean);
+    return phrases.length >= 2 && new Set(phrases).size === 1 && words.length <= 8 &&
+        rawSegments.every(s => Number(s.end) - Number(s.start) >= 8);
+}
+
+function updateAudioSourceOptions(info) {
+    const select = $("audio-source-select");
+    if (!select || !info || !Array.isArray(info.allClips)) return;
+    const found = [...new Set(info.allClips.map(c => c.track).filter(Boolean))].sort();
+    select.replaceChildren();
+    const option = (value, label) => { const el = document.createElement("option"); el.value = value; el.textContent = label; select.appendChild(el); };
+    option("auto", t("opt_audio_auto"));
+    if (found.some(s => /^video\d+$/.test(s))) option("video", settings.uiLang === "tr" ? "Video kliplerinin sesi" : "Video clip audio");
+    found.filter(s => /^audio\d+$/.test(s)).forEach(s => option(s, `${s.replace("audio", "A").replace(/^A(\d+)$/, (_, n) => "A" + (Number(n) + 1))} · ${settings.uiLang === "tr" ? "ses track'i" : "audio track"}`));
+    select.value = settings.transcriptionAudioSource || "auto";
+}
+
 // ── Transcription flow ────────────────────────────────────────────────────
 async function startTranscription() {
     if (isRunning) return;
@@ -2715,8 +2758,12 @@ async function startTranscription() {
         await loadHostJSX();   // always run the freshest host.jsx (defeats JSX cache)
         const seqInfo = await evalScript("getSequenceInfo()");
         if (!seqInfo.success) { handleError(seqInfo.error); return; }
-        if (!seqInfo.clips || seqInfo.clips.length === 0) {
-            handleError("No audio clips found on the timeline.\nAdd a video/audio clip, then try again.");
+        updateAudioSourceOptions(seqInfo);
+        let source = chooseTranscriptionClips(seqInfo, settings.transcriptionAudioSource || "auto");
+        if (!source.clips.length) {
+            handleError(settings.uiLang === "tr"
+                ? "Seçilen konuşma kaynağında klip yok. Altyazı Oluştur → Ayarlar bölümünden başka bir kaynak seç."
+                : "No clips on the selected speech source. Choose another source in Subtitles → Settings.");
             return;
         }
 
@@ -2742,8 +2789,17 @@ async function startTranscription() {
         if (W) {
             try {
                 setStatus(`Extracting audio… (${seqInfo.duration.toFixed(1)}s — ${scopeNote})`, "info");
-                await W.extractClipsToWav(extDir(),
-                    { clips: seqInfo.clips, duration: seqInfo.duration }, tmpAudio, { env: spawnEnv() });
+                try {
+                    await W.extractClipsToWav(extDir(),
+                        { clips: source.clips, duration: seqInfo.duration }, tmpAudio, { env: spawnEnv() });
+                } catch (extractErr) {
+                    const fallback = chooseTranscriptionClips({ allClips: (seqInfo.allClips || []).filter(c => /^audio\d+$/.test(c.track || "")) }, "auto");
+                    if (settings.transcriptionAudioSource !== "auto" || source.label !== "video" || !fallback.clips.length) throw extractErr;
+                    source = fallback;
+                    setStatus(settings.uiLang === "tr" ? `Video sesi yok; ${source.label} deneniyor…` : `No video audio; trying ${source.label}…`, "info");
+                    await W.extractClipsToWav(extDir(),
+                        { clips: source.clips, duration: seqInfo.duration }, tmpAudio, { env: spawnEnv() });
+                }
                 if (!W.modelExists(model)) {
                     setStatus(`Downloading ${model} model… (one-time)`, "info");
                     await W.ensureModel(model, (frac, got, total, phase) =>
@@ -2774,8 +2830,16 @@ async function startTranscription() {
             }
         } else {
             setStatus(`Extracting audio… (${seqInfo.duration.toFixed(1)}s — ${scopeNote})`, "info");
-            const clipsArg = JSON.stringify({ clips: seqInfo.clips, duration: seqInfo.duration });
-            const extractRes = await runPython("extract_audio.py", [clipsArg, tmpAudio]);
+            let clipsArg = JSON.stringify({ clips: source.clips, duration: seqInfo.duration });
+            let extractRes = await runPython("extract_audio.py", [clipsArg, tmpAudio]);
+            if (!extractRes.success && settings.transcriptionAudioSource === "auto" && source.label === "video") {
+                const fallback = chooseTranscriptionClips({ allClips: (seqInfo.allClips || []).filter(c => /^audio\d+$/.test(c.track || "")) }, "auto");
+                if (fallback.clips.length) {
+                    source = fallback;
+                    clipsArg = JSON.stringify({ clips: source.clips, duration: seqInfo.duration });
+                    extractRes = await runPython("extract_audio.py", [clipsArg, tmpAudio]);
+                }
+            }
             if (!extractRes.success) { handleError(extractRes.error || "Audio extraction failed."); return; }
 
             const engLabel = { whisperx: "WhisperX", mlx: "mlx-whisper", openai: "openai-whisper", auto: "Whisper" }[settings.engine] || "Whisper";
@@ -2791,6 +2855,12 @@ async function startTranscription() {
         try { if (fs.existsSync(tmpAudio)) fs.unlinkSync(tmpAudio); } catch {}
 
         if (!txRes.success) { handleError(txRes.error || "Transcription failed."); return; }
+        if (isLikelyHallucinatedTranscript(txRes.segments, seqInfo.duration)) {
+            handleError(settings.uiLang === "tr"
+                ? `Konuşma güvenilir biçimde çözülemedi (${source.label}). Tekrarlanan kısa bir ifade algılandı. Altyazı Oluştur → Ayarlar'da konuşma kaynağını ve dili seçip yeniden dene.`
+                : `Speech could not be transcribed reliably (${source.label}). A short phrase repeated across long intervals. Choose the speech source and language in Subtitles → Settings, then retry.`);
+            return;
+        }
 
         lastLanguage = txRes.language || (language !== "auto" ? language : "");
         seqInTime = seqInfo.inTime;
@@ -2836,7 +2906,9 @@ async function startTranscription() {
             const lang = txRes.language ? ` · lang: ${txRes.language}` : "";
             const eng  = txRes.engine   ? ` · ${txRes.engine}`         : "";
             const note = (txRes.notes && txRes.notes.length) ? ` · ${txRes.notes[0]}` : "";
-            setStatus(`Done — ${segments.length} segment(s)${lang}${eng}${note}`, "success");
+            setStatus(settings.uiLang === "tr"
+                ? `Tamamlandı — ${segments.length} altyazı · kaynak: ${source.label}${lang}${eng}${note}`
+                : `Done — ${segments.length} caption(s) · source: ${source.label}${lang}${eng}${note}`, "success");
             actionsBar.style.display = "flex";
             updateSegCount();
 
@@ -2862,6 +2934,7 @@ async function startTranscription() {
         showProgress(false);
         transcribeBtn.disabled = false;
         sendBtn.disabled       = segments.length === 0;
+        if (segments.length) actionsBar.style.display = "flex";
     }
 }
 
@@ -2897,7 +2970,9 @@ function handleError(rawErr) {
  * and selection bugs that come with it.
  */
 function renderSegments() {
+    bindCaptionPreviewControls();
     if (segments.length === 0) {
+        const status = $("caption-preview-status"); if (status) status.textContent = "";
         // Lead with what is there, not with an instruction. "Sequence 01 ·
         // 4:12 of speech" tells the user what the button will act on; "press
         // Transcribe" tells them nothing they had not already worked out.
@@ -2968,15 +3043,11 @@ function renderSegments() {
               `</div>` : "") +
             `</div>`);
     }
-    const guideBar = `<div class="premiere-guide-bar">` +
-      `<div><strong>${escHtml(settings.uiLang === "tr" ? "Satır önizlemesi" : "Line preview")}</strong>` +
-      `<small>${escHtml(settings.uiLang === "tr" ? "Font, punto ve kutu genişliğini Premiere'deki gibi ayarla. Renkli işaret tahmindir; istediğin kelimeye tıklayıp böl, ↑ ile birleştir. Gönderim engellenmez." : "Match font, size and box width to Premiere. Highlight is an estimate; click any word to split or ↑ to merge. Sending is never blocked.")}</small></div>` +
-      `<label>${escHtml(settings.uiLang === "tr" ? "Font" : "Font")} <input type="text" id="caption-preview-font" value="${escHtml(preview.font)}"></label>` +
-      `<label>${escHtml(settings.uiLang === "tr" ? "Punto" : "Size")} <input type="number" id="caption-preview-size" min="8" max="200" value="${preview.size}"></label>` +
-      `<label>${escHtml(settings.uiLang === "tr" ? "Kutu px" : "Box px")} <input type="number" id="caption-preview-width" min="80" max="1920" value="${preview.width}"></label>` +
-      `<label><input type="checkbox" id="caption-preview-bold" ${preview.bold ? "checked" : ""}>${escHtml(settings.uiLang === "tr" ? "Kalın" : "Bold")}</label>` +
-      `<span>${overflowCount ? escHtml(settings.uiLang === "tr" ? `${overflowCount} olası taşma` : `${overflowCount} possible overflow`) : ""}</span></div>`;
-    segmentsWrap.innerHTML = guideBar + out.join("");
+    const previewStatus = $("caption-preview-status");
+    if (previewStatus) previewStatus.textContent = overflowCount
+        ? (settings.uiLang === "tr" ? `${overflowCount} olası taşma` : `${overflowCount} possible overflow${overflowCount === 1 ? "" : "s"}`)
+        : (settings.uiLang === "tr" ? "Önizlemede taşma yok" : "No preview overflow");
+    segmentsWrap.innerHTML = out.join("");
     bindSegmentDelegation();
 }
 
@@ -3016,17 +3087,6 @@ function bindSegmentDelegation() {
         seekToSegment(idx);
     });
 
-    segmentsWrap.addEventListener("change", e => {
-        if (e.target && /^caption-preview-(font|size|width|bold)$/.test(e.target.id)) {
-            settings.captionPreviewFont = (document.getElementById("caption-preview-font").value || "Arial").trim().slice(0, 100);
-            settings.captionPreviewSize = Math.max(8, Math.min(200, Number(document.getElementById("caption-preview-size").value) || 54));
-            settings.captionPreviewWidth = Math.max(80, Math.min(1920, Number(document.getElementById("caption-preview-width").value) || 800));
-            settings.captionPreviewBold = document.getElementById("caption-preview-bold").checked;
-            saveSettings();
-            renderSegments();
-        }
-    });
-
     segmentsWrap.addEventListener("dragstart", e => {
         const handle = e.target.closest && e.target.closest(".seg-index");
         const row = handle && handle.closest(".segment");
@@ -3052,6 +3112,28 @@ function bindSegmentDelegation() {
     });
 }
 
+function bindCaptionPreviewControls() {
+    const font = $("caption-preview-font");
+    if (!font || font.dataset.bound) return;
+    font.dataset.bound = "1";
+    const size = $("caption-preview-size"), width = $("caption-preview-width"), bold = $("caption-preview-bold");
+    const selected = [...font.options].some(o => o.value === settings.captionPreviewFont) ? settings.captionPreviewFont : "Arial";
+    settings.captionPreviewFont = selected;
+    font.value = selected;
+    size.value = captionPreviewSettings().size;
+    width.value = captionPreviewSettings().width;
+    bold.checked = !!settings.captionPreviewBold;
+    const changed = () => {
+        settings.captionPreviewFont = font.value;
+        settings.captionPreviewSize = Math.max(8, Math.min(200, Number(size.value) || 54));
+        settings.captionPreviewWidth = Math.max(80, Math.min(1920, Number(width.value) || 800));
+        settings.captionPreviewBold = bold.checked;
+        saveSettings();
+        renderSegments();
+    };
+    [font, size, width, bold].forEach(el => el.addEventListener("change", changed));
+}
+
 /* What will happen if the user presses Transcribe?
  *
  * The empty state used to say "Click Transcribe to subtitle your whole
@@ -3068,6 +3150,7 @@ async function probeSource() {
     if (IS_DESKTOP_APP) return;                 // desktop opens files, not sequences
     try {
         const r = await evalScript("getSequenceInfo()");
+        if (r && r.success) updateAudioSourceOptions(r);
         if (!r || !r.success) {
             sourceInfo = { label: (r && r.error) || t("src_none"), detail: "", warn: true };
         } else {

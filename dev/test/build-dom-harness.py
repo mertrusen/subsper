@@ -36,7 +36,7 @@ WANTED = [
     "splitPoint", "cutSegment", "splitSegmentHalf", "splitAtWord",
     "captionPreviewSettings", "captionVisualLines", "mergeWithPrevious",
     "sourceInfo", "formatClock",
-    "renderSegments", "_segDelegationBound", "bindSegmentDelegation", "selectSegment",
+    "renderSegments", "_segDelegationBound", "bindSegmentDelegation", "bindCaptionPreviewControls", "selectSegment",
     "deleteSegment", "editSegment", "syncControlVisibility", "updateSegCount",
 ]
 
@@ -111,7 +111,7 @@ eq("timecodes rendered", els[0].querySelector(".seg-time").textContent,
 eq("words are split into spans", els[0].querySelectorAll(".seg-word").length, 6);
 ok("no inline onclick attributes remain",
    segmentsWrap.innerHTML.indexOf("onclick=") === -1);
-ok("visual line preview is present", !!segmentsWrap.querySelector(".premiere-guide-bar"));
+ok("preview settings are not repeated above captions", !segmentsWrap.querySelector(".premiere-guide-bar"));
 
 group("word click splits");
 calls = [];

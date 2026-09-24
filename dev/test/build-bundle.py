@@ -29,6 +29,7 @@ WANTED = [
     # shared helpers
     "escRe", "WORD_CHARS", "wordRe", "upperIn", "matchCase", "stemAlt",
     "tidyText", "capFirst", "parseDictRules", "wrapText", "captionPreviewSettings", "captionVisualLines",
+    "chooseTranscriptionClips", "isLikelyHallucinatedTranscript",
     "p2", "p3", "formatTime",
     "fmtASS", "applyGapFill", "_exportSegs", "segmentsToSRT", "premiereCaptionSRT", "currentWords", "buildWordSRT", "assEffectTag",
     "PROJECT_SETTING_KEYS", "projectSettings", "safeProjectStyle", "_projectData", "_loadProjectData", "computeDeletedRanges",

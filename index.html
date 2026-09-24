@@ -403,6 +403,15 @@
             <option value="pl">Polish</option>
           </select>
         </div>
+        <div class="setting-row" id="audio-source-row" style="margin-top:10px">
+          <div class="setting-info">
+            <div class="setting-name" data-i18n="nm_audio_source">Konuşma kaynağı</div>
+            <div class="setting-desc" data-i18n="ds_audio_source">Otomatik seçim yanlış sesi alırsa konuşmanın bulunduğu track'i seç.</div>
+          </div>
+          <select id="audio-source-select" onchange="onSettingChange('transcriptionAudioSource', this.value)">
+            <option value="auto" data-i18n="opt_audio_auto">Otomatik · video sesi öncelikli</option>
+          </select>
+        </div>
       </div>
 
       <div class="setup-section-title" style="margin-top:16px" data-i18n="sec_engine">Transcription Engine</div>
@@ -493,6 +502,23 @@
                  oninput="onSettingChange('maxDur', +this.value); $('maxdur-val').textContent = (+this.value).toFixed(1)+'s'">
           <div class="setting-hint" data-i18n="hint_split">Subtitles longer than this (or too fast to read) are split at word boundaries.</div>
         </div>
+      </div>
+
+      <div class="setup-section-title" style="margin-top:16px" data-i18n="sec_line_preview">Satır önizlemesi</div>
+      <div class="setting-item caption-preview-settings">
+        <p class="setting-desc" data-i18n="ds_line_preview">Premiere'deki font, punto ve kutu genişliğini seç. Olası üçüncü satır tahmindir; altyazıları otomatik bölmez ve gönderimi engellemez.</p>
+        <div class="caption-preview-fields">
+          <label><span data-i18n="lbl_preview_font">Font</span><select id="caption-preview-font">
+            <option value="Arial">Arial</option><option value="Inter">Inter</option><option value="Montserrat">Montserrat</option>
+            <option value="Oswald">Oswald</option><option value="Bebas Neue">Bebas Neue</option>
+            <option value="Helvetica">Helvetica</option><option value="Verdana">Verdana</option><option value="Georgia">Georgia</option>
+            <option value="Times New Roman">Times New Roman</option><option value="Roboto">Roboto</option>
+          </select></label>
+          <label><span data-i18n="lbl_preview_size">Punto</span><input type="number" id="caption-preview-size" min="8" max="200" value="54"></label>
+          <label><span data-i18n="lbl_preview_width">Kutu genişliği (px)</span><input type="number" id="caption-preview-width" min="80" max="1920" value="800"></label>
+          <label class="caption-preview-check"><input type="checkbox" id="caption-preview-bold"><span data-i18n="lbl_preview_bold">Kalın</span></label>
+        </div>
+        <div class="setting-hint" id="caption-preview-status"></div>
       </div>
 
       <div class="setup-section-title" style="margin-top:16px" data-i18n="sec_timing">Subtitle Timing</div>

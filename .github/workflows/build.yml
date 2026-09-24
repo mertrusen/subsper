@@ -72,7 +72,10 @@ jobs:
           key: ffmpeg-lgpl-subs-${{ runner.os }}-${{ hashFiles('scripts/build-ffmpeg-lgpl.sh') }}
       - name: Build LGPL ffmpeg (cache miss only)
         run: |
-          [ -x bin/darwin-arm64/ffmpeg ] || bash scripts/build-ffmpeg-lgpl.sh subs
+          if [ ! -x bin/darwin-arm64/ffmpeg ]; then
+            brew install meson ninja   # the 'subs' profile builds harfbuzz with meson
+            bash scripts/build-ffmpeg-lgpl.sh subs
+          fi
       - name: ffmpeg pipeline smoke test
         run: bash dev/test/ffmpeg-smoke.sh
 
@@ -144,7 +147,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - run: brew install cmake || true
+      - run: brew install cmake meson ninja || true
       - run: npm install
       - name: Cache engine binaries
         uses: actions/cache@v4

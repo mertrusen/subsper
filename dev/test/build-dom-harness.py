@@ -131,7 +131,7 @@ group("action buttons");
 renderSegments();
 els = segmentsWrap.querySelectorAll(".segment");
 var before = segments.length;
-click(els[2].querySelector('[data-act="delete"]'));
+click(els[els.length - 1].querySelector('[data-act="delete"]'));
 eq("delete button removes the segment", segments.length, before - 1);
 
 calls = [];

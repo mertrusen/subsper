@@ -14,6 +14,12 @@ group("subtitle formatting");
     var words = [W("bir", 0, 1), W("iki", 1, 2), W("uc", 2, 3), W("dort", 3, 4),
                  W("bes", 4, 5), W("alti", 5, 6), W("yedi", 6, 7)];
     var source = { id: 0, text: text, start: 0, end: 7, seqStart: 10, seqEnd: 17, words: words };
+    var auto = splitSegmentsAtPreviewLines([source], { width: 9 }, function (s) { return s.length; });
+    eq("visual auto-split keeps words", auto.map(function (s) { return s.text; }).join(" "), text);
+    eq("visual auto-split makes at most two lines per cue", auto.every(function (s) {
+        return captionVisualLines(s.text, { width: 9 }, function (v) { return v.length; }).length <= 2;
+    }), true);
+    eq("visual auto-split preserves source bounds", [auto[0].seqStart, auto[auto.length - 1].seqEnd], [10, 17]);
     resetEnv({ segments: [source] });
     splitAtWord(0, 4);
     eq("manual split keeps all words", segments.map(function (s) { return s.text; }).join(" "), text);

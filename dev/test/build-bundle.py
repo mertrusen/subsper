@@ -28,7 +28,7 @@ STUBS = Path(__file__).resolve().parent / "stubs.js"
 WANTED = [
     # shared helpers
     "escRe", "WORD_CHARS", "wordRe", "upperIn", "matchCase", "stemAlt",
-    "tidyText", "capFirst", "parseDictRules", "wrapText", "captionPreviewSettings", "captionVisualLines",
+    "tidyText", "capFirst", "parseDictRules", "wrapText", "captionPreviewSettings", "captionVisualLines", "splitSegmentsAtPreviewLines",
     "chooseTranscriptionClips", "isLikelyHallucinatedTranscript",
     "p2", "p3", "formatTime",
     "fmtASS", "applyGapFill", "_exportSegs", "segmentsToSRT", "premiereCaptionSRT", "currentWords", "buildWordSRT", "assEffectTag",

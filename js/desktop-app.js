@@ -211,6 +211,8 @@
       // No timeline offset on desktop
       segments = segs.map(s => ({ ...s, seqStart: s.start, seqEnd: s.end }));
       snapshotOriginalSegments();
+      if (settings.captionPreviewEnabled && settings.captionPreviewAutoSplit)
+        segments = splitSegmentsAtPreviewLines(segments, captionPreviewSettings());
       renderSegments();
 
       if (segments.length === 0) {

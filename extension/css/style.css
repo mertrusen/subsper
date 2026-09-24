@@ -356,8 +356,8 @@ mark.find-hit { background: var(--yellow); color: #1a1206; border-radius: 3px; p
 .segment:hover    { background: var(--bg2); }
 .segment.selected { background: var(--accent-bg); }
 .segment.selected::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); }
-.segment.playing { background: var(--green-bg); }
-.segment.playing::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--green); }
+.segment.playing:not(.selected) .seg-index { color: var(--green); }
+.segment.playing:not(.selected)::after { content: ""; position:absolute; right:8px; top:12px; width:5px; height:5px; border-radius:50%; background:var(--green); }
 
 /* Sync / replace preview (before → after) */
 .sync-diff-row { display: flex; gap: 8px; padding: 7px 9px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
@@ -570,7 +570,6 @@ mark.find-hit { background: var(--yellow); color: #1a1206; border-radius: 3px; p
 .toast.success { border-left: 3px solid var(--green); }
 .toast.error   { border-left: 3px solid var(--red); }
 .toast.info    { border-left: 3px solid var(--accent); }
-.segment.playing { border-left: 2px solid var(--accent); background: var(--bg3); }
 
 /* ═══ v1.11 UI overhaul: AI panel · menu groups · secondary actions ═══ */
 

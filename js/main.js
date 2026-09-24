@@ -75,10 +75,13 @@ const DEFAULT_SETTINGS = {
     profStem:        true,        // match suffixed forms too (kan → kanın), beep only the root part
     beepMode:        "beep",      // beep = 1kHz tone | mute = just silence the word (no tone)
     followPlayhead:  true,        // highlight the active segment while playing
-    captionPreviewFont: "Arial",
-    captionPreviewSize: 54,
+    captionPreviewEnabled: true,
+    captionPreviewAutoSplit: false,
+    captionPreviewFont: "Helvetica",
+    captionPreviewSize: 50,
     captionPreviewWidth: 800,
-    captionPreviewBold: false,
+    captionPreviewBold: true,
+    captionPreviewTracking: 0,
 };
 
 // Built-in filler words (Turkish + English). Phrases first so they match before single words.
@@ -123,6 +126,17 @@ function loadSettings() {
     let s;
     try { s = Object.assign({}, DEFAULT_SETTINGS, JSON.parse(localStorage.getItem("ws_settings") || "{}")); }
     catch { s = Object.assign({}, DEFAULT_SETTINGS); }
+    // Existing installs with the old untouched preview defaults get the
+    // Premiere-style example. Keep any preview values the editor customized.
+    if (!s.captionPreviewStyleV2) {
+        if (s.captionPreviewFont === "Arial" && s.captionPreviewSize === 54 && s.captionPreviewBold === false) {
+            s.captionPreviewFont = "Helvetica";
+            s.captionPreviewSize = 50;
+            s.captionPreviewBold = true;
+        }
+        s.captionPreviewStyleV2 = true;
+        try { localStorage.setItem("ws_settings", JSON.stringify(s)); } catch (e) {}
+    }
     // One-time migration: the bundled engine is the product default on both
     // apps — it needs no setup and is the only one that reports real progress.
     // Installs from before this default kept whatever Pro engine they had, so
@@ -161,7 +175,8 @@ const I18N = {
     lbl_model: "Model", lbl_language: "Language", opt_auto: "Auto detect",
     nm_audio_source: "Speech source", ds_audio_source: "If automatic selection picks the wrong sound, choose the track containing speech.",
     opt_audio_auto: "Auto · prefer video sound",
-    sec_line_preview: "Line preview", ds_line_preview: "Match Premiere's font, size and caption-box width. A possible third line is an estimate; it never auto-splits or blocks sending.",
+    sec_line_preview: "Line preview", ds_line_preview: "Choose the Premiere font, size, tracking and caption-box width. Wrapping is an estimate and never blocks sending.",
+    lbl_preview_enabled: "Show line preview", lbl_preview_tracking: "Letter spacing (px)", lbl_preview_auto_split: "Automatically split new captions before a possible third line", btn_preview_apply: "Split current captions at this boundary",
     lbl_preview_font: "Font", lbl_preview_size: "Size", lbl_preview_width: "Box width (px)", lbl_preview_bold: "Bold",
     btn_transcribe: "Transcribe", btn_loadsrt: "Load SRT",
     btn_play: "Play", btn_pause: "Pause",
@@ -358,7 +373,8 @@ const I18N = {
     lbl_model: "Model", lbl_language: "Dil", opt_auto: "Otomatik algıla",
     nm_audio_source: "Konuşma kaynağı", ds_audio_source: "Otomatik seçim yanlış sesi alırsa konuşmanın olduğu track'i seç.",
     opt_audio_auto: "Otomatik · video sesi öncelikli",
-    sec_line_preview: "Satır önizlemesi", ds_line_preview: "Premiere'deki font, punto ve kutu genişliğini seç. Olası üçüncü satır tahmindir; otomatik bölmez ve gönderimi engellemez.",
+    sec_line_preview: "Satır önizlemesi", ds_line_preview: "Premiere'deki font, punto, harf aralığı ve kutu genişliğini seç. Satır hesabı tahmindir; gönderimi engellemez.",
+    lbl_preview_enabled: "Satır önizlemesini göster", lbl_preview_tracking: "Harf aralığı (px)", lbl_preview_auto_split: "Yeni altyazıları olası üçüncü satırdan otomatik böl", btn_preview_apply: "Mevcut altyazıları bu ölçüye göre böl",
     lbl_preview_font: "Font", lbl_preview_size: "Punto", lbl_preview_width: "Kutu genişliği (px)", lbl_preview_bold: "Kalın",
     btn_transcribe: "In/Out Aralığını Yazıya Dök", btn_loadsrt: "SRT Yükle",
     btn_play: "Oynat", btn_pause: "Duraklat",
@@ -2534,12 +2550,14 @@ function readPlayheadSecs() {
 // moment the user starts playback from Premiere itself), sample the playhead
 // twice — moving → stop, still → play.
 async function premierePlayingNow() {
-    const probe = await evalScript("wsIsPlayingProbe()");
-    if (probe && probe.success && probe.known) return !!probe.playing;
+    // QE's isPlaying flag can be stale after a panel seek. Motion is the
+    // reliable source for the Space shortcut when the playhead is available.
     const p1 = await readPlayheadSecs();
     await new Promise(r => setTimeout(r, 160));
     const p2 = await readPlayheadSecs();
     if (p1 >= 0 && p2 >= 0) return Math.abs(p2 - p1) > 0.0005;
+    const probe = await evalScript("wsIsPlayingProbe()");
+    if (probe && probe.success && probe.known) return !!probe.playing;
     return _isPlaying;
 }
 async function playPause() {
@@ -2898,6 +2916,8 @@ async function startTranscription() {
         }));
 
         applyPunctuationFilter({ silent: true });
+        if (settings.captionPreviewEnabled && settings.captionPreviewAutoSplit)
+            segments = splitSegmentsAtPreviewLines(segments, captionPreviewSettings());
         renderSegments();
 
         if (segments.length === 0) {
@@ -3002,7 +3022,7 @@ function renderSegments() {
     let overflowCount = 0;
     for (let idx = 0; idx < segments.length; idx++) {
         const seg = segments[idx];
-        const guide = captionVisualLines(seg.text, preview);
+        const guide = preview.enabled ? captionVisualLines(seg.text, preview) : [];
         const overflow = guide.length > 2;
         if (overflow) overflowCount++;
 
@@ -3016,10 +3036,11 @@ function renderSegments() {
             bodyHtml = highlightMatches(seg.text, activeFindRegex);
             if (findMatchSegs.includes(idx)) matchCls = " has-match";
         } else {
-            const words = seg.text.split(" ");
+            const words = String(seg.text || "").trim().split(/\s+/).filter(Boolean);
             const parts = new Array(words.length);
             for (let wi = 0; wi < words.length; wi++) {
-                parts[wi] = `<span class="seg-word" data-w="${wi}">${escHtml(words[wi])}</span>`;
+                const marker = overflow && wi === guide[2].startWord ? " caption-overflow-start" : "";
+                parts[wi] = `<span class="seg-word${marker}" data-w="${wi}">${escHtml(words[wi])}</span>`;
             }
             bodyHtml = parts.join(" ");
         }
@@ -3038,16 +3059,15 @@ function renderSegments() {
                 `</div>` +
               `</div>` +
               `<div class="seg-text" id="seg-text-${idx}">${bodyHtml}</div>` +
-              (overflow ? `<div class="premiere-line-guide has-overflow"><span>${escHtml(settings.uiLang === "tr" ? "Önizlemede 3+ satır (tahmini)" : "3+ preview lines (estimate)")}</span>` +
-                (guide[2] && guide[2].startWord > 0 ? `<button type="button" data-act="split-overflow" data-word="${guide[2].startWord}">${escHtml(settings.uiLang === "tr" ? `“${guide[2].text.split(" ")[0]}” öncesinden böl` : `Split before “${guide[2].text.split(" ")[0]}”`)}</button>` : "") +
-              `</div>` : "") +
             `</div>`);
     }
     const previewStatus = $("caption-preview-status");
-    if (previewStatus) previewStatus.textContent = overflowCount
+    if (previewStatus) previewStatus.textContent = !preview.enabled ? "" : overflowCount
         ? (settings.uiLang === "tr" ? `${overflowCount} olası taşma` : `${overflowCount} possible overflow${overflowCount === 1 ? "" : "s"}`)
         : (settings.uiLang === "tr" ? "Önizlemede taşma yok" : "No preview overflow");
     segmentsWrap.innerHTML = out.join("");
+    const applyPreview = $("caption-preview-apply");
+    if (applyPreview) applyPreview.disabled = !preview.enabled || !segments.length;
     bindSegmentDelegation();
 }
 
@@ -3058,6 +3078,13 @@ let _segDelegationBound = false;
 function bindSegmentDelegation() {
     if (_segDelegationBound || !segmentsWrap) return;
     _segDelegationBound = true;
+    segmentsWrap.tabIndex = -1;
+
+    segmentsWrap.addEventListener("pointerdown", e => {
+        if (!e.target.closest || !e.target.closest(".segment")) return;
+        if (e.target.closest("textarea,input,select,button")) return;
+        segmentsWrap.focus({ preventScroll: true });
+    });
 
     segmentsWrap.addEventListener("click", (e) => {
         const target = e.target;
@@ -3078,7 +3105,6 @@ function bindSegmentDelegation() {
         switch (act && act.dataset.act) {
             case "edit":    editSegment(idx); return;
             case "split":   splitSegmentHalf(idx); return;
-            case "split-overflow": splitAtWord(idx, +act.dataset.word); return;
             case "merge-prev": mergeWithPrevious(idx); return;
             case "delete":  deleteSegment(idx); return;
             case "speaker": e.stopPropagation(); renameSpeaker(segments[idx].speaker); return;
@@ -3114,24 +3140,53 @@ function bindSegmentDelegation() {
 
 function bindCaptionPreviewControls() {
     const font = $("caption-preview-font");
-    if (!font || font.dataset.bound) return;
+    if (!font) return;
+    if (font.dataset.bound) {
+        const preview = captionPreviewSettings();
+        font.value = preview.font;
+        $("caption-preview-size").value = preview.size;
+        $("caption-preview-width").value = preview.width;
+        $("caption-preview-bold").checked = preview.bold;
+        $("caption-preview-tracking").value = preview.tracking;
+        $("caption-preview-enabled").checked = preview.enabled;
+        $("caption-preview-auto-split").checked = !!settings.captionPreviewAutoSplit;
+        $("caption-preview-options").classList.toggle("is-disabled", !preview.enabled);
+        const apply = $("caption-preview-apply");
+        if (apply) apply.disabled = !preview.enabled || !segments.length;
+        return;
+    }
     font.dataset.bound = "1";
     const size = $("caption-preview-size"), width = $("caption-preview-width"), bold = $("caption-preview-bold");
-    const selected = [...font.options].some(o => o.value === settings.captionPreviewFont) ? settings.captionPreviewFont : "Arial";
+    const tracking = $("caption-preview-tracking"), enabled = $("caption-preview-enabled");
+    const autoSplit = $("caption-preview-auto-split"), options = $("caption-preview-options"), apply = $("caption-preview-apply");
+    const selected = [...font.options].some(o => o.value === settings.captionPreviewFont) ? settings.captionPreviewFont : "Helvetica";
     settings.captionPreviewFont = selected;
     font.value = selected;
     size.value = captionPreviewSettings().size;
     width.value = captionPreviewSettings().width;
     bold.checked = !!settings.captionPreviewBold;
+    tracking.value = captionPreviewSettings().tracking;
+    enabled.checked = settings.captionPreviewEnabled !== false;
+    autoSplit.checked = !!settings.captionPreviewAutoSplit;
+    const syncDisabled = () => {
+        options.classList.toggle("is-disabled", !enabled.checked);
+        apply.disabled = !enabled.checked || !segments.length;
+    };
     const changed = () => {
         settings.captionPreviewFont = font.value;
-        settings.captionPreviewSize = Math.max(8, Math.min(200, Number(size.value) || 54));
+        settings.captionPreviewSize = Math.max(8, Math.min(200, Number(size.value) || 50));
         settings.captionPreviewWidth = Math.max(80, Math.min(1920, Number(width.value) || 800));
         settings.captionPreviewBold = bold.checked;
+        settings.captionPreviewTracking = Math.max(-5, Math.min(20, Number(tracking.value) || 0));
+        settings.captionPreviewEnabled = enabled.checked;
+        settings.captionPreviewAutoSplit = autoSplit.checked;
         saveSettings();
+        syncDisabled();
         renderSegments();
     };
-    [font, size, width, bold].forEach(el => el.addEventListener("change", changed));
+    [font, size, width, bold, tracking, enabled, autoSplit].forEach(el => el.addEventListener("change", changed));
+    apply.addEventListener("click", applyCaptionPreviewSplits);
+    syncDisabled();
 }
 
 /* What will happen if the user presses Transcribe?
@@ -3289,7 +3344,7 @@ function cutSegment(seg, t, wordsA, wordsB, textA, textB) {
 // lines / CPS / duration) because applySmartSplit called this with wrong args.
 function splitSegmentHalf(idx) {
     const seg   = segments[idx];
-    const words = seg.text.split(" ");
+    const words = String(seg.text || "").trim().split(/\s+/).filter(Boolean);
     if (words.length < 2) { selectSegment(idx); return; }
     const half  = Math.max(1, Math.round(words.length / 2));
     const p     = splitPoint(seg, words, half);
@@ -3302,7 +3357,7 @@ function splitSegmentHalf(idx) {
 
 function splitAtWord(idx, wi) {
     const seg   = segments[idx];
-    const words = seg.text.split(" ");
+    const words = String(seg.text || "").trim().split(/\s+/).filter(Boolean);
     // Only wi === 0 is a genuine no-op (nothing sits before it). Splitting off
     // the LAST word is a real split, but the old `wi >= words.length - 1`
     // guard swallowed that click without a word of feedback — so the line
@@ -3378,10 +3433,12 @@ function wrapText(text, maxCharsPerLine, maxLines) {
 // not override manual cuts or gate export: Premiere may render the font differently.
 function captionPreviewSettings() {
     return {
-        font: String(settings.captionPreviewFont || "Arial").trim().slice(0, 100) || "Arial",
-        size: Math.max(8, Math.min(200, Number(settings.captionPreviewSize) || 54)),
+        enabled: settings.captionPreviewEnabled !== false,
+        font: String(settings.captionPreviewFont || "Helvetica").trim().slice(0, 100) || "Helvetica",
+        size: Math.max(8, Math.min(200, Number(settings.captionPreviewSize) || 50)),
         width: Math.max(80, Math.min(1920, Number(settings.captionPreviewWidth) || 800)),
-        bold: !!settings.captionPreviewBold
+        bold: !!settings.captionPreviewBold,
+        tracking: Math.max(-5, Math.min(20, Number(settings.captionPreviewTracking) || 0))
     };
 }
 
@@ -3394,7 +3451,7 @@ function captionVisualLines(text, preview, measureOverride) {
         if (!_captionMeasureCanvas) _captionMeasureCanvas = document.createElement("canvas");
         const ctx = _captionMeasureCanvas.getContext("2d");
         ctx.font = `${preview.bold ? "bold " : ""}${preview.size}px "${preview.font.replace(/["\\]/g, "")}"`;
-        measure = value => ctx.measureText(value).width;
+        measure = value => ctx.measureText(value).width + Math.max(0, value.length - 1) * (preview.tracking || 0);
     }
     words.forEach((word, index) => {
         const last = lines[lines.length - 1];
@@ -3405,6 +3462,37 @@ function captionVisualLines(text, preview, measureOverride) {
         }
     });
     return lines;
+}
+
+function splitSegmentsAtPreviewLines(input, preview, measureOverride) {
+    const result = [];
+    for (const original of input) {
+        let seg = original;
+        for (let guard = 0; guard < 200; guard++) {
+            const lines = captionVisualLines(seg.text, preview, measureOverride);
+            if (lines.length <= 2) break;
+            const words = String(seg.text || "").trim().split(/\s+/).filter(Boolean);
+            const wi = lines[2].startWord;
+            if (wi <= 0 || wi >= words.length) break;
+            const p = splitPoint(seg, words, wi);
+            const halves = cutSegment(seg, p.t, p.a, p.b,
+                words.slice(0, wi).join(" "), words.slice(wi).join(" "));
+            result.push(halves[0]);
+            seg = halves[1];
+        }
+        result.push(seg);
+    }
+    return result.map((seg, i) => ({ ...seg, id: i }));
+}
+
+function applyCaptionPreviewSplits() {
+    if (!settings.captionPreviewEnabled || !segments.length) return;
+    const next = splitSegmentsAtPreviewLines(segments, captionPreviewSettings());
+    if (next.length === segments.length) return;
+    pushUndo();
+    segments = next;
+    renderSegments(); updateSegCount(); reselect();
+    showToast(settings.uiLang === "tr" ? "Altyazılar önizleme sınırından bölündü" : "Captions split at preview boundary", "success", 3000);
 }
 
 function segmentsToSRT(segsOverride) {
@@ -4394,7 +4482,7 @@ const PROFILE_KEYS = [
     "stylePreset", "customStyle", "karaoke", "karaokeHi",
     "styleAnimation", "styleAnimationMs",
     "autoSplit", "maxCharsPerLine", "maxLines", "maxCps", "maxDur",
-    "captionPreviewFont", "captionPreviewSize", "captionPreviewWidth", "captionPreviewBold",
+    "captionPreviewEnabled", "captionPreviewAutoSplit", "captionPreviewFont", "captionPreviewSize", "captionPreviewWidth", "captionPreviewBold", "captionPreviewTracking",
     "gapFill", "gapMax",
     "punctAllowed", "customDict", "promptWords", "autoCleanup",
     "fillerWords", "fillerOn", "profanityList", "profanityMode", "profStem",
@@ -4434,6 +4522,7 @@ function loadProfile(name) {
     for (const fn of [initSettingsUI, initEditSettingsUI, initAudioSettingsUI, applyLanguage]) {
         try { if (typeof fn === "function") fn(); } catch (e) {}
     }
+    if (typeof bindCaptionPreviewControls === "function") bindCaptionPreviewControls();
     if (segments.length && settings.autoSplit) {
         pushUndo();
         segments = applySmartSplit(segments, settings);
@@ -4782,7 +4871,7 @@ const PROJECT_SETTING_KEYS = [
     "stylePreset", "customStyle", "karaoke", "karaokeHi",
     "styleAnimation", "styleAnimationMs",
     "subPosX", "subPosY", "subMaxW", "speakerColors",
-    "captionPreviewFont", "captionPreviewSize", "captionPreviewWidth", "captionPreviewBold",
+    "captionPreviewEnabled", "captionPreviewAutoSplit", "captionPreviewFont", "captionPreviewSize", "captionPreviewWidth", "captionPreviewBold", "captionPreviewTracking",
 ];
 function projectSettings() {
     const out = {};
@@ -4841,6 +4930,8 @@ function _loadProjectData(data) {
             else if (key === "captionPreviewSize" && Number.isFinite(value) && value >= 8 && value <= 200) settings[key] = value;
             else if (key === "captionPreviewWidth" && Number.isFinite(value) && value >= 80 && value <= 1920) settings[key] = value;
             else if (key === "captionPreviewBold" && typeof value === "boolean") settings[key] = value;
+            else if (["captionPreviewEnabled", "captionPreviewAutoSplit"].includes(key) && typeof value === "boolean") settings[key] = value;
+            else if (key === "captionPreviewTracking" && Number.isFinite(value) && value >= -5 && value <= 20) settings[key] = value;
             else if (["subPosX", "subPosY", "subMaxW"].includes(key) && (value === null || (Number.isFinite(value) && value >= 0 && value <= 100))) settings[key] = value;
             else if (key === "speakerColors" && value && typeof value === "object" && !Array.isArray(value)) {
                 const colors = {};

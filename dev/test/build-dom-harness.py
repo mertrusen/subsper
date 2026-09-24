@@ -43,7 +43,7 @@ WANTED = [
 STUBS = """
 var segments = [], selectedIndex = -1, activeFindRegex = null, findMatchSegs = [];
 var IS_DESKTOP_APP = false;
-var settings = { uiLang: "en", captionPreviewFont: "Arial", captionPreviewSize: 54, captionPreviewWidth: 800 };
+var settings = { uiLang: "en", captionPreviewEnabled: true, captionPreviewFont: "Helvetica", captionPreviewSize: 50, captionPreviewWidth: 800, captionPreviewBold: true, captionPreviewTracking: 0 };
 var _captionMeasureCanvas = null;
 var segmentsWrap = document.getElementById("segments");
 var segCountEl = null, actionsBar = { style: {} }, sendBtn = { };
@@ -189,9 +189,13 @@ group("visual line preview");
 settings.captionPreviewWidth = 200;
 segments = [seg("Bugün bu videoda sizlere altyazı düzenleme sürecini anlatacağım", 0, 8)];
 renderSegments();
-ok("estimate is visible", !!segmentsWrap.querySelector(".premiere-line-guide.has-overflow"));
-ok("split suggestion identifies a word", !!segmentsWrap.querySelector('[data-act="split-overflow"]'));
+eq("only one overflow word is marked", segmentsWrap.querySelectorAll(".seg-word.caption-overflow-start").length, 1);
+ok("no large warning is rendered", !segmentsWrap.querySelector(".premiere-line-guide"));
 eq("preview does not split captions automatically", segments.length, 1);
+settings.captionPreviewEnabled = false;
+renderSegments();
+eq("preview can be disabled", segmentsWrap.querySelectorAll(".caption-overflow-start").length, 0);
+settings.captionPreviewEnabled = true;
 
 group("empty state");
 // Nothing here runs while a transcript exists, which is why it went untested

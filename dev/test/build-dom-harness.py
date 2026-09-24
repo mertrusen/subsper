@@ -34,6 +34,7 @@ WANTED = [
     "escRe", "WORD_CHARS", "wordRe", "upperIn", "matchCase",
     "p2", "p3", "formatTime", "escHtml", "highlightMatches",
     "splitPoint", "cutSegment", "splitSegmentHalf", "splitAtWord",
+    "captionPreviewSettings", "captionVisualLines", "mergeWithPrevious",
     "sourceInfo", "formatClock",
     "renderSegments", "_segDelegationBound", "bindSegmentDelegation", "selectSegment",
     "deleteSegment", "editSegment", "syncControlVisibility", "updateSegCount",
@@ -41,7 +42,9 @@ WANTED = [
 
 STUBS = """
 var segments = [], selectedIndex = -1, activeFindRegex = null, findMatchSegs = [];
-var settings = { uiLang: "en" };
+var IS_DESKTOP_APP = false;
+var settings = { uiLang: "en", captionPreviewFont: "Arial", captionPreviewSize: 54, captionPreviewWidth: 800 };
+var _captionMeasureCanvas = null;
 var segmentsWrap = document.getElementById("segments");
 var segCountEl = null, actionsBar = { style: {} }, sendBtn = { };
 var calls = [];
@@ -52,6 +55,8 @@ function renameSpeaker(s) { calls.push("rename:" + s); }
 function pushUndo() {}
 function showToast() {}
 function setStatus() {}
+function saveSettings() {}
+function $(id) { return document.getElementById(id); }
 function seg(text, start, end, words) {
   return { id: 0, text: text, start: start, end: end,
            seqStart: start, seqEnd: end, words: words || [] };
@@ -106,6 +111,7 @@ eq("timecodes rendered", els[0].querySelector(".seg-time").textContent,
 eq("words are split into spans", els[0].querySelectorAll(".seg-word").length, 6);
 ok("no inline onclick attributes remain",
    segmentsWrap.innerHTML.indexOf("onclick=") === -1);
+ok("visual line preview is present", !!segmentsWrap.querySelector(".premiere-guide-bar"));
 
 group("word click splits");
 calls = [];
@@ -115,6 +121,11 @@ eq("clicking the last word splits it off", segments.length, 3);
 eq("first half", segments[0].text, "Kanser hücreleri kontrolsüz ve hızlı");
 eq("second half", segments[1].text, "büyürler.");
 ok("clicking a word does not also seek", calls.indexOf("seek:0") === -1);
+click(segmentsWrap.querySelectorAll('.segment')[1].querySelector('[data-act="merge-prev"]'));
+eq("merge button restores split text", segments[0].text, "Kanser hücreleri kontrolsüz ve hızlı büyürler.");
+eq("merge button restores segment count", segments.length, 2);
+var dragSource = segmentsWrap.querySelectorAll('.segment')[0].querySelector('.seg-index');
+ok("caption number is draggable for adjacent merge", dragSource.draggable);
 
 group("action buttons");
 renderSegments();
@@ -173,6 +184,14 @@ for (var i = 0; i < 5; i++) renderSegments();
 els = segmentsWrap.querySelectorAll(".segment");
 click(els[0].querySelector(".seg-index"));
 eq("still exactly one handler after five rebuilds", calls, ["seek:0"]);
+
+group("visual line preview");
+settings.captionPreviewWidth = 200;
+segments = [seg("Bugün bu videoda sizlere altyazı düzenleme sürecini anlatacağım", 0, 8)];
+renderSegments();
+ok("estimate is visible", !!segmentsWrap.querySelector(".premiere-line-guide.has-overflow"));
+ok("split suggestion identifies a word", !!segmentsWrap.querySelector('[data-act="split-overflow"]'));
+eq("preview does not split captions automatically", segments.length, 1);
 
 group("empty state");
 // Nothing here runs while a transcript exists, which is why it went untested

@@ -904,7 +904,7 @@ function importSRTToProject(srtContent) {
         // ExtendScript on macOS defaults to CR-only (\r) line endings.
         // Premiere's SRT importer requires CRLF (\r\n) — set lineFeed explicitly.
         var f = new File(tmpPath);
-        f.open("w");
+        if (!f.open("w")) return JSON.stringify({ success: false, error: "Could not open SRT file for writing: " + tmpPath });
         f.encoding = "UTF-8";
         f.lineFeed = "Windows";   // forces \n → \r\n when writing
         f.write(srtContent);
@@ -948,21 +948,19 @@ function importSRTToProject(srtContent) {
         }
         diag.push(capItem ? ("found item: " + capItem.name) : "NO new item found");
 
-        // (E) Place captions on the timeline. createCaptionTrack is the correct API
-        //     (insertMyselfAtTime is for media clips). SRT timestamps are absolute → tick 0.
-        var startTicks = "0";
+        // SRT timestamps are absolute sequence times, so create the caption
+        // track at zero seconds. Premiere applies its own default caption font;
+        // ExtendScript does not expose the user's saved Track Style here.
+        var startSeconds = 0;
         if (capItem) {
             var attempts = [
-                ["createCaptionTrack(item,'0')",    function(){ return seq.createCaptionTrack(capItem, startTicks); }],
-                ["createCaptionTrack(item,'0',0)",  function(){ return seq.createCaptionTrack(capItem, startTicks, 0); }],
-                ["createCaptionTrack(item,'0',1)",  function(){ return seq.createCaptionTrack(capItem, startTicks, 1); }],
-                ["insertMyselfAtTime(item,'0')",    function(){ capItem.insertMyselfAtTime(startTicks, seq); return true; }]
+                ["createCaptionTrack(item,0)", function(){ return seq.createCaptionTrack(capItem, startSeconds); }]
             ];
             for (var b = 0; b < attempts.length; b++) {
                 try {
                     var r = attempts[b][1]();
                     diag.push(attempts[b][0] + " => " + r);
-                    if (r !== false && r !== null) {
+                    if (r === true) {
                         return JSON.stringify({
                             success: true, autoAdded: true, srtPath: tmpPath,
                             message: "Captions added to timeline!", diag: diag

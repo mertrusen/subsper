@@ -21,7 +21,7 @@ let _playingNode = null;
 const DEFAULT_SETTINGS = {
     engine:          "cpp",       // bundled whisper.cpp — zero setup. Pro: whisperx/mlx/openai (Python)
     diarize:         false,
-    autoSplit:       true,
+    autoSplit:       false,      // manual word cuts by default; no arbitrary character limit
     maxCharsPerLine: 42,
     maxLines:        2,
     maxCps:          17,
@@ -74,6 +74,10 @@ const DEFAULT_SETTINGS = {
     profStem:        true,        // match suffixed forms too (kan → kanın), beep only the root part
     beepMode:        "beep",      // beep = 1kHz tone | mute = just silence the word (no tone)
     followPlayhead:  true,        // highlight the active segment while playing
+    captionPreviewFont: "Arial",
+    captionPreviewSize: 54,
+    captionPreviewWidth: 800,
+    captionPreviewBold: false,
 };
 
 // Built-in filler words (Turkish + English). Phrases first so they match before single words.
@@ -229,7 +233,7 @@ const I18N = {
     opt_bottom: "Bottom", opt_top: "Top", opt_center: "Center",
     hint_style: "Applies to .ass exports. SRT / Premiere captions carry no styling.",
     nm_karaoke: "Word-by-word highlight", ds_karaoke: "Each word lights up as spoken. Exports as karaoke .ass (needs word timing).",
-    lbl_hicolor: "Highlight colour", hint_karaoke: "Open the .ass in CapCut, VLC or Premiere. Spoken words switch to the highlight colour.",
+    lbl_hicolor: "Highlight colour", hint_karaoke: "Use ASS in a compatible player or burn it into video. Use SRT for editable CapCut captions.",
     nm_continuous: "Continuous subtitles", ds_continuous: "Extend each subtitle to the next, filling short gaps",
     lbl_maxgap: "Max gap to fill", hint_gap: "Gaps larger than this stay separate.",
     // silence
@@ -418,7 +422,7 @@ const I18N = {
     opt_bottom: "Alt", opt_top: "Üst", opt_center: "Orta",
     hint_style: ".ass dışa aktarıma uygulanır. SRT / Premiere altyazısı stil taşımaz.",
     nm_karaoke: "Kelime kelime vurgu", ds_karaoke: "Her kelime söylendikçe yanar. Karaoke .ass olarak çıkar (kelime zamanı gerekir).",
-    lbl_hicolor: "Vurgu rengi", hint_karaoke: ".ass'i CapCut, VLC veya Premiere'de aç. Söylenen kelimeler vurgu rengine geçer.",
+    lbl_hicolor: "Vurgu rengi", hint_karaoke: "ASS'yi uyumlu oynatıcıda kullan veya videoya göm. CapCut'ta düzenlenebilir altyazı için SRT kullan.",
     nm_continuous: "Sürekli altyazı", ds_continuous: "Her altyazıyı bir sonrakine kadar uzatır, kısa boşlukları doldurur",
     lbl_maxgap: "Doldurulacak maks. boşluk", hint_gap: "Bundan uzun boşluklar ayrı kalır.",
     sil_intro: "In/Out sesini analiz eder. Mark marker koyar; Cut sessiz boşlukları keser ve klipleri sola çeker. Önce In/Out koy.",
@@ -2919,8 +2923,13 @@ function renderSegments() {
     const icPencil = icon("pencil"), icScissors = icon("scissors"), icClose = icon("close");
 
     const out = [];
+    const preview = captionPreviewSettings();
+    let overflowCount = 0;
     for (let idx = 0; idx < segments.length; idx++) {
         const seg = segments[idx];
+        const guide = captionVisualLines(seg.text, preview);
+        const overflow = guide.length > 2;
+        if (overflow) overflowCount++;
 
         const speakerHtml = seg.speaker
             ? `<span class="seg-speaker" data-act="speaker" style="cursor:pointer" data-tip="Click to rename this speaker everywhere">${escHtml(String(seg.speaker).replace("SPEAKER_", "S"))}</span>`
@@ -2943,19 +2952,31 @@ function renderSegments() {
         out.push(
             `<div class="segment${matchCls}" data-idx="${idx}">` +
               `<div class="seg-header">` +
-                `<span class="seg-index" data-act="seek" data-tip="${tipSeek}">${idx + 1}</span>` +
+                `<span class="seg-index" data-act="seek" data-tip="${tipSeek}" draggable="true">${idx + 1}</span>` +
                 `<span class="seg-time"  data-act="seek" data-tip="${tipSeek}">${formatTime(seg.seqStart)} → ${formatTime(seg.seqEnd)}</span>` +
                 speakerHtml +
                 `<div class="seg-actions">` +
                   `<button class="seg-btn" data-act="edit"   data-tip="${tipEdit}">${icPencil}</button>` +
                   `<button class="seg-btn" data-act="split"  data-tip="${tipSplit}">${icScissors}</button>` +
+                  (idx ? `<button class="seg-btn" data-act="merge-prev" data-tip="${escHtml(settings.uiLang === "tr" ? "Önceki altyazıyla birleştir" : "Merge with previous caption")}" aria-label="${escHtml(settings.uiLang === "tr" ? "Öncekiyle birleştir" : "Merge with previous")}">↑</button>` : "") +
                   `<button class="seg-btn del" data-act="delete" data-tip="${tipDel}">${icClose}</button>` +
                 `</div>` +
               `</div>` +
               `<div class="seg-text" id="seg-text-${idx}">${bodyHtml}</div>` +
+              (overflow ? `<div class="premiere-line-guide has-overflow"><span>${escHtml(settings.uiLang === "tr" ? "Önizlemede 3+ satır (tahmini)" : "3+ preview lines (estimate)")}</span>` +
+                (guide[2] && guide[2].startWord > 0 ? `<button type="button" data-act="split-overflow" data-word="${guide[2].startWord}">${escHtml(settings.uiLang === "tr" ? `“${guide[2].text.split(" ")[0]}” öncesinden böl` : `Split before “${guide[2].text.split(" ")[0]}”`)}</button>` : "") +
+              `</div>` : "") +
             `</div>`);
     }
-    segmentsWrap.innerHTML = out.join("");
+    const guideBar = `<div class="premiere-guide-bar">` +
+      `<div><strong>${escHtml(settings.uiLang === "tr" ? "Satır önizlemesi" : "Line preview")}</strong>` +
+      `<small>${escHtml(settings.uiLang === "tr" ? "Font, punto ve kutu genişliğini Premiere'deki gibi ayarla. Renkli işaret tahmindir; istediğin kelimeye tıklayıp böl, ↑ ile birleştir. Gönderim engellenmez." : "Match font, size and box width to Premiere. Highlight is an estimate; click any word to split or ↑ to merge. Sending is never blocked.")}</small></div>` +
+      `<label>${escHtml(settings.uiLang === "tr" ? "Font" : "Font")} <input type="text" id="caption-preview-font" value="${escHtml(preview.font)}"></label>` +
+      `<label>${escHtml(settings.uiLang === "tr" ? "Punto" : "Size")} <input type="number" id="caption-preview-size" min="8" max="200" value="${preview.size}"></label>` +
+      `<label>${escHtml(settings.uiLang === "tr" ? "Kutu px" : "Box px")} <input type="number" id="caption-preview-width" min="80" max="1920" value="${preview.width}"></label>` +
+      `<label><input type="checkbox" id="caption-preview-bold" ${preview.bold ? "checked" : ""}>${escHtml(settings.uiLang === "tr" ? "Kalın" : "Bold")}</label>` +
+      `<span>${overflowCount ? escHtml(settings.uiLang === "tr" ? `${overflowCount} olası taşma` : `${overflowCount} possible overflow`) : ""}</span></div>`;
+    segmentsWrap.innerHTML = guideBar + out.join("");
     bindSegmentDelegation();
 }
 
@@ -2986,11 +3007,43 @@ function bindSegmentDelegation() {
         switch (act && act.dataset.act) {
             case "edit":    editSegment(idx); return;
             case "split":   splitSegmentHalf(idx); return;
+            case "split-overflow": splitAtWord(idx, +act.dataset.word); return;
+            case "merge-prev": mergeWithPrevious(idx); return;
             case "delete":  deleteSegment(idx); return;
             case "speaker": e.stopPropagation(); renameSpeaker(segments[idx].speaker); return;
             case "seek":    seekToSegment(idx); return;
         }
         seekToSegment(idx);
+    });
+
+    segmentsWrap.addEventListener("change", e => {
+        if (e.target && /^caption-preview-(font|size|width|bold)$/.test(e.target.id)) {
+            settings.captionPreviewFont = (document.getElementById("caption-preview-font").value || "Arial").trim().slice(0, 100);
+            settings.captionPreviewSize = Math.max(8, Math.min(200, Number(document.getElementById("caption-preview-size").value) || 54));
+            settings.captionPreviewWidth = Math.max(80, Math.min(1920, Number(document.getElementById("caption-preview-width").value) || 800));
+            settings.captionPreviewBold = document.getElementById("caption-preview-bold").checked;
+            saveSettings();
+            renderSegments();
+        }
+    });
+
+    segmentsWrap.addEventListener("dragstart", e => {
+        const handle = e.target.closest && e.target.closest(".seg-index");
+        const row = handle && handle.closest(".segment");
+        if (!row || !e.dataTransfer) return;
+        e.dataTransfer.setData("text/plain", row.dataset.idx);
+        e.dataTransfer.effectAllowed = "move";
+    });
+    segmentsWrap.addEventListener("dragover", e => {
+        if (e.target.closest && e.target.closest(".segment")) e.preventDefault();
+    });
+    segmentsWrap.addEventListener("drop", e => {
+        const row = e.target.closest && e.target.closest(".segment");
+        if (!row || !e.dataTransfer) return;
+        e.preventDefault();
+        const from = Number(e.dataTransfer.getData("text/plain"));
+        const to = Number(row.dataset.idx);
+        if (Number.isInteger(from) && Number.isInteger(to) && Math.abs(from - to) === 1) mergeWithPrevious(Math.max(from, to));
     });
 
     segmentsWrap.addEventListener("dblclick", (e) => {
@@ -3042,7 +3095,7 @@ function formatClock(secs) {
 }
 
 function escHtml(s) {
-    return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
 
 // Escape text, then wrap regex matches in <mark> for find highlighting
@@ -3105,7 +3158,8 @@ function editSegment(idx) {
     ta.focus();
     const save = () => {
         // Keep subtitles single-line — collapse any stray line breaks/whitespace.
-        segments[idx].text = ta.value.replace(/\s+/g, " ").trim();
+        const next = ta.value.replace(/\s+/g, " ").trim();
+        if (next !== segments[idx].text) { pushUndo(); segments[idx].text = next; }
         ta.closest(".segment")?.classList.remove("editing");
         renderSegments(); selectSegment(idx);
     };
@@ -3156,6 +3210,7 @@ function splitSegmentHalf(idx) {
     if (words.length < 2) { selectSegment(idx); return; }
     const half  = Math.max(1, Math.round(words.length / 2));
     const p     = splitPoint(seg, words, half);
+    pushUndo();
     segments.splice(idx, 1, ...cutSegment(seg, p.t, p.a, p.b,
         words.slice(0, half).join(" "), words.slice(half).join(" ")));
     segments.forEach((s, i) => { s.id = i; });
@@ -3172,13 +3227,34 @@ function splitAtWord(idx, wi) {
     // exactly like someone hit Enter instead of cutting.
     if (wi <= 0 || wi >= words.length) { selectSegment(idx); return; }
     const p = splitPoint(seg, words, wi);
+    pushUndo();
     segments.splice(idx, 1, ...cutSegment(seg, p.t, p.a, p.b,
         words.slice(0, wi).join(" "), words.slice(wi).join(" ")));
     segments.forEach((s, i) => { s.id = i; });
     renderSegments(); updateSegCount(); selectSegment(idx);
 }
 
+function mergeWithPrevious(idx) {
+    if (!Number.isInteger(idx) || idx < 1 || idx >= segments.length) return false;
+    const first = segments[idx - 1], second = segments[idx];
+    const timed = (s) => Array.isArray(s.words) && s.words.length === String(s.text || "").trim().split(/\s+/).length;
+    const joined = {
+        ...first,
+        text: [first.text.trim(), second.text.trim()].filter(Boolean).join(" "),
+        end: Math.max(first.end, second.end),
+        seqEnd: Math.max(first.seqEnd, second.seqEnd),
+        words: timed(first) && timed(second) ? first.words.concat(second.words) : []
+    };
+    pushUndo();
+    segments.splice(idx - 1, 2, joined);
+    segments.forEach((s, i) => { s.id = i; });
+    renderSegments(); updateSegCount(); selectSegment(idx - 1);
+    return true;
+}
+
 function deleteSegment(idx) {
+    if (idx < 0 || idx >= segments.length) return;
+    pushUndo();
     segments.splice(idx, 1);
     segments.forEach((s, i) => { s.id = i; });
     if (segments.length === 0) { renderSegments(); actionsBar.style.display = "none"; }
@@ -3215,6 +3291,39 @@ function wrapText(text, maxCharsPerLine, maxLines) {
     return lines.join("\n");
 }
 
+// Optional preview uses real font metrics in a user-sized caption box. It does
+// not override manual cuts or gate export: Premiere may render the font differently.
+function captionPreviewSettings() {
+    return {
+        font: String(settings.captionPreviewFont || "Arial").trim().slice(0, 100) || "Arial",
+        size: Math.max(8, Math.min(200, Number(settings.captionPreviewSize) || 54)),
+        width: Math.max(80, Math.min(1920, Number(settings.captionPreviewWidth) || 800)),
+        bold: !!settings.captionPreviewBold
+    };
+}
+
+let _captionMeasureCanvas = null;
+function captionVisualLines(text, preview, measureOverride) {
+    const words = String(text || "").trim().split(/\s+/).filter(Boolean);
+    const lines = [];
+    let measure = measureOverride;
+    if (!measure) {
+        if (!_captionMeasureCanvas) _captionMeasureCanvas = document.createElement("canvas");
+        const ctx = _captionMeasureCanvas.getContext("2d");
+        ctx.font = `${preview.bold ? "bold " : ""}${preview.size}px "${preview.font.replace(/["\\]/g, "")}"`;
+        measure = value => ctx.measureText(value).width;
+    }
+    words.forEach((word, index) => {
+        const last = lines[lines.length - 1];
+        if (!last || measure(last.text + " " + word) > preview.width) {
+            lines.push({ text: word, startWord: index });
+        } else {
+            last.text += " " + word;
+        }
+    });
+    return lines;
+}
+
 function segmentsToSRT(segsOverride) {
     const segs = segsOverride || _exportSegs();
     return segs.map((seg, i) => {
@@ -3223,6 +3332,10 @@ function segmentsToSRT(segsOverride) {
             : seg.text;
         return `${i+1}\n${formatTime(seg.seqStart)} --> ${formatTime(seg.seqEnd)}\n${text}\n`;
     }).join("\n");
+}
+
+function premiereCaptionSRT(segs) {
+    return segs.map((seg, i) => `${i+1}\n${formatTime(seg.seqStart)} --> ${formatTime(seg.seqEnd)}\n${seg.text}\n`).join("\n");
 }
 
 // ── Multi-format export ───────────────────────────────────────────────────
@@ -3426,14 +3539,15 @@ function exportAs(fmt) {
 
 async function sendToPremiere() {
     if (segments.length === 0) return;
-    if (settings.sendMode === "graphics" && typeof sendStyledGraphics === "function") { await sendStyledGraphics(); return; }
     sendBtn.disabled = true;
     setStatus("Sending captions to Premiere…", "info");
     showProgress(true);
     hideSRTSaved();
 
     const finalSegs = settings.gapFill ? applyGapFill(segments, settings.gapMax) : segments;
-    const srt       = segmentsToSRT(finalSegs);
+    // Premiere determines wrapping from its own caption style and text box.
+    // Character-based wrapping here would reintroduce unwanted breaks.
+    const srt       = premiereCaptionSRT(finalSegs);
     const escaped = srt.replace(/\\/g,"\\\\").replace(/'/g,"\\'").replace(/\r?\n/g,"\\n");
     const result  = await evalScript(`importSRTToProject('${escaped}')`);
 
@@ -4197,6 +4311,7 @@ const PROFILE_KEYS = [
     "stylePreset", "customStyle", "karaoke", "karaokeHi",
     "styleAnimation", "styleAnimationMs",
     "autoSplit", "maxCharsPerLine", "maxLines", "maxCps", "maxDur",
+    "captionPreviewFont", "captionPreviewSize", "captionPreviewWidth", "captionPreviewBold",
     "gapFill", "gapMax",
     "punctAllowed", "customDict", "promptWords", "autoCleanup",
     "fillerWords", "fillerOn", "profanityList", "profanityMode", "profStem",
@@ -4311,11 +4426,11 @@ function maybeShowOnboarding() {
     const steps = isTr ? [
         ["1 · Yazıya dök", IS_DESKTOP_APP ? "Bir video/ses dosyası aç (sürükle-bırak da olur) ve Transcribe'a bas. Model ilk seferde bir kez iner." : "Timeline'ında klip varken Transcribe'a bas. In/Out koymazsan tüm timeline yazıya dökülür."],
         ["2 · Düzenle", "Metne çift tıkla = düzenle · kelimeye tıkla = böl · Space = oynat/duraklat · Cmd/Ctrl+Z = geri al."],
-        ["3 · Dışa aktar", IS_DESKTOP_APP ? "SRT/VTT/ASS olarak kaydet — CapCut, YouTube, Premiere hepsi açar." : "Send to Premiere = timeline'a caption track. Export menüsünden SRT de alabilirsin."],
+        ["3 · Dışa aktar", IS_DESKTOP_APP ? "CapCut'a düzenlenebilir altyazı için SRT, görünümü korumak için gömülü video kaydet." : "Send to Premiere = timeline'a caption track. Export menüsünden SRT de alabilirsin."],
     ] : [
         ["1 · Transcribe", IS_DESKTOP_APP ? "Open a video/audio file (drag & drop works) and hit Transcribe. The model downloads once." : "With clips on your timeline, hit Transcribe. No In/Out set = the whole timeline."],
         ["2 · Edit", "Double-click text to edit · click a word to split · Space = play/pause · Cmd/Ctrl+Z = undo."],
-        ["3 · Export", IS_DESKTOP_APP ? "Save as SRT/VTT/ASS — CapCut, YouTube and Premiere all open them." : "Send to Premiere puts a caption track on the timeline. SRT export is in the menu too."],
+        ["3 · Export", IS_DESKTOP_APP ? "Use SRT for editable CapCut captions, or burn subtitles into video to preserve the look." : "Send to Premiere puts a caption track on the timeline. SRT export is in the menu too."],
     ];
     const ov = document.createElement("div");
     ov.id = "onboard-ov";
@@ -4346,8 +4461,8 @@ setTimeout(function initFeaturePack() {
     }
     try {
         // Undo hooks around every mutating action
-        ["deleteSegment", "splitSegmentHalf", "splitAtWord", "doReplaceAll",
-         "applyAiToSubtitles", "applySyncProposal", "cleanAll", "editSegment",
+        ["doReplaceAll",
+         "applyAiToSubtitles", "applySyncProposal", "cleanAll",
          "applyDictionary", "removeFillers", "censorProfanity", "applyProofread"].forEach(name => {
             const orig = window[name];
             if (typeof orig === "function") window[name] = function () { pushUndo(); return orig.apply(this, arguments); };
@@ -4359,6 +4474,7 @@ setTimeout(function initFeaturePack() {
             const mod = e.metaKey || e.ctrlKey;
             if (mod && !e.shiftKey && e.key.toLowerCase() === "z") { e.preventDefault(); undoSegments(); }
             else if (mod && e.shiftKey && e.key.toLowerCase() === "z") { e.preventDefault(); redoSegments(); }
+            else if (e.ctrlKey && e.key.toLowerCase() === "y") { e.preventDefault(); redoSegments(); }
             else if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
                 e.preventDefault();
                 nudgeSelected(e.shiftKey ? "end" : "start", e.key === "ArrowLeft" ? -0.1 : 0.1);
@@ -4583,6 +4699,7 @@ const PROJECT_SETTING_KEYS = [
     "stylePreset", "customStyle", "karaoke", "karaokeHi",
     "styleAnimation", "styleAnimationMs",
     "subPosX", "subPosY", "subMaxW", "speakerColors",
+    "captionPreviewFont", "captionPreviewSize", "captionPreviewWidth", "captionPreviewBold",
 ];
 function projectSettings() {
     const out = {};
@@ -4637,6 +4754,10 @@ function _loadProjectData(data) {
             else if (key === "karaokeHi" && /^[0-9a-fA-F]{6}$/.test(String(value))) settings[key] = value;
             else if (key === "styleAnimation" && ["none", "fade", "pop", "bounce"].includes(value)) settings[key] = value;
             else if (key === "styleAnimationMs" && Number.isFinite(value) && value >= 80 && value <= 700) settings[key] = Math.round(value);
+            else if (key === "captionPreviewFont" && /^[\p{L}\p{N}_ ,.-]{1,100}$/u.test(String(value))) settings[key] = value;
+            else if (key === "captionPreviewSize" && Number.isFinite(value) && value >= 8 && value <= 200) settings[key] = value;
+            else if (key === "captionPreviewWidth" && Number.isFinite(value) && value >= 80 && value <= 1920) settings[key] = value;
+            else if (key === "captionPreviewBold" && typeof value === "boolean") settings[key] = value;
             else if (["subPosX", "subPosY", "subMaxW"].includes(key) && (value === null || (Number.isFinite(value) && value >= 0 && value <= 100))) settings[key] = value;
             else if (key === "speakerColors" && value && typeof value === "object" && !Array.isArray(value)) {
                 const colors = {};

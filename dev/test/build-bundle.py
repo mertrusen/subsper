@@ -28,9 +28,9 @@ STUBS = Path(__file__).resolve().parent / "stubs.js"
 WANTED = [
     # shared helpers
     "escRe", "WORD_CHARS", "wordRe", "upperIn", "matchCase", "stemAlt",
-    "tidyText", "capFirst", "parseDictRules", "wrapText",
+    "tidyText", "capFirst", "parseDictRules", "wrapText", "captionPreviewSettings", "captionVisualLines",
     "p2", "p3", "formatTime",
-    "fmtASS", "applyGapFill", "_exportSegs", "segmentsToSRT", "currentWords", "buildWordSRT", "assEffectTag",
+    "fmtASS", "applyGapFill", "_exportSegs", "segmentsToSRT", "premiereCaptionSRT", "currentWords", "buildWordSRT", "assEffectTag",
     "PROJECT_SETTING_KEYS", "projectSettings", "safeProjectStyle", "_projectData", "_loadProjectData", "computeDeletedRanges",
     # transcript clean-up
     "BUILTIN_FILLERS", "BUILTIN_PROFANITY",
@@ -40,7 +40,7 @@ WANTED = [
     "PROOF_TYPOS_TR", "PROOF_TYPOS_EN",
     "proofLang", "proofPunct", "proofCaps", "applyProofread",
     # segment splitting
-    "splitPoint", "cutSegment", "splitSegmentHalf", "splitAtWord",
+    "splitPoint", "cutSegment", "splitSegmentHalf", "splitAtWord", "mergeWithPrevious",
     # auto-format
     "applySmartSplit", "splitSegment", "splitByWords", "splitByText",
     # settings profiles + bilingual export

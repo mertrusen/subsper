@@ -1,188 +1,116 @@
 # Subsper
 
-By **zipheron**. Local AI subtitles, audio cleanup & silence cutting.
+[Türkçe kullanım kılavuzu](README.tr.md)
 
-**Your media never leaves your machine.** Transcription, editing and export all
-run on your own hardware. A handful of *optional* extras — AI grammar and
-translation, stock B-roll, the update check — do use the network, and
-[PRIVACY.md](PRIVACY.md) lists every one of them. The old "100% offline" claim
-was not quite true once those features existed, so it is stated properly now.
+Subsper turns speech into editable subtitles. This repository contains a standalone desktop app and an Adobe Premiere Pro extension. Transcription, editing, and export run on your computer; optional online features are explained in [Privacy](PRIVACY.md).
 
-Licensing: [LICENSE](LICENSE) · third-party components:
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
+| Product | Use it for | Current distribution |
+| --- | --- | --- |
+| Desktop | Transcribe video/audio files, edit and style captions, export subtitle files or a video with subtitles burned in. | Source checkout for the current preview. |
+| Premiere extension | Transcribe an active sequence or In/Out range and send captions to the timeline. | `.zxp` package on [Releases](https://github.com/mertrusen/subsper/releases). |
 
-This repo holds **two apps that share the same engine**:
+**Release status:** [Subsper 1.4.0 Preview 1](https://github.com/mertrusen/subsper/releases/tag/preview-1.4.0-preview.1) contains the Premiere `.zxp` and GitHub source archives. It does **not** contain a desktop installer. The older `v1.3` release has installers for an older build and does not contain this interface. Signed Windows and macOS installers require the setup in [docs/SIGNING.md](docs/SIGNING.md); the release workflow refuses unsigned installers.
 
-| App | For | Where |
-|-----|-----|-------|
-| **Desktop** (this folder) | CapCut / any editor — no Premiere needed. Windows + macOS. | [Releases](../../releases) → `.exe` / `.dmg` |
-| **Premiere extension** | Adobe Premiere Pro users | [Releases](../../releases) → `Subsper-Premiere-*.zxp` |
+The `main` branch may include editor changes newer than that packaged preview. Build or link the extension from source to try those changes before the next release.
 
-> **Download links depend on this repo being reachable.** They point at its
-> Releases page, and so do the in-app update check and `electron-updater`. If
-> the repo is private, all three go dead at once — silently, in the case of the
-> update check. Selling from your own site or Gumroad instead means editing
-> `DIST` in `js/main.js` and the `publish` block in `package.json`; nothing else
-> hard-codes a URL.
+## Features
 
-The Premiere extension reuses the Desktop app's bundled engine, so **installing the
-Desktop app makes both work** — no Python, no terminal.
+- **Subtitles:** local whisper.cpp transcription, SRT import, editable text and timing, and a waveform on desktop.
+- **Style:** presets or custom font, size, colour, position, and width. Bundled Inter, Montserrat, Oswald, and Bebas Neue fonts carry SIL Open Font Licences. Fade, pop, and bounce effects are available for ASS and burned-in video.
+- **Export:** SRT, VTT, ASS, TXT, burned-in MP4, and a vertical 9:16 video option on desktop. A `.subsper` project saves captions and settings; keep the original media file too.
+- **More tools:** silence cutting, repeat and filler detection, audio enhancement, profanity censoring, chapters, clip suggestions, and related actions live under **Tools**. Premiere adds timeline-specific actions such as Auto Zoom, Multicam, marker cuts, vertical resize, and music ducking. Review output from tools that alter media or a sequence.
 
-### Installing the Premiere extension (.zxp)
+Normal transcription uses a local model. The first use downloads it once; later use can be offline. Optional translation, grammar, and content features can send subtitle **text** to the provider whose API key you configure. Stock-footage search and update checks also use the network. See [Privacy](PRIVACY.md).
 
-1. Download `Subsper-Premiere-x.x.x.zxp` from **[Releases](../../releases)**.
-2. Install it with a ZXP installer — either
-   [aescripts ZXP Installer](https://aescripts.com/learn/zxp-installer/) or
-   [Anastasiy's Extension Manager](https://install.anastasiy.com/) (both free):
-   open the app, drag the `.zxp` in, done.
-3. Restart Premiere → **Window → Extensions → Subsper**.
+## Desktop: install and use
 
-(Developers can still clone [`extension/`](extension/) into the CEP extensions
-folder with PlayerDebugMode — see [extension/README.md](extension/README.md).)
+The current preview has no desktop installer. To run it from source, install Node.js, Git, CMake, and a C/C++ build toolchain. The macOS FFmpeg build also needs `pkg-config`; on Windows, the default GPU engine build needs the Vulkan SDK (or set `SKIP_WHISPER_GPU=1` for a CPU-only development build). The macOS package target is Apple Silicon; Windows packaging targets x64. Native engine preparation builds or downloads whisper.cpp and an LGPL FFmpeg binary and can take time and disk space.
 
----
-
-## Subsper — Desktop
-
-Local AI subtitles, audio cleanup & silence cutting for **CapCut** (or any editor).
-No Premiere needed. Runs on **Windows** and macOS. Transcription and editing are
-fully offline — see [PRIVACY.md](PRIVACY.md) for the optional online extras.
-
----
-
-## ⬇️ For users — install the app (zero setup)
-
-**No Python. No ffmpeg. No terminal.** The AI engine (whisper.cpp + ffmpeg) is
-bundled inside the app. The only one-time step is a model download on first use.
-
-### Windows
-1. Go to the **[Releases](../../releases)** page and download the latest
-   `Subsper-Setup-x.x.x.exe`.
-2. Run it (Windows SmartScreen may warn because the app isn't code-signed yet →
-   *More info → Run anyway*). Install.
-3. Open a video → **Transcribe**. On the **first** run it downloads the speech
-   model once (cached in `%APPDATA%\Subsper\models`); after that it's instant & offline.
-
-### macOS (Apple Silicon — M1/M2/M3/M4)
-Download `Subsper-x.x.x-mac-arm64.dmg` from **Releases**, drag to Applications, open it.
-(Intel Macs are not supported since v1.8.0 — the last Intel build is
-[v1.7.1](../../releases/tag/v1).)
-
-> **⚠️ macOS 26 (Tahoe) and unsigned builds:** on Tahoe an ad-hoc-signed build
-> is refused outright — you get **"Malware Blocked"**, and right-click → Open no
-> longer helps. Use a **signed & notarized** release (see
-> [RELEASING.md](RELEASING.md)); those install with no warning at all. Builds
-> made with `npm run dist:mac` are unsigned and for development only.
-
-> **Optional — Pro engine:** for speaker labels (diarization) install Python +
-> WhisperX and pick it in Settings. Everyone else needs nothing.
-
----
-
-## 🛠 For the maintainer — build & publish
-
-The Windows `.exe` is **built automatically in the cloud by GitHub Actions** — you
-don't need a Windows PC.
-
-1. Develop in `~/Documents/subsper-new`; the Premiere extension lives in `extension/`.
-2. Run the checks below locally. Normal pushes and pull requests do **not** run
-   GitHub Actions, build installers, or upload artifacts.
-3. Only when a release is needed, update the version fields together, commit and
-   push `main`, then push a matching version tag (for example `v1.3.1`). A `v*`
-   tag runs validation and packaging, and publishes installers directly to Releases.
-   Do not create a tag for routine development or reuse an existing release tag.
-
-There are no temporary installer artifacts. Actions logs are retained for seven
-days. Engine caches are reused to avoid repeated compilation. Existing releases
-remain available to users.
-
-Releases must be **signed** — an unsigned build greets every buyer with
-"Subsper is damaged" on macOS or a SmartScreen block on Windows. The tag build
-now refuses to publish without the certificates. See
-[docs/SIGNING.md](docs/SIGNING.md) for what to buy and which secrets to set.
-
-### Build locally instead (optional)
-```
-npm install
-npm run dist:win    # on Windows → dist/Subsper-Setup-x.x.x.exe
-npm run dist:mac    # on macOS  → dist/*.dmg
-npm start           # run from source
-```
-
-The bundled `ffmpeg` is built from source as **plain LGPL**
-(`scripts/build-ffmpeg-lgpl.sh`), because the `ffmpeg-static` package it used to
-come from is configured `--enable-nonfree` and may not be redistributed at all.
-The build fails on purpose if a GPL or non-free component ever creeps back in.
-
-### Tests
-```
-dev/test/run.sh                       # unit suite (node, or JavaScriptCore if node is absent)
-dev/test/check-mirror.sh              # desktop and extension copies must stay identical
-dev/test/ffmpeg-smoke.sh              # the bundled ffmpeg can do what the app asks
-dev/test/dom-harness.sh               # segment-list clicks, in a real browser
-python3 dev/test/ui-audit.py          # dead buttons, untranslated strings, empty tool pages
-python3 dev/test/settings-audit.py    # settings nothing reads, settings nothing can change
-node dev/v2-harness.js                # feature gating, desktop vs extension
-```
-
-The panel is not a window — people dock it into whatever gap they have. To see
-the layout at the sizes that actually happen:
-
-```
-python3 dev/test/build-panel-sizes.py /tmp/sizes && open /tmp/sizes/panel-sizes.html
-```
-
-Each size renders in its own iframe, because media queries measure the viewport
-and inside CEP the panel *is* the viewport — a fixed-size `<div>` would never
-trigger them and would report every size as fine.
-
-The page asserts that nothing overlaps and nothing escapes its container, and
-**refuses to report a pass if it inspected nothing**. Measuring dimensions is
-not the same as looking: an earlier version reported sensible widths while a
-Play button with an inherited `flex: 1` sat on top of Transcribe.
-
-Release CI runs the suite, both audits, browser checks and the ffmpeg smoke test
-when a version tag is pushed. Packaging does not start until they pass. Run the
-local checks above during everyday development.
-
----
-
-## Usage
-
-The home screen is a grid of tools grouped by job — Subtitles, Editing, Audio,
-Content. Pick one and you get that tool alone, with its settings folded under it.
-**Esc** goes back; the last tool you used sits at the top for one-tap return.
-
-1. **Open Video / Audio File** (or drag-and-drop onto the window — drop 2+ files for batch mode)
-2. Pick model + language → **Transcribe File**
-3. Edit segments (click a word to split, double-click to edit, 🧹 to clean up,
-   **Cmd/Ctrl+Z** = undo, **Alt+←/→** = nudge timing). On the waveform strip you can
-   drag a segment to move it, drag its edges to retime it (they never overlap),
-   scroll ↕ to zoom, ↔ to pan, and drag the triangle playhead to scrub.
-4. **Style** the captions: 16-preset gallery, per-speaker colours, a mock-up in
-   your video's aspect ratio where you drag the subtitle into place, X/Y and
-   max-width sliders, and your own `.ttf`/`.otf` fonts — the live preview on the
-   video matches what gets burned in.
-5. **⬇ Export** → SRT / VTT / ASS / word-by-word SRT / **burn-in MP4** / 9:16
-   vertical clip — or save the session as a **`.subsper` project**.
-6. More tools: **Cut Silences · Remove Repeats · Cut Filler Words · Enhance Audio ·
-   Beep Profanity · Chapters · Viral Clips · Speech Pace · Social Pack · B-Roll**.
-   Every smart tool works with no API key (on-device heuristics) and simply gets
-   sharper if you add one.
-
-The Premiere extension adds the timeline-only tools on top: Auto Zoom, Podcast
-Multicam, Cut by Markers, Vertical Resize, Music Ducking and batch transcribe
-across sequences.
-
-### Command line (headless)
 ```bash
-npm run cli -- video.mp4                     # → video.srt next to the file
-npm run cli -- *.mp4 --model small --lang tr # batch, smaller model, forced language
+git clone https://github.com/mertrusen/subsper.git
+cd subsper
+npm install
+npm run prep
+npm start
 ```
-Uses the same bundled engine — no Python, no UI. Great for automation.
 
-## How it's built
-Same UI/logic as the Premiere extension. `desktop-shim.js` stubs the Premiere
-(CEP) APIs so `main.js` loads unchanged; `desktop-app.js` overrides the I/O
-boundary (file pickers, media playback, exports) and hides Premiere-only tools.
-The Python scripts in `scripts/` are shared and run via Node `spawn`.
+1. Click **Open Video / Audio File**, or drop one file into the window. Dropping two or more media files starts batch transcription.
+2. Use the transcription-settings control beside the Subtitles title to change model or spoken language, then click **Transcribe File**. On first use the model downloads to your application-data folder. You can instead load an existing `.srt`.
+3. Edit the subtitle list: double-click text to change it, click a word to split, or use **↑** to merge with the preceding caption. You can also drag a caption number onto an adjacent caption to merge. A subtitle's jump control seeks to its time; a paused video stays paused. **Space** plays or pauses, **Cmd/Ctrl+Z** undoes an edit, and **Alt+Left/Right** nudges the selected subtitle start by 0.1 s. Add **Shift** to nudge its end.
+4. On the waveform, click to seek or drag the playhead. The wheel zooms around the pointer; drag the strip or use **Shift+wheel** to pan. **+**, **−**, and **Fit** control zoom. During playback, the view follows the playhead.
+5. In **Style**, choose a preset, font, position, and animation. Check the rendered result before publishing.
+6. In **Export**, choose a subtitle file, video output, or **Save project**. A `.subsper` project stores a reference to the media, not a copy of it.
+
+### Which export should I choose?
+
+| Output | Style support | Use |
+| --- | --- | --- |
+| **SRT** | Font and animation are not reliably preserved. | Editable text and timing for CapCut, Premiere, and other editors; style it there. |
+| **VTT** | Subsper does not include its visual style. | Web captions. |
+| **ASS** | Font, colour, position, karaoke, and supported animation. | ASS-capable players/renderers; the selected font must be available to the renderer. |
+| **Burned-in MP4** | Appearance is rendered into the video. | Keep the same look everywhere; captions are no longer separately editable. |
+| **TXT** | No timing or style. | Plain transcript. |
+
+**CapCut:** import SRT for editable captions, then choose a font and animation inside CapCut. Its [documented subtitle import](https://www.capcut.com/help/how-to-import-subtitles) covers SRT/TXT, not ASS. To keep the exact Subsper look, import a video with subtitles already burned in.
+
+### Command line
+
+After preparing the engine, the CLI writes an SRT next to each input file:
+
+```bash
+npm run cli -- video.mp4
+npm run cli -- video1.mp4 video2.mp4 --model small --lang tr
+npm run cli -- --help
+```
+
+The CLI uses the local model cache and native engine. It exports plain SRT, without the app's visual style.
+
+## Premiere: install and use
+
+1. Download `Subsper-Premiere-1.4.0-preview.1.zxp` from the [current release](https://github.com/mertrusen/subsper/releases/tag/preview-1.4.0-preview.1). Install it with a ZXP installer and restart Premiere. This preview is self-signed and timestamped, so use your installer's sideload flow if needed.
+2. Provide local `whisper-cli` and `ffmpeg` binaries. A future signed Desktop install can supply them automatically; for this preview, use an existing compatible installation on your system path or the source setup in [extension/README.md](extension/README.md). The speech model downloads on first use.
+3. Open **Window → Extensions → Subsper**, select a sequence, and transcribe it. Set In/Out first to limit the range.
+4. Set the optional line preview to your Premiere font, point size, weight, and caption-box width. It measures text using the selected font and marks possible third lines. Premiere may render differently, so this is a guide rather than a strict limit. Click any word to split there. Use **↑** or drag a caption number onto an adjacent caption to merge; **Cmd/Ctrl+Z** undoes an edit. Sending is never blocked by the preview.
+5. Use **Export** to send editable captions to a **new** Premiere caption track or save SRT/VTT/TXT. The extension keeps existing tracks untouched. A new track uses Premiere's default subtitle font; the CEP scripting API cannot read and reapply a saved Track Style automatically, so apply that style to the new track in Premiere. Desktop-only font/animation controls are absent from the Premiere panel.
+
+The extension shares UI and subtitle logic with Desktop. Only the extension runs Premiere sequence tools. See [extension/README.md](extension/README.md) for developer installation.
+
+## Development, tests, and release
+
+The repository root is the source of truth for shared code. After editing shared `js/`, `css/`, `index.html`, or font assets, refresh the Premiere copy:
+
+```bash
+bash scripts/sync-to-extension.sh
+```
+
+Run the relevant checks before committing:
+
+```bash
+bash dev/test/run.sh
+bash dev/test/ffmpeg-smoke.sh
+bash dev/test/check-mirror.sh
+node dev/test/host-captions.test.js
+node dev/v2-harness.js
+python3 dev/test/ui-audit.py
+python3 dev/test/settings-audit.py
+```
+
+`dev/test/dom-harness.sh` and `dev/test/page-isolation.sh` also test browser behavior when Chrome/Chromium is available. Unit tests do not replace a real Premiere sequence test or an installer test.
+
+`npm run dist:win` runs on Windows and `npm run dist:mac` on macOS for local package experiments. These commands do not publish. A `v*` tag starts the release workflow, which requires signing secrets for native installers; see [docs/SIGNING.md](docs/SIGNING.md). Routine pushes do not package or upload large Actions artifacts.
+
+The bundled FFmpeg build is kept LGPL-only and checked for GPL/non-free components. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for component and font licences.
+
+## Troubleshooting
+
+- **Engine missing:** confirm `whisper-cli` and `ffmpeg` are available. Run `npm run prep` in a source checkout; see [extension setup](extension/README.md) for the Premiere path.
+- **First transcription waits:** the model must download once. Check your connection and free disk space; later use reads the cache.
+- **Font or animation disappears after SRT export:** use ASS or burn the subtitles into video when appearance matters.
+- **Project opens without video:** `.subsper` stores a media path, not the media file. Restore or reopen the original file.
+- **Premiere output differs from the preview:** native captions use Premiere's own styling; inspect the resulting timeline.
+
+Report problems in [GitHub Issues](https://github.com/mertrusen/subsper/issues). Include version, platform, reproduction steps, and output format. Do not post private media or API keys.
+
+## Licence
+
+See [LICENSE](LICENSE), [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), and [PRIVACY.md](PRIVACY.md).

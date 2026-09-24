@@ -33,6 +33,8 @@ jobs:
           done
       - name: Unit tests
         run: bash dev/test/run.sh
+      - name: Premiere caption import contract
+        run: node dev/test/host-captions.test.js
       # The unit suite runs without a DOM, so it cannot tell whether a click
       # still reaches the right handler. This drives the real segment list in a
       # headless browser. REQUIRE_BROWSER makes a missing browser a failure

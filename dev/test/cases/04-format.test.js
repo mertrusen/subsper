@@ -7,6 +7,28 @@ group("subtitle formatting");
     eq("never exceeds the line budget", wrapped.split("\n").length <= 2, true);
 })();
 
+(function visualLinePreviewAndManualEdits() {
+    var text = "bir iki uc dort bes alti yedi";
+    var lines = captionVisualLines(text, { width: 9 }, function (s) { return s.length; });
+    eq("font-metric preview shows the third-line word", lines[2].startWord, 4);
+    var words = [W("bir", 0, 1), W("iki", 1, 2), W("uc", 2, 3), W("dort", 3, 4),
+                 W("bes", 4, 5), W("alti", 5, 6), W("yedi", 6, 7)];
+    var source = { id: 0, text: text, start: 0, end: 7, seqStart: 10, seqEnd: 17, words: words };
+    resetEnv({ segments: [source] });
+    splitAtWord(0, 4);
+    eq("manual split keeps all words", segments.map(function (s) { return s.text; }).join(" "), text);
+    eq("manual split preserves sequence start", segments[0].seqStart, 10);
+    eq("manual split preserves sequence end", segments[1].seqEnd, 17);
+    mergeWithPrevious(1);
+    eq("merge reverses manual split text", segments[0].text, text);
+    eq("merge restores the full time span", [segments[0].seqStart, segments[0].seqEnd], [10, 17]);
+    eq("merge restores timed words", segments[0].words.length, 7);
+    settings.autoSplit = true;
+    eq("Premiere SRT keeps manually chosen cue without character wrapping",
+       premiereCaptionSRT([source]).split("\n").slice(2, 3)[0], text);
+    settings.autoSplit = false;
+})();
+
 (function timecodes() {
     eq("SRT timecode format", formatTime(0), "00:00:00,000");
     eq("sub-second precision", formatTime(4.98), "00:00:04,980");

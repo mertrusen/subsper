@@ -4,6 +4,7 @@
   "use strict";
   const $ = id => document.getElementById(id);
   const desktop = window.IS_DESKTOP === true;
+  if (!desktop) document.body.classList.add("premiere-app");
   const tr = () => typeof settings !== "undefined" && settings.uiLang === "tr";
   const L = (a, b) => tr() ? a : b;
   const text = {
@@ -43,6 +44,7 @@
       return;
     }
     if (key === "style") {
+      if (!desktop) return;
       oldOpen("subtitles");
       switchSubTab("transcribe", "settings");
       document.body.setAttribute("data-ui2page", "style");
@@ -73,8 +75,7 @@
       preview.parentNode.insertBefore(stage, preview);
       stage.appendChild(preview);
     }
-    buildStyleOptions();
-    fitStylePreview();
+    if (desktop) { buildStyleOptions(); fitStylePreview(); }
   }
   const fontChoices = ["Inter", "Montserrat", "Oswald", "Bebas Neue", "Arial", "Georgia"];
   function buildStyleOptions() {
@@ -194,11 +195,11 @@
     const count = typeof segments !== "undefined" && Array.isArray(segments) ? segments.length : 0;
     area.innerHTML = `<div class="v3-page-head"><div class="v3-eyebrow">${L("SON ADIM", "FINAL STEP")}</div><h1>${L("Çalışmanı dışa aktar.", "Export your work.")}</h1><p>${count ? L(`${count} altyazı hazır. Uygun çıktıyı seç.`, `${count} captions ready. Choose an output.`) : L("Henüz altyazı yok. Önce yazıya dökebilir veya SRT yükleyebilirsin.", "No captions yet. Transcribe or load an SRT first.")}</p></div>
       <div class="v3-export-layout"><section class="v3-export-card"><div class="v3-card-kicker">01 · ${L("ALTYAZI DOSYASI", "SUBTITLE FILE")}</div><h2>${L("Düzenlenebilir altyazılar", "Editable captions")}</h2><p>${L("Kurgu, platform veya başka uygulamada kullanmak için.", "For editing, platforms, or another app.")}</p><div class="v3-format-grid" id="v3-formats"></div></section>
-      <section class="v3-export-card"><div class="v3-card-kicker">02 · ${desktop ? L("VİDEO", "VIDEO") : "PREMIERE"}</div><h2>${desktop ? L("Videoya yerleştir", "Put it on video") : L("Zaman çizelgesine gönder", "Send to timeline")}</h2><p>${desktop ? L("Stilli altyazıyı videoya göm veya dikey klip oluştur.", "Burn styled captions into video or create a vertical clip.") : L("Altyazıları etkin sekansa ekle.", "Add captions to the active sequence.")}</p><div id="v3-video-actions" class="v3-export-actions"></div></section>
+      <section class="v3-export-card"><div class="v3-card-kicker">02 · ${desktop ? L("VİDEO", "VIDEO") : "PREMIERE"}</div><h2>${desktop ? L("Videoya yerleştir", "Put it on video") : L("Zaman çizelgesine gönder", "Send to timeline")}</h2><p>${desktop ? L("Stilli altyazıyı videoya göm veya dikey klip oluştur.", "Burn styled captions into video or create a vertical clip.") : L("Altyazıları etkin sekansa ekle.", "Add captions to the active sequence.")}</p><div id="v3-video-actions" class="v3-export-actions"></div>${desktop ? "" : `<p class="v3-premiere-style-note">${L("Yeni caption track, Premiere'in varsayılan altyazı fontunu kullanır. Kayıtlı Track Style'ını yeni track'e Premiere içinde uygula. Önceki track korunur.", "The new caption track uses Premiere's default subtitle font. Apply your saved Track Style to the new track in Premiere. The previous track is kept.")}</p>`}</section>
       <section class="v3-export-card v3-export-card-wide"><div class="v3-card-kicker">03 · ${L("PROJE", "PROJECT")}</div><h2>${L("Sonra devam et", "Continue later")}</h2><p>${L("Altyazı, stil ve ayarları birlikte sakla.", "Keep captions, style, and settings together.")}</p><div id="v3-project-actions" class="v3-export-actions"></div></section></div>
       <button class="v3-text-action" id="v3-back-to-captions">← ${L("Altyazılara dön", "Back to subtitles")}</button>`;
     const formats = $("v3-formats");
-    [["srt", "SRT", L("En yaygın biçim", "Most compatible")], ["vtt", "VTT", L("Web videosu", "Web video")], ["ass", "ASS", L("Stilli altyazı", "Styled subtitles")], ["txt", "TXT", L("Yalnızca metin", "Plain text")]].forEach(([fmt, title, desc]) => {
+    [["srt", "SRT", L("En yaygın biçim", "Most compatible")], ["vtt", "VTT", L("Web videosu", "Web video")], ...(desktop ? [["ass", "ASS", L("Stilli altyazı", "Styled subtitles")]] : []), ["txt", "TXT", L("Yalnızca metin", "Plain text")]].forEach(([fmt, title, desc]) => {
       const b = document.createElement("button"); b.className = "v3-format"; b.disabled = !count;
       b.innerHTML = `<strong>.${title.toLowerCase()}</strong><span>${desc}</span><b>↓</b>`;
       b.onclick = () => exportAs(fmt); formats.appendChild(b);
@@ -211,6 +212,7 @@
     };
     if (!desktop) addProxy("v3-video-actions", $("send-btn"), L("Altyazıyı Premiere'e gönder", "Send captions to Premiere"));
     document.querySelectorAll("#export-grp-files button, #export-grp-video button, #export-grp-premiere button").forEach(b => {
+      if (!desktop && b.textContent.toLowerCase().includes("mogrt")) return;
       const host = b.closest("#export-grp-files") ? "v3-formats" : "v3-video-actions";
       if (host === "v3-formats") { const p = document.createElement("button"); p.className = "v3-format v3-format-extra"; p.disabled = !count; p.textContent = b.textContent.trim(); p.onclick = () => b.click(); formats.appendChild(p); }
       else addProxy(host, b);
@@ -225,6 +227,10 @@
   }
   setTimeout(() => {
     markStyleSections();
+    if (!desktop) {
+      const number = document.querySelector('.v3-nav[data-v3-page="export"] .v3-nav-num');
+      if (number) number.textContent = "02";
+    }
     const version = document.querySelector(".brand-version");
     if (version && typeof APP_VERSION !== "undefined") version.textContent = "v" + APP_VERSION;
     oldOpen("subtitles"); nav("subtitles");

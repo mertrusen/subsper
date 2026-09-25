@@ -4,7 +4,7 @@
 
 Subsper, konuşmayı düzenlenebilir altyazıya dönüştürür. Bu depoda aynı altyazı çekirdeğini paylaşan **masaüstü uygulaması** ve **Adobe Premiere Pro eklentisi** bulunur. Transkripsiyon, düzenleme ve dışa aktarma bilgisayarında çalışır. İsteğe bağlı çevrimiçi özelliklerin hangi veriyi gönderdiği [Gizlilik belgesinde](PRIVACY.md) açıklanır.
 
-**Güncel yayın:** [1.4.0 Preview 1](https://github.com/mertrusen/subsper/releases/tag/preview-1.4.0-preview.1) içinde Premiere `.zxp` paketi ve kaynak kod vardır. Bu sürümde masaüstü kurulum dosyası yoktur. `v1.3` kurulum dosyaları eski arayüze aittir. Yeni Windows ve macOS yükleyicileri için kod imzalama kurulumu gerekir; ayrıntılar [imzalama belgesinde](docs/SIGNING.md).
+**Güncel yayın:** [1.4.0 Preview 2](https://github.com/mertrusen/subsper/releases/tag/v1.4.0-preview.2) içinde Windows x64 ve Apple Silicon macOS masaüstü kurulum dosyaları ile Premiere `.zxp` paketi vardır. Masaüstü yükleyicileri bu önizlemede imzasızdır; imzalı final sürüm için [imzalama belgesindeki](docs/SIGNING.md) kurulum gerekir. `v1.3` kurulum dosyaları eski arayüze aittir.
 
 ## Neler yapabilirsin?
 
@@ -18,7 +18,7 @@ Subsper, konuşmayı düzenlenebilir altyazıya dönüştürür. Bu depoda aynı
 
 ## Masaüstü uygulamasını çalıştır
 
-Güncel sürümde yeni bir masaüstü yükleyicisi bulunmadığından kaynak koddan çalıştırmak gerekir. Node.js, Git, CMake ve C/C++ derleme araçları kurulu olmalı. macOS FFmpeg derlemesi için `pkg-config` de gerekir. Windows'ta varsayılan GPU motoru için Vulkan SDK gerekir; yalnız CPU ile geliştirme yapacaksan `SKIP_WHISPER_GPU=1` ayarlayabilirsin. macOS paket hedefi Apple Silicon, Windows hedefi x64'tür. Yerel motorun hazırlanması zaman ve disk alanı kullanabilir.
+[Preview 2 yayınından](https://github.com/mertrusen/subsper/releases/tag/v1.4.0-preview.2) Windows x64 için `Subsper-Setup-1.4.0-preview.2.exe`, Apple Silicon Mac için `Subsper-1.4.0-preview.2-mac-arm64.dmg` dosyasını indir. Bu önizleme yükleyicileri imzasızdır. Kaynak koddan çalıştıracaksan Node.js, Git, CMake ve C/C++ derleme araçları kurulu olmalı. macOS FFmpeg derlemesi için `pkg-config` de gerekir. Windows'ta varsayılan GPU motoru için Vulkan SDK gerekir; yalnız CPU ile geliştirme yapacaksan `SKIP_WHISPER_GPU=1` ayarlayabilirsin. Yerel motorun hazırlanması zaman ve disk alanı kullanabilir.
 
 ```bash
 git clone https://github.com/mertrusen/subsper.git
@@ -61,8 +61,8 @@ CLI görsel stil içermez; düz SRT üretir.
 
 ## Premiere eklentisini kullan
 
-1. [Güncel yayından](https://github.com/mertrusen/subsper/releases/tag/preview-1.4.0-preview.1) `Subsper-Premiere-1.4.0-preview.1.zxp` dosyasını indir, kendinden imzalı CEP eklentilerini yükleyebilen bir ZXP yükleyiciyle kur ve Premiere'i yeniden başlat.
-2. Yerel `whisper-cli` ve `ffmpeg` motorunu sağla. Bu önizlemede yeni masaüstü yükleyicisi yok; sistemindeki uyumlu motoru veya [eklenti kaynak kurulumunu](extension/README.md) kullan.
+1. [Güncel yayından](https://github.com/mertrusen/subsper/releases/tag/v1.4.0-preview.2) `Subsper-Premiere-1.4.0-preview.2.zxp` dosyasını indir, kendinden imzalı CEP eklentilerini yükleyebilen bir ZXP yükleyiciyle kur ve Premiere'i yeniden başlat.
+2. Yerel `whisper-cli` ve `ffmpeg` motorunu uyumlu masaüstü kurulumu, sistem yolu veya [eklenti kaynak kurulumu](extension/README.md) üzerinden sağla.
 3. Premiere'de **Window → Extensions → Subsper** panelini aç. Sekansı seç; yalnızca bir kısmını yazıya dökmek istiyorsan önce In/Out belirle.
 4. **Altyazı Oluştur → Ayarlar** içinde konuşma dilini ve gerekirse konuşmanın bulunduğu ses track'ini seç. Otomatik kaynak önce video sesini kullanır; ayrı mikrofon için doğru A1/A2 track'ini seç. Satır önizlemesini açıp kapatabilir; fontu listeden seçip puntoyu, kalınlığı, harf aralığını ve altyazı kutusunun genişliğini ayarlayabilirsin. Varsayılan örnek Helvetica Bold 50'dir. Olası üçüncü satırın başladığı **tek kelime** kırmızı işaretlenir. İstersen yeni transkripsiyonları bu kelimeden otomatik bölmeyi aç veya mevcut altyazıları ayarlardaki düğmeyle böl. Bu ölçüm tahminidir; Premiere farklı dizebilir. İstediğin kelimeye tıklayarak böl. **↑** ile veya altyazı numarasını komşu altyazıya sürükleyerek birleştir. **Cmd/Ctrl+Z** ile geri al. Önizleme gönderimi engellemez.
 5. **Çıktı al** bölümünden Premiere'e **yeni bir caption track** gönder veya SRT/VTT/TXT kaydet. Eski track korunur. Yeni track Premiere'in varsayılan altyazı fontunu kullanır. CEP betik API'si kayıtlı Track Style'ı okuyup otomatik uygulayamadığı için kayıtlı stilini yeni track'e Premiere içinde uygula. Masaüstüne ait font/animasyon paneli eklentide gösterilmez.

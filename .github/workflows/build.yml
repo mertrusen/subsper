@@ -122,7 +122,13 @@ jobs:
         run: |
           echo "::error::Tagged release with no WIN_CSC_LINK secret — see docs/SIGNING.md"
           exit 1
-      - run: npm run dist:win   # runs prep (skips compile on cache hit) then packages
+      # An absent secret arrives as an empty string, which electron-builder
+      # then tries to resolve as a certificate path. Unset it instead.
+      - name: Package Windows (signed when secrets are present)
+        shell: bash
+        run: |
+          if [ -z "${CSC_LINK:-}" ]; then unset CSC_LINK CSC_KEY_PASSWORD; fi
+          npm run dist:win   # runs prep (skips compile on cache hit) then packages
         env:
           CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
@@ -168,7 +174,8 @@ jobs:
           exit 1
       - name: Package macOS (signed + notarized when secrets are present)
         run: |
-          if [ -n "${CSC_LINK:-}" ]; then npm run dist:mac:signed; else npm run dist:mac; fi
+          if [ -n "${CSC_LINK:-}" ]; then npm run dist:mac:signed
+          else unset CSC_LINK CSC_KEY_PASSWORD; npm run dist:mac; fi
         env:
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}

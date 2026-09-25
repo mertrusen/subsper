@@ -95,11 +95,14 @@ const BTBN_LGPL_WIN =
   "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip";
 
 /* Never ship an ffmpeg whose own banner says it is GPL or non-free. This gate
- * is the whole reason the build script exists — keep it on every path. */
-function assertRedistributable(binPath) {
+ * is the whole reason the build script exists — keep it on every path.
+ * BtbN's Windows LGPL build is configured with --enable-version3 (LGPL v3);
+ * that is still LGPL and allowed for the downloaded Windows binary only. */
+function assertRedistributable(binPath, { allowVersion3 = false } = {}) {
   const banner = execSync(`"${binPath}" -version`, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  for (const bad of ["--enable-gpl", "--enable-nonfree", "--enable-version3",
-                     "--enable-libx264", "--enable-libx265"]) {
+  const forbidden = ["--enable-gpl", "--enable-nonfree", "--enable-libx264", "--enable-libx265"];
+  if (!allowVersion3) forbidden.push("--enable-version3");
+  for (const bad of forbidden) {
     if (banner.includes(bad)) {
       throw new Error(
         `REFUSING TO SHIP: ${path.basename(binPath)} reports ${bad}.\n` +
@@ -114,7 +117,7 @@ async function prepareFfmpeg() {
 
   if (fs.existsSync(dst) && !process.env.FORCE) {
     log("ffmpeg exists, verifying licence…");
-    assertRedistributable(dst);
+    assertRedistributable(dst, { allowVersion3: isWin });
     return;
   }
 
@@ -143,7 +146,7 @@ async function prepareFfmpeg() {
 
   if (!fs.existsSync(dst)) throw new Error("ffmpeg was not produced at " + dst);
   if (!isWin) fs.chmodSync(dst, 0o755);
-  assertRedistributable(dst);
+  assertRedistributable(dst, { allowVersion3: isWin });
   log("ffmpeg →", dst);
 }
 

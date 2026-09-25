@@ -6,14 +6,22 @@ under which Subsper itself is licensed — see [LICENSE](LICENSE).
 
 ---
 
-## FFmpeg — LGPL v2.1 or later
+## FFmpeg — LGPL v2.1 or later (macOS), LGPL v3 (Windows)
 
 Subsper bundles an **ffmpeg** executable and invokes it as a separate process.
 
-The bundled build is **plain LGPL**. It is configured *without*
-`--enable-gpl`, `--enable-version3` and `--enable-nonfree`, and without any
-GPL-licensed external library (no libx264, libx265, libvpx, libaom …).
-`scripts/build-ffmpeg-lgpl.sh` fails the build if any of those ever reappear.
+The bundled build is **LGPL**, never GPL or non-free. It is configured *without*
+`--enable-gpl` and `--enable-nonfree`, and without any GPL-licensed external
+library (no libx264, libx265, libvpx, libaom …).
+`scripts/fetch-binaries.mjs` fails the build if any of those ever reappear.
+
+- **macOS:** built from source by `scripts/build-ffmpeg-lgpl.sh`, also without
+  `--enable-version3`, so it is LGPL v2.1 or later.
+- **Windows:** the unmodified BtbN `win64-lgpl` build
+  (<https://github.com/BtbN/FFmpeg-Builds>). It is configured with
+  `--enable-version3`, so it is licensed under the **LGPL v3**
+  (<https://www.gnu.org/licenses/lgpl-3.0.html>). Its source and build
+  scripts are available from that repository.
 
 Video re-encoding therefore uses the operating system's own encoder —
 VideoToolbox on macOS, Media Foundation on Windows — not libx264.
@@ -23,8 +31,8 @@ VideoToolbox on macOS, Media Foundation on Windows — not libx264.
 - Licence: <https://www.ffmpeg.org/legal.html>
 - Full text: LGPL v2.1 — <https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html>
 
-**Written offer of source.** The bundled ffmpeg is unmodified upstream source
-built with the flags recorded in `scripts/build-ffmpeg-lgpl.sh`. You can
+**Written offer of source.** The bundled macOS ffmpeg is unmodified upstream
+source built with the flags recorded in `scripts/build-ffmpeg-lgpl.sh`. You can
 reproduce it exactly by running that script, and you can obtain the complete
 corresponding source from the release URL above. On request we will also
 provide it directly at the address in [LICENSE](LICENSE).

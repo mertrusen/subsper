@@ -15,7 +15,7 @@
  * Requires: git + cmake + a C/C++ toolchain (preinstalled on GitHub runners;
  * locally: `brew install cmake` on macOS, Visual Studio Build Tools on Windows).
  */
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import fs   from "node:fs";
 import path from "node:path";
 import os   from "node:os";
@@ -128,7 +128,10 @@ async function prepareFfmpeg() {
     run(`curl -fL "${BTBN_LGPL_WIN}" -o "${zip}"`);
     fs.rmSync(work, { recursive: true, force: true });
     fs.mkdirSync(work, { recursive: true });
-    run(`tar -xf "${zip}" -C "${work}"`);          // bsdtar ships with Windows 10+
+    // npm may run this script under Git Bash, whose tar treats `C:` as a
+    // remote host. Invoke Windows' own bsdtar directly without a shell.
+    const nativeTar = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
+    execFileSync(nativeTar, ["-xf", zip, "-C", work], { stdio: "inherit" });
     const found = [];
     (function walk(dir) {
       for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

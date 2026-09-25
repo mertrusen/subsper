@@ -3,7 +3,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-for f in js/main.js js/whispercpp.js js/features-v2.js js/ui-v2.js js/ui-v3.js \
+for f in js/CSInterface.js js/main.js js/whispercpp.js js/features-v2.js js/ui-v2.js js/ui-v3.js \
          css/style.css css/ui-v2.css css/ui-v3.css css/panel.css; do
   cp "$f" "extension/$f"
 done

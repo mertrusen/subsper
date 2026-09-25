@@ -2540,6 +2540,16 @@ function parseSRT(content) {
 let _isPlaying = false;
 let _playBusy  = false;
 
+function registerPremierePlaybackShortcut(cep = csInterface, platform = os.platform()) {
+    if (!cep || typeof cep.registerKeyEventsInterest !== "function") return false;
+    // CEP expects native virtual key codes: macOS kVK_Space=49, Windows VK_SPACE=32.
+    const interest = [{ keyCode: platform === "darwin" ? 49 : 32,
+        ctrlKey: false, altKey: false, shiftKey: false,
+        ...(platform === "darwin" ? { metaKey: false } : {}) }];
+    try { return cep.registerKeyEventsInterest(JSON.stringify(interest)) !== false; }
+    catch (e) { console.warn("[Subsper] Space shortcut registration failed:", e); return false; }
+}
+
 // Read the Premiere playhead in seconds (ticks-based, robust across builds).
 function readPlayheadSecs() {
     return evalScript("(function(){try{var s=app.project.activeSequence;if(!s)return -1;var p=s.getPlayerPosition();if(!p)return -1;if(p.ticks!==undefined&&p.ticks!==null&&p.ticks!=='')return parseInt(p.ticks)/254016000000;if(typeof p.seconds==='number')return p.seconds;return -1;}catch(e){return -1;}})()")
@@ -4066,6 +4076,7 @@ function initTooltips() {
     // killed this whole init block, so the playhead-sync loop never started.
     const _isDesktop = (typeof window !== "undefined" && window.IS_DESKTOP === true);
     if (!_isDesktop) {
+        registerPremierePlaybackShortcut();
         // Space = play/pause in Premiere (unless typing in a field). CEP panels
         // only get keydown when the webview has DOM focus — so we grab focus when
         // the pointer enters or clicks the panel (fixes "Space does nothing until I
@@ -4087,8 +4098,9 @@ function initTooltips() {
         }, true);
         document.addEventListener("keydown", (e) => {
             if (e.code !== "Space" && e.key !== " ") return;
+            if (e.repeat || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
             const el = document.activeElement, tag = el && el.tagName;
-            if (tag === "INPUT" || tag === "TEXTAREA" || (el && el.isContentEditable)) return;
+            if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (el && el.isContentEditable)) return;
             e.preventDefault();
             e.stopPropagation();
             if (tag === "BUTTON" || tag === "SELECT") { try { el.blur(); } catch (x) {} }

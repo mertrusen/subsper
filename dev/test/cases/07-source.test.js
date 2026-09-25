@@ -1,5 +1,15 @@
 group("Premiere speech source and suspect transcript");
 
+(function playbackShortcutRegistration() {
+    var captured = [];
+    var cep = { registerKeyEventsInterest: function (s) { captured.push(JSON.parse(s)); return true; } };
+    eq("macOS Space is registered with native key code", registerPremierePlaybackShortcut(cep, "darwin"), true);
+    eq("macOS key interest is unmodified Space", captured[0], [{ keyCode: 49, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false }]);
+    registerPremierePlaybackShortcut(cep, "win32");
+    eq("Windows uses VK_SPACE without intercepting another key", captured[1], [{ keyCode: 32, ctrlKey: false, altKey: false, shiftKey: false }]);
+    eq("missing CEP API leaves host shortcut alone", registerPremierePlaybackShortcut({}, "darwin"), false);
+})();
+
 (function sourceSelection() {
     var info = { allClips: [
         { path: "camera.mov", track: "video0" },

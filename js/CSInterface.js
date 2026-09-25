@@ -26,6 +26,15 @@ CSInterface.prototype.evalScript = function (script, callback) {
     }
 };
 
+// CEP sends most panel keyboard shortcuts to Premiere unless the panel
+// registers the keys it intends to handle itself.
+CSInterface.prototype.registerKeyEventsInterest = function (keyEventsInterest) {
+    if (window.__adobe_cep__ && typeof window.__adobe_cep__.registerKeyEventsInterest === "function") {
+        return window.__adobe_cep__.registerKeyEventsInterest(keyEventsInterest);
+    }
+    return false;
+};
+
 CSInterface.prototype.getSystemPath = function (pathType) {
     if (window.__adobe_cep__) {
         var result = window.__adobe_cep__.getSystemPath(pathType);

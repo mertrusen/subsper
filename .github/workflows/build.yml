@@ -123,11 +123,12 @@ jobs:
           echo "::error::Tagged release with no WIN_CSC_LINK secret — see docs/SIGNING.md"
           exit 1
       # An absent secret arrives as an empty string, which electron-builder
-      # then tries to resolve as a certificate path. Unset it instead.
+      # then tries to resolve as a certificate path. Unset it instead. Keep
+      # pwsh: Git Bash's GNU tar cannot unpack the ffmpeg zip, Windows' tar can.
       - name: Package Windows (signed when secrets are present)
-        shell: bash
+        shell: pwsh
         run: |
-          if [ -z "${CSC_LINK:-}" ]; then unset CSC_LINK CSC_KEY_PASSWORD; fi
+          if (-not $env:CSC_LINK) { Remove-Item Env:CSC_LINK, Env:CSC_KEY_PASSWORD -ErrorAction SilentlyContinue }
           npm run dist:win   # runs prep (skips compile on cache hit) then packages
         env:
           CSC_LINK: ${{ secrets.WIN_CSC_LINK }}

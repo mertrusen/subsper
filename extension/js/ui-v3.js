@@ -17,10 +17,19 @@
   function page() { return document.body.getAttribute("data-ui3-page") || "subtitles"; }
   function nav(key) {
     document.body.setAttribute("data-ui3-page", key);
+    const sidebar = $("v3-sidebar");
+    if (sidebar) sidebar.setAttribute("aria-label", L("Çalışma alanı gezintisi", "Workspace navigation"));
+    const gear = $("page-gear");
+    if (gear) gear.setAttribute("aria-label", L("Altyazı ayarları", "Subtitle settings"));
+    const theme = $("theme-btn");
+    if (theme) theme.setAttribute("aria-label", L("Temayı değiştir", "Change theme"));
     document.querySelectorAll(".v3-nav").forEach(b => {
       const active = b.getAttribute("data-v3-page") === (key === "tool" ? "tools" : key);
       b.classList.toggle("active", active);
       if (active) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+      if (active && window.innerWidth <= 420 && typeof b.scrollIntoView === "function") {
+        b.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
     });
     document.querySelectorAll("[data-v3-text]").forEach(el => {
       const row = text[el.getAttribute("data-v3-text")];
@@ -33,6 +42,12 @@
   window.ui2Home = function () { if (page() === "tool") ui3Open("tools"); else ui2Open("subtitles"); };
   window.ui2Open = function (key) {
     oldOpen(key);
+    const context = $("v3-page-context");
+    const tool = window.__ui2Tools && window.__ui2Tools[key];
+    if (context) {
+      context.hidden = !tool || key === "subtitles" || key === "settings";
+      context.textContent = !context.hidden ? tool.desc() : "";
+    }
     if (key === "subtitles") nav("subtitles");
     else if (key === "settings") nav("settings");
     else if (!(window.__ui2Tools[key] || {}).overlay) nav("tool");
@@ -40,6 +55,7 @@
   window.ui3Open = function (key) {
     if (key === "tools" || key === "export") {
       oldHome(); nav(key);
+      const context = $("v3-page-context"); if (context) context.hidden = true;
       if (key === "tools") renderTools(); else renderExport();
       return;
     }
@@ -49,6 +65,7 @@
       switchSubTab("transcribe", "settings");
       document.body.setAttribute("data-ui2page", "style");
       nav("style");
+      const context = $("v3-page-context"); if (context) context.hidden = true;
       const title = $("page-title"); if (title) title.textContent = L("Altyazı görünümü", "Subtitle style");
       const gear = $("page-gear"); if (gear) gear.style.display = "none";
       markStyleSections();
@@ -163,7 +180,7 @@
       ["audio", L("Ses", "Audio")],
       ["make", L("İçerik ve çıktı", "Content and output")]
     ];
-    area.innerHTML = `<div class="v3-page-head"><div class="v3-eyebrow">${L("ARAÇ KÜTÜPHANESİ", "TOOL LIBRARY")}</div><h1>${L("İhtiyacın olan aracı seç.", "Pick the tool you need.")}</h1><p>${L("Her araç kendi ayarları ve sonucu ile açılır. İşe altyazıdan başlayabilirsin.", "Each tool opens with its own settings and results. You can start with subtitles.")}</p><input id="v3-tool-search" type="search" placeholder="${L("Araç ara…", "Search tools…")}" aria-label="${L("Araç ara", "Search tools")}"></div><div id="v3-tool-groups"></div>`;
+    area.innerHTML = `<div class="v3-page-head"><div class="v3-eyebrow">${L("ARAÇLAR", "TOOLS")}</div><h1>${L("Ne yapmak istiyorsun?", "What would you like to do?")}</h1><p>${L("Bir araç seç; ayarları ve sonucu aynı sayfada gör.", "Choose a tool; its settings and result stay together.")}</p><label class="v3-search-label" for="v3-tool-search">${L("Araç ara", "Search tools")}</label><input id="v3-tool-search" type="search" placeholder="${L("Örneğin: sessizlik, ses, klip…", "For example: silence, audio, clips…")}" aria-describedby="v3-tool-results"><p id="v3-tool-results" class="v3-search-results" role="status" aria-live="polite"></p></div><div id="v3-tool-groups"></div><div id="v3-tool-empty" class="v3-empty" hidden><strong>${L("Eşleşen araç bulunamadı", "No matching tools")}</strong><span>${L("Başka bir kelime dene veya aramayı temizle.", "Try another word or clear the search.")}</span><button type="button" id="v3-tool-clear" class="v3-text-action">${L("Aramayı temizle", "Clear search")}</button></div>`;
     const host = $("v3-tool-groups");
     groups.forEach(([group, label]) => {
       const entries = Object.keys(tools).filter(k => tools[k].group === group && k !== "subtitles" && !(desktop && tools[k].pp));
@@ -173,27 +190,42 @@
       const grid = document.createElement("div"); grid.className = "v3-tool-grid";
       entries.forEach(k => {
         const t = tools[k]; const b = document.createElement("button");
-        b.className = "v3-tool"; b.dataset.search = (t.name() + " " + t.desc()).toLocaleLowerCase();
+        b.className = "v3-tool"; b.dataset.search = (t.name() + " " + t.desc()).toLocaleLowerCase(settings.uiLang === "tr" ? "tr" : "en");
         const dot = document.createElement("span"); dot.className = "v3-tool-dot"; dot.style.background = t.color || "var(--accent)";
         const c = document.createElement("span"); c.className = "v3-tool-copy";
         const title = document.createElement("strong"); title.textContent = t.name();
         const desc = document.createElement("small"); desc.textContent = t.desc();
-        c.append(title, desc); const arrow = document.createElement("span"); arrow.textContent = "↗";
+        c.append(title, desc); const arrow = document.createElement("span"); arrow.textContent = "↗"; arrow.setAttribute("aria-hidden", "true");
         b.append(dot, c, arrow); b.onclick = () => ui2Open(k); grid.appendChild(b);
       });
       sec.appendChild(grid); host.appendChild(sec);
     });
     const search = $("v3-tool-search");
-    search.oninput = () => {
-      const q = search.value.trim().toLocaleLowerCase();
-      host.querySelectorAll(".v3-tool").forEach(b => b.style.display = b.dataset.search.includes(q) ? "" : "none");
-      host.querySelectorAll(".v3-tool-group").forEach(s => s.style.display = s.querySelector('.v3-tool:not([style*="display: none"])') ? "" : "none");
+    const updateResults = () => {
+      const q = search.value.trim().toLocaleLowerCase(settings.uiLang === "tr" ? "tr" : "en");
+      let visible = 0;
+      host.querySelectorAll(".v3-tool-group").forEach(section => {
+        let groupCount = 0;
+        section.querySelectorAll(".v3-tool").forEach(button => {
+          const matches = button.dataset.search.includes(q);
+          button.hidden = !matches;
+          if (matches) { visible++; groupCount++; }
+        });
+        section.hidden = !groupCount;
+      });
+      $("v3-tool-results").textContent = q
+        ? L(`${visible} araç bulundu`, `${visible} tools found`)
+        : L(`${visible} araç`, `${visible} tools`);
+      $("v3-tool-empty").hidden = visible !== 0;
     };
+    search.oninput = updateResults;
+    $("v3-tool-clear").onclick = () => { search.value = ""; updateResults(); search.focus(); };
+    updateResults();
   }
   function renderExport() {
     const area = $("v3-export-page"); if (!area) return;
     const count = typeof segments !== "undefined" && Array.isArray(segments) ? segments.length : 0;
-    area.innerHTML = `<div class="v3-page-head"><div class="v3-eyebrow">${L("SON ADIM", "FINAL STEP")}</div><h1>${L("Çalışmanı dışa aktar.", "Export your work.")}</h1><p>${count ? L(`${count} altyazı hazır. Uygun çıktıyı seç.`, `${count} captions ready. Choose an output.`) : L("Henüz altyazı yok. Önce yazıya dökebilir veya SRT yükleyebilirsin.", "No captions yet. Transcribe or load an SRT first.")}</p></div>
+    area.innerHTML = `<div class="v3-page-head"><div class="v3-eyebrow">${L("ÇIKTI", "EXPORT")}</div><h1>${L("Çalışmanı dışa aktar", "Export your work")}</h1><p>${count ? L(`${count} altyazı hazır. Uygun çıktıyı seç.`, `${count} captions ready. Choose an output.`) : L("Henüz altyazı yok. Oluşturabilir veya bir SRT dosyası açabilirsin.", "No captions yet. Create some or open an SRT file.")}</p>${count ? "" : `<button type="button" id="v3-create-captions" class="v3-primary">${L("Altyazılara git", "Go to subtitles")}</button>`}</div>
       <div class="v3-export-layout"><section class="v3-export-card"><div class="v3-card-kicker">01 · ${L("ALTYAZI DOSYASI", "SUBTITLE FILE")}</div><h2>${L("Düzenlenebilir altyazılar", "Editable captions")}</h2><p>${L("Kurgu, platform veya başka uygulamada kullanmak için.", "For editing, platforms, or another app.")}</p><div class="v3-format-grid" id="v3-formats"></div></section>
       <section class="v3-export-card"><div class="v3-card-kicker">02 · ${desktop ? L("VİDEO", "VIDEO") : "PREMIERE"}</div><h2>${desktop ? L("Videoya yerleştir", "Put it on video") : L("Zaman çizelgesine gönder", "Send to timeline")}</h2><p>${desktop ? L("Stilli altyazıyı videoya göm veya dikey klip oluştur.", "Burn styled captions into video or create a vertical clip.") : L("Altyazıları etkin sekansa ekle.", "Add captions to the active sequence.")}</p><div id="v3-video-actions" class="v3-export-actions"></div>${desktop ? "" : `<p class="v3-premiere-style-note">${L("Yeni caption track, Premiere'in varsayılan altyazı fontunu kullanır. Kayıtlı Track Style'ını yeni track'e Premiere içinde uygula. Önceki track korunur.", "The new caption track uses Premiere's default subtitle font. Apply your saved Track Style to the new track in Premiere. The previous track is kept.")}</p>`}</section>
       <section class="v3-export-card v3-export-card-wide"><div class="v3-card-kicker">03 · ${L("PROJE", "PROJECT")}</div><h2>${L("Sonra devam et", "Continue later")}</h2><p>${L("Altyazı, stil ve ayarları birlikte sakla.", "Keep captions, style, and settings together.")}</p><div id="v3-project-actions" class="v3-export-actions"></div></section></div>
@@ -223,6 +255,8 @@
         const b = document.createElement("button"); b.className = "v3-output-button"; b.textContent = label; b.onclick = fn; $("v3-project-actions").appendChild(b);
       });
     }
+    const create = $("v3-create-captions");
+    if (create) create.onclick = () => ui2Open("subtitles");
     $("v3-back-to-captions").onclick = () => ui2Open("subtitles");
   }
   setTimeout(() => {
@@ -248,7 +282,15 @@
   const changeLanguage = window.setLanguage;
   if (typeof changeLanguage === "function") window.setLanguage = function (lang) {
     changeLanguage(lang);
-    nav(page());
+    const current = page();
+    nav(current);
+    if (current === "tools") renderTools();
+    if (current === "export") renderExport();
+    if (current === "tool") {
+      const tool = window.__ui2Tools && window.__ui2Tools[document.body.getAttribute("data-ui2page")];
+      const context = $("v3-page-context");
+      if (tool && context) context.textContent = tool.desc();
+    }
     const form = $("v3-style-options"); if (form) form.remove();
     buildStyleOptions();
   };

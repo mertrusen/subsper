@@ -89,7 +89,7 @@
                      open: () => { if (window.__silPageOpen) window.__silPageOpen(); } },
         repeat:    { cat: "edit", group: "time", tab: "edit", view: "#repeat-btn", color: "#c47f79",
                      name: () => L("Tekrarları Sil", "Remove Repeats"),
-                     desc: () => L("Tekrar çekimleri bulur, kötü take'leri atar", "Finds re-takes and drops the bad ones") },
+                     desc: () => L("Tekrar çekimleri bulur; çıkarılacakları sen seçersin", "Finds repeated takes; you choose which to remove") },
         filler:    { cat: "edit", group: "time", tab: "edit",
                      view: DESK ? "button[onclick^='cutFillerWordsDesktop']" : "#filler-cut-btn", color: "#7fb1c9",
                      name: () => L("Dolgu Kelimeleri Kes", "Cut Filler Words"),

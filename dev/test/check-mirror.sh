@@ -33,7 +33,7 @@ for f in scripts/check_setup.py scripts/detect_silence.py scripts/enhance_audio.
 done
 
 # index.html: everything except the script footer must match.
-strip_footer() { grep -vE 'js/(CSInterface|desktop-shim|desktop-app)\.js|desktop-app overrides' "$1"; }
+strip_footer() { grep -vE 'js/(CSInterface|desktop-shim|desktop-app|caption-exclusions)\.js|desktop-app overrides' "$1"; }
 if ! diff -q <(strip_footer extension/index.html) <(strip_footer index.html) >/dev/null; then
     echo "OUT OF SYNC: index.html differs beyond the script footer"
     diff <(strip_footer extension/index.html) <(strip_footer index.html) | head -20 || true
@@ -42,6 +42,7 @@ fi
 
 # And each copy must keep the footer it needs.
 grep -q 'js/CSInterface.js'  extension/index.html || { echo "extension/index.html lost its CSInterface footer"; fail=1; }
+grep -q 'js/caption-exclusions.js' extension/index.html || { echo "extension/index.html lost its caption exclusion footer"; fail=1; }
 grep -q 'js/desktop-app.js'  index.html           || { echo "index.html lost its desktop-app footer";        fail=1; }
 grep -q 'js/CSInterface.js'  index.html           && { echo "index.html has the EXTENSION footer — sync script bug"; fail=1; }
 

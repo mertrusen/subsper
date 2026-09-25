@@ -6,6 +6,8 @@ Subsper, konuşmayı düzenlenebilir altyazıya dönüştürür. Bu depoda aynı
 
 **Güncel yayın:** [1.4.0 Preview 2](https://github.com/mertrusen/subsper/releases/tag/v1.4.0-preview.2) içinde Windows x64 ve Apple Silicon macOS masaüstü kurulum dosyaları ile Premiere `.zxp` paketi vardır. Masaüstü yükleyicileri bu önizlemede imzasızdır; imzalı final sürüm için [imzalama belgesindeki](docs/SIGNING.md) kurulum gerekir. `v1.3` kurulum dosyaları eski arayüze aittir.
 
+`main` dalında şu anda 1.5.1 kaynak kodu vardır; 1.5.1 kurulum dosyası veya `.zxp` henüz yayımlanmadı.
+
 ## Neler yapabilirsin?
 
 - Video/ses dosyasını veya Premiere sekansını yerel whisper.cpp motoruyla yazıya dökebilir, mevcut SRT'yi içe aktarabilirsin.

@@ -64,25 +64,39 @@
     }
 
     // ── Remove Repeats ─────────────────────────────────────────────────────
-    function detectRepeats(segs, keep) {
-        const cut = new Set();
+    function repeatGroups(segs) {
+        const parent = segs.map((_, i) => i);
+        const root = i => parent[i] === i ? i : (parent[i] = root(parent[i]));
         for (let i = 0; i < segs.length; i++) {
             const A = tokens(segs[i].text);
             if (A.length < 3) continue;
             for (let j = i + 1; j <= Math.min(i + 2, segs.length - 1); j++) {
                 const B = tokens(segs[j].text);
-                if (B.length < 3) continue;
-                if (jaccard(A, B) >= 0.55) {
-                    if (keep === "fastest") {
-                        const di = segs[i].seqEnd - segs[i].seqStart;
-                        const dj = segs[j].seqEnd - segs[j].seqStart;
-                        cut.add(di > dj ? i : j);
-                    } else cut.add(i); // keep the LAST take → cut the EARLIER one
-                }
+                if (B.length >= 3 && jaccard(A, B) >= 0.55) parent[root(i)] = root(j);
             }
         }
-        return [...cut].sort((a, b) => a - b);
+        const groups = new Map();
+        segs.forEach((_, i) => {
+            const key = root(i);
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(i);
+        });
+        return [...groups.values()].filter(g => g.length > 1);
     }
+    function repeatChoices(segs, keep) {
+        const result = [];
+        repeatGroups(segs).forEach(group => {
+            const winner = keep === "fastest"
+                ? group.reduce((best, i) => {
+                    const d = segs[i].seqEnd - segs[i].seqStart;
+                    const b = segs[best].seqEnd - segs[best].seqStart;
+                    return d <= b ? i : best;
+                }) : group[group.length - 1];
+            group.forEach(i => { if (i !== winner) result.push({ cut: i, keep: winner }); });
+        });
+        return result.sort((a, b) => a.cut - b.cut);
+    }
+    function detectRepeats(segs, keep) { return repeatChoices(segs, keep).map(x => x.cut); }
     // AI sometimes returns the FINAL take's range despite the prompt — remap
     // any cut that lands on the last of a duplicate pair back to the earlier one
     function fixKeepLast(ranges, segs) {
@@ -103,15 +117,18 @@
     }
     window.__fixKeepLast = fixKeepLast; // unit-test hook
     window.__detectRepeats = detectRepeats; // unit-test hook
+    window.__repeatChoices = repeatChoices; // unit-test hook
 
     async function findRepeats() {
         if (needTranscript()) return;
         const btn = $id("repeat-btn"); if (btn) btn.disabled = true;
         try {
             const keep = ($id("repeat-keep") || {}).value || "last";
-            let ranges = detectRepeats(segments, keep).map(i => ({
-                start: segments[i].seqStart, end: segments[i].seqEnd,
-                dur: +(segments[i].seqEnd - segments[i].seqStart).toFixed(1),
+            let ranges = repeatChoices(segments, keep).map(({ cut, keep: kept }) => ({
+                start: segments[cut].seqStart, end: segments[cut].seqEnd,
+                dur: +(segments[cut].seqEnd - segments[cut].seqStart).toFixed(1),
+                label: segments[cut].text, keepLabel: segments[kept].text,
+                selected: false,
             }));
             let via = L("cihaz içi", "on-device");
             if (!ranges.length && aiAvailable()) {
@@ -119,7 +136,7 @@
                 try {
                     const text = await aiComplete(
 `You are a video editor. Below is a transcript with line numbers and [MM:SS] start times. Find RE-TAKES: places where the speaker repeats nearly the same sentence (a failed take followed by a corrected one) or clear slips of the tongue. ${keep === "fastest"
-    ? "Keep the shortest, most fluent read; the other takes get deleted."
+    ? "Keep only the shortest read; the other takes get deleted."
     : "CRITICAL: the FINAL (last) occurrence always stays in the video — output ONLY the EARLIER failed attempts for deletion, NEVER the last one."}
 For each take to DELETE output one line "MM:SS-MM:SS reason". If there are none, output "NONE".
 
@@ -127,6 +144,11 @@ Transcript:
 ${_plainTranscript()}`);
                     ranges = parseAiClipRanges(text).map(r => ({ start: r.start, end: r.end, dur: +(r.end - r.start).toFixed(1) }));
                     if (keep === "last") ranges = fixKeepLast(ranges, segments);
+                    ranges = ranges.map(r => {
+                        const at = segments.findIndex(s => r.start < s.seqEnd && r.end > s.seqStart);
+                        return { ...r, label: at >= 0 ? segments[at].text : "", selected: false,
+                            reason: L("Önerilen kesim; metni ve zaman aralığını kontrol et", "Suggested cut; check the text and time range") };
+                    });
                     via = "AI";
                 } catch (e) { showToast("AI: " + e.message, "warning", 4000); }
             }
@@ -134,7 +156,7 @@ ${_plainTranscript()}`);
                 showToast(L("Tekrar çekim bulunamadı — kayıt temiz görünüyor ✓", "No repeated takes found — the recording looks clean ✓"), "success", 4000);
                 return;
             }
-            showRangePreview(L(`Tekrarları kes (${via})`, `Remove repeats (${via})`), ranges, async chosen => {
+            showRangePreview(L(`Tekrarları incele (${via})`, `Review repeats (${via})`), ranges, async chosen => {
                 if (DESK) {   // desktop: export a trimmed copy instead of timeline cuts
                     if (window.applyTextCutsDesktop) await window.applyTextCutsDesktop(chosen);
                     else showToast(L("Önce bir dosya aç", "Open a file first"), "info", 3000);
@@ -453,11 +475,17 @@ ${_plainTranscript()}`);
                                     : (kind === "v" || i === 0);
         const row = (t, kind) => `
             <label class="ui2-check" style="opacity:${t.clips ? 1 : .45}">
-              <input type="checkbox" class="sil-trk" data-kind="${kind}" data-i="${t.i}"${on(kind, t.i) ? " checked" : ""}>
+              <input type="checkbox" class="sil-trk" data-kind="${kind}" data-i="${t.i}"${t.clips && on(kind, t.i) ? " checked" : ""}${t.clips ? "" : " disabled"}>
               <span>${t.label}${t.clips ? "" : L(" (boş)", " (empty)")}</span></label>`;
         wrap.innerHTML =
-            `<div class="ui2-checks" style="grid-template-columns:1fr 1fr">` +
-            r.video.map(t => row(t, "v")).join("") + r.audio.map(t => row(t, "a")).join("") + `</div>` +
+            `<div class="ui2-track-groups">
+              <fieldset class="ui2-track-group"><legend>${L("Video kanalları", "Video tracks")}</legend>
+                <div class="ui2-checks ui2-track-list">${r.video.map(t => row(t, "v")).join("") || `<div class="setting-hint">${L("Video kanalı yok", "No video tracks")}</div>`}</div>
+              </fieldset>
+              <fieldset class="ui2-track-group"><legend>${L("Ses kanalları", "Audio tracks")}</legend>
+                <div class="ui2-checks ui2-track-list">${r.audio.map(t => row(t, "a")).join("") || `<div class="setting-hint">${L("Ses kanalı yok", "No audio tracks")}</div>`}</div>
+              </fieldset>
+            </div>` +
             `<div class="setting-hint" style="margin-top:6px">${L("İşaretli kanallar kesilir/susturulur; işaretsizlere (müzik, overlay, efekt katmanları) dokunulmaz.", "Checked tracks get cut/muted; unchecked ones (music, overlays, FX layers) are never touched.")}</div>`;
         wrap.querySelectorAll(".sil-trk").forEach(c => c.addEventListener("change", () => {
             onSettingChange("silTrkSel", Object.assign({ ver: 2 }, trackSel()));
@@ -468,7 +496,7 @@ ${_plainTranscript()}`);
         if (boxes.length) {
             const v = [], a = [];
             boxes.forEach(c => {
-                if (!c.checked) return;
+                if (!c.checked || c.disabled) return;
                 (c.getAttribute("data-kind") === "v" ? v : a).push(+c.getAttribute("data-i"));
             });
             return { v, a };
@@ -1116,29 +1144,8 @@ ${_plainTranscript()}`);
         };
     }
 
-    // Turkish users saw English strings in the range-review modal — localize
-    // it after the stock builder runs (title is already localized by callers)
-    function patchRangePreviewI18n() {
-        if (typeof window.showRangePreview !== "function") return;
-        const _orig = window.showRangePreview;
-        window.showRangePreview = function (title, ranges, onApply) {
-            _orig(title, ranges, onApply);
-            if (settings.uiLang !== "tr") return;
-            const ov = $id("range-preview-ov"); if (!ov) return;
-            ov.querySelectorAll("div").forEach(d => {
-                if (d.children.length === 0 && /range\(s\)/.test(d.textContent)) {
-                    const total = ranges.reduce((a, r) => a + (r.end - r.start), 0);
-                    d.textContent = `${ranges.length} aralık · ~${total.toFixed(1)}s — kalmasını istediklerinin işaretini kaldır`;
-                }
-            });
-            const c = $id("rp-cancel"); if (c) c.textContent = "Vazgeç";
-            const a = $id("rp-apply"); if (a) a.textContent = "Uygula";
-        };
-    }
-
     function stylePro() {
         patchStatusTimer();
-        patchRangePreviewI18n();
         if (typeof window.buildASSStyle === "function" && typeof assColor === "function")
             window.buildASSStyle = (p, k) => styleLineV2(p, k, assColor, settings.karaokeHi);
         buildStyleTabs();
@@ -1295,20 +1302,20 @@ ${_plainTranscript()}`);
           <div class="setting-row"><div class="setting-info">
             <div class="setting-name">${L("Tekrarları Sil", "Remove Repeats")}</div>
             <div class="setting-desc">${DESK
-                ? L("Aynı cümlenin tekrar çekimlerini bulur, kötü take'ler çıkarılmış kırpılmış dosya üretir. Önce Transcribe.", "Finds re-taken sentences and exports a trimmed file with the bad takes removed. Transcribe first.")
-                : L("Aynı cümlenin tekrar çekimlerini bulur, kötü take'leri kesip atar. Önce Transcribe.", "Finds re-taken sentences and ripple-deletes the bad takes. Transcribe first.")}</div>
+                ? L("Benzer çekimleri bulur. Çıkarılacakları sen seçersin; sonuç yeni bir dosyaya kaydedilir. Önce konuşmayı yazıya dök.", "Finds similar takes. You choose which to remove; the result is saved as a new file. Transcribe first.")
+                : L("Benzer çekimleri bulur. Çıkarılacakları sen seçersin; seçili kanallar kesilir. Önce konuşmayı yazıya dök.", "Finds similar takes. You choose which to remove; selected tracks are cut. Transcribe first.")}</div>
           </div></div>
           <div class="setting-row">
             <div class="setting-info"><div class="setting-name" style="font-weight:500">${L("Hangisi kalsın?", "Which take to keep?")}</div></div>
             <select id="repeat-keep" style="max-width:170px">
-              <option value="last">${L("Son take", "Last take")}</option>
-              <option value="fastest">${L("En akıcı (kısa)", "Fastest read")}</option>
+              <option value="last">${L("Son çekim", "Last take")}</option>
+              <option value="fastest">${L("En kısa çekim", "Shortest take")}</option>
             </select>
           </div>
-          <button class="btn-transcribe btn-compact" id="repeat-btn" style="margin-top:8px">${L("Tekrarları Bul ve Kes", "Find & Cut Repeats")}</button>
+          <button class="btn-transcribe btn-compact" id="repeat-btn" style="margin-top:8px">${L("Tekrarları Bul", "Find Repeats")}</button>
           <div class="setting-hint" style="margin-top:8px">${DESK
-            ? L("Kesmeden önce liste gösterilir, onaylarsın. Sonuç, tekrarlar çıkarılmış yeni bir dosya olarak kaydedilir. AI anahtarı varsa dil sürçmelerini de yakalar.", "You review the list before anything is cut. The result is saved as a new file with the repeats removed. With an AI key it also catches slips.")
-            : L("Kesmeden önce liste gösterilir, onaylarsın. Kesim sadece seçili kanallara dokunur (varsayılan: videolar + A1 — müzik kanalları güvende; listeyi Sessizlik sayfasında düzenlersin). AI anahtarı varsa dil sürçmelerini de yakalar.", "You review the list before anything is cut. Cutting only touches selected tracks (default: video + A1 — music tracks are safe; edit the list on the Silence page). With an AI key it also catches slips.")}</div>`);
+            ? L("Bulunan tekrarları metinleriyle inceleyip kesilecekleri seçersin. Sonuç yeni bir dosyaya kaydedilir.", "Review the repeated takes and select which to remove. The result is saved as a new file.")
+            : L("Bulunan tekrarları metinleriyle inceleyip kesilecekleri seçersin. Kesim yalnızca Sessizlik sayfasında seçtiğin kanallara uygulanır.", "Review repeated takes and select which to remove. Cutting affects only the tracks selected on the Silence page.")}</div>`);
         sc.appendChild(rep); $id("repeat-btn").onclick = findRepeats;
 
         const ch = card(`

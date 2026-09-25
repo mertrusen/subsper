@@ -98,16 +98,13 @@ function resolveBin(appDir, name, systemCandidates) {
     return exeName(name); // last resort: rely on PATH
 }
 
-// macOS kills Gatekeeper-blocked binaries with SIGKILL before they emit any
-// output, which used to surface as a bare "exit null". Say what actually
-// happened and how to clear it, instead of a cryptic code.
+// A signal alone cannot prove Gatekeeper blocked a binary: dyld also terminates
+// processes whose linked dylibs are missing. Preserve stderr when available.
 function gatekeeperHint(binPath, code, signal) {
     if (process.platform !== "darwin") return null;
-    if (signal !== "SIGKILL" && code !== null) return null;
-    return "macOS blocked the engine (\"" + path.basename(binPath || "engine") + "\").\n" +
-           "Open System Settings → Privacy & Security, then click “Open Anyway” for it — " +
-           "or install the signed Subsper desktop app, which ships a ready-to-run engine.\n" +
-           "Path: " + (binPath || "?");
+    if (signal !== "SIGKILL") return null;
+    return "The engine was terminated by macOS (SIGKILL). Check System Settings → Privacy & Security " +
+           "for an Open Anyway option. Engine: " + (binPath || "?");
 }
 
 function whisperBin(appDir) {
@@ -117,13 +114,41 @@ function whisperBin(appDir) {
     ]);
 }
 
+const _ffmpegResolved = new Map();
+function _workingFfmpeg(appDir) {
+    const key = path.resolve(appDir);
+    if (_ffmpegResolved.has(key)) return _ffmpegResolved.get(key);
+    const candidates = [
+        path.join(appDir, "bin", platKey(), exeName("ffmpeg")),
+        ..._desktopAppBins("ffmpeg"),
+        "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg",
+        exeName("ffmpeg"), // PATH is useful when the app is run from source
+    ];
+    const seen = new Set();
+    for (const candidate of candidates) {
+        if (seen.has(candidate) || (path.isAbsolute(candidate) && !safeExists(candidate))) continue;
+        seen.add(candidate);
+        const probe = cp.spawnSync(candidate, ["-version"], { encoding: "utf8", timeout: 5000, windowsHide: true });
+        if (!probe.error && probe.status === 0 && /ffmpeg version/i.test(probe.stdout || "")) {
+            _ffmpegResolved.set(key, candidate);
+            if (candidate !== candidates[0]) dbg("ffmpeg fallback: " + candidate);
+            return candidate;
+        }
+        dbg("ffmpeg unavailable: " + candidate + " — " +
+            (probe.error ? probe.error.message : (probe.stderr || "exit " + probe.status).slice(-250)));
+    }
+    // Do not cache a miss: installing ffmpeg while the app is open should let
+    // the next attempt recover without a restart.
+    return null;
+}
+
 function ffmpegBin(appDir) {
-    return resolveBin(appDir, "ffmpeg", [
-        "/opt/homebrew/bin/ffmpeg",
-        "/usr/local/bin/ffmpeg",
-        "/usr/bin/ffmpeg",
+    return _workingFfmpeg(appDir) || resolveBin(appDir, "ffmpeg", [
+        "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg",
     ]);
 }
+
+function ffmpegAvailable(appDir) { return !!_workingFfmpeg(appDir); }
 
 function safeExists(p) { try { return fs.existsSync(p); } catch (e) { return false; } }
 
@@ -400,7 +425,8 @@ function toWav16k(appDir, inputPath, outWav, spawnOpts, signal, onProgress) {
     return new Promise((resolve, reject) => {
         const args = ["-y", "-i", inputPath, "-ar", "16000", "-ac", "1",
                       "-c:a", "pcm_s16le", "-vn", outWav];
-        const ff = cp.spawn(ffmpegBin(appDir), args, spawnOpts || {});
+        const ffmpegPath = ffmpegBin(appDir);
+        const ff = cp.spawn(ffmpegPath, args, spawnOpts || {});
         if (signal) {
             if (signal.aborted) { ff.kill(); return reject(new Error("Cancelled")); }
             signal.addEventListener('abort', () => { ff.kill(); }, { once: true });
@@ -417,8 +443,10 @@ function toWav16k(appDir, inputPath, outWav, spawnOpts, signal, onProgress) {
         ff.on("error", e => reject(new Error("ffmpeg could not run: " + e.message)));
         ff.on("close", (code, sig) => code === 0
             ? resolve(outWav)
-            : reject(new Error(gatekeeperHint(ffmpegBin(appDir), code, sig) ||
-                               ("ffmpeg failed (" + code + "): " + err.slice(-400)))));
+            : reject(new Error(err.trim()
+                ? "ffmpeg failed (" + (sig || code) + ") using " + ffmpegPath + ": " + err.slice(-500)
+                : gatekeeperHint(ffmpegPath, code, sig) ||
+                  "ffmpeg failed (" + (sig || code) + ") using " + ffmpegPath)));
     });
 }
 
@@ -799,7 +827,7 @@ async function beepTrackWav(appDir, ranges, outWav, opts) {
 }
 
 module.exports = {
-    platKey, whisperBin, ffmpegBin, resolveBin,
+    platKey, whisperBin, ffmpegBin, ffmpegAvailable, resolveBin,
     modelsDir, modelPath, modelExists, ensureModel, GGML_FILES,
     parseWhisperJson, toWav16k, transcribeWav, dtwPreset,
     normalizePath, extractClipsToWav,

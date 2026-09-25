@@ -1,7 +1,7 @@
 {
   "name": "subsper",
   "productName": "Subsper",
-  "version": "1.4.0-preview.2",
+  "version": "1.5.1",
   "description": "Subsper — AI subtitles, audio cleanup & silence cutting. By zipheron.",
   "main": "electron-main.js",
   "author": "zipheron",
@@ -14,7 +14,8 @@
     "dist": "electron-builder -mw --publish never",
     "cli": "node scripts/subsper-cli.mjs",
     "dist:mac:signed": "npm run prep && electron-builder --mac -c.mac.notarize=true --publish never",
-    "dev:mac": "dev/run.sh"
+    "dev:mac": "dev/run.sh",
+    "version:set": "node scripts/set-version.mjs"
   },
   "devDependencies": {
     "electron": "^31.0.0",

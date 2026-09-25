@@ -34,6 +34,10 @@ oks()   { pass=$((pass+1)); echo "  ok   $1"; }
 
 [ -x "$FF" ] || { echo "no ffmpeg at $FF — run scripts/build-ffmpeg-lgpl.sh"; exit 1; }
 echo "[smoke] ffmpeg: $FF"
+if [ "$(uname -s)" = "Darwin" ] && otool -L "$FF" | grep -E '/(opt/homebrew|usr/local|home/linuxbrew)/'; then
+    echo "[smoke] bundled ffmpeg depends on build-machine libraries" >&2
+    exit 1
+fi
 
 # ── Licence gate ──────────────────────────────────────────────────────────
 echo

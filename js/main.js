@@ -265,8 +265,8 @@ const I18N = {
     hint_sil: "Lower dB = only deeper silences count. Raise length to skip brief pauses. Padding leaves breath when cutting.",
     sil_status: "Detect silences in your In/Out selection",
     // setup
-    sec_syscheck: "System Check (optional / Pro)", sec_models: "Whisper Models", sec_install: "Install Notes",
-    setup_optional: "✓ Subsper's built-in engine works out of the box — no setup needed. Everything below is OPTIONAL — install Python + WhisperX only if you want speaker labels.",
+    sec_syscheck: "System Check", sec_models: "Whisper Models", sec_install: "Install Notes",
+    setup_optional: "Check the engine and models below. Python and WhisperX are optional; install them only if you need speaker labels.",
     nm_builtin: "Subsper Built-in engine", ds_builtin_ok: "✓ Ready — bundled whisper.cpp + ffmpeg, no setup", ds_builtin_dl: "Bundled — the model downloads on first transcription",
     py_optional: "Not detected — that's fine. Install Python only for optional Pro features (speaker labels, etc.).",
     opt_alt_note: "Optional alternative engine — the Built-in engine already covers this. No need to install.",
@@ -457,8 +457,8 @@ const I18N = {
     lbl_silthr: "Sessizlik eşiği", lbl_sildur: "Min. sessizlik süresi", lbl_silpad: "Kesim payı (konuşma etrafı)",
     hint_sil: "Düşük dB = sadece derin sessizlikler. Süreyi artırınca kısa duraklamalar atlanır. Pay, keserken nefes bırakır.",
     sil_status: "In/Out seçimindeki sessizlikleri tespit et",
-    sec_syscheck: "Sistem Kontrolü (opsiyonel / Pro)", sec_models: "Whisper Modelleri", sec_install: "Kurulum Notları",
-    setup_optional: "✓ Subsper'in yerleşik motoru kutudan çıktığı gibi çalışır — kurulum gerekmez. Aşağıdaki her şey OPSİYONELDİR — yalnızca konuşmacı etiketleri istiyorsan Python + WhisperX kur.",
+    sec_syscheck: "Sistem kontrolü", sec_models: "Whisper Modelleri", sec_install: "Kurulum Notları",
+    setup_optional: "Motor ve model durumunu aşağıdan kontrol et. Python ve WhisperX yalnızca konuşmacı etiketleri için gereklidir.",
     nm_builtin: "Subsper Yerleşik motor", ds_builtin_ok: "✓ Hazır — gömülü whisper.cpp + ffmpeg, kurulum yok", ds_builtin_dl: "Gömülü — model ilk transcribe'da iner",
     py_optional: "Algılanmadı — sorun değil. Python'ı yalnızca opsiyonel Pro özellikler (konuşmacı etiketleri vb.) için kur.",
     opt_alt_note: "Opsiyonel alternatif motor — Yerleşik motor bunu zaten karşılıyor. Kurmana gerek yok.",
@@ -591,11 +591,11 @@ function setLanguage(lang) {
         : icon("play")  + "<span>" + t("btn_play")  + "</span>";
     const langSel = $("set-uilang"); if (langSel) langSel.value = settings.uiLang;
     const repeat = $("repeat-btn");
-    if (repeat) repeat.textContent = settings.uiLang === "tr" ? "Tekrarları Bul ve Kes" : "Find & Cut Repeats";
+    if (repeat) repeat.textContent = settings.uiLang === "tr" ? "Tekrarları Bul" : "Find Repeats";
     const keep = $("repeat-keep");
     if (keep && keep.options.length >= 2) {
-        keep.options[0].textContent = settings.uiLang === "tr" ? "Son take" : "Last take";
-        keep.options[1].textContent = settings.uiLang === "tr" ? "En akıcı (kısa)" : "Fastest read";
+        keep.options[0].textContent = settings.uiLang === "tr" ? "Son çekim" : "Last take";
+        keep.options[1].textContent = settings.uiLang === "tr" ? "En kısa çekim" : "Shortest take";
     }
 }
 
@@ -1067,8 +1067,17 @@ function switchSubTab(mainTab, sub) {
     }
 }
 
-// Keep compatibility for error handlers that call switchTab("setup")
-function switchTab(name) { switchMainTab(name); }
+// Error actions must navigate the workspace too; changing only the old tab
+// leaves the visible page on subtitle settings in the v2/v3 shell.
+function switchTab(name) {
+    if (name === "setup" && typeof window.ui2Open === "function") {
+        window.ui2Open("settings");
+        switchSubTab("setup", "install");
+    } else {
+        switchMainTab(name);
+        if (name === "setup") switchSubTab("setup", "install");
+    }
+}
 
 // ── Edit (cut automation) settings init ───────────────────────────────────
 function initEditSettingsUI() {
@@ -2683,7 +2692,7 @@ function classifyError(raw) {
         why:  raw.split("\n").slice(0, 2).join(" "),
         fix:  "Re-link the offline clip in Premiere (right-click → Link Media), then try again.",
     };
-    if (e.includes("ffmpeg not found at:") || (e.includes("ffmpeg") && e.includes("homebrew"))) return {
+    if (e.includes("ffmpeg not found at:")) return {
         what: "ffmpeg found but could not be executed.",
         why:  "Premiere launched without /opt/homebrew/bin in PATH.",
         fix:  "Reload the extension — it adds /opt/homebrew/bin to PATH automatically.",
@@ -2693,7 +2702,7 @@ function classifyError(raw) {
     if (e.includes("ffmpeg") || (e.includes("no such file or directory") && !e.includes("media file"))) return {
         what: "Audio extraction failed — ffmpeg issue.",
         why:  raw.length < 300 ? raw : raw.slice(0, 300) + "…",
-        fix:  "Make sure ffmpeg is installed:\n  brew install ffmpeg\nThen reload the extension.",
+        fix:  "Check the engine status in Setup. If a bundled ffmpeg cannot start, Subsper will try an installed ffmpeg automatically.",
         fixBtn: "Go to Setup",
         fixAct: () => switchTab("setup"),
     };
@@ -3412,7 +3421,7 @@ function deleteSegment(idx) {
 }
 
 function clearAll() {
-    if (!confirm("Clear all segments?")) return;
+    if (!confirm(settings.uiLang === "tr" ? "Tüm altyazılar silinsin mi?" : "Delete all captions?")) return;
     pushUndo();
     segments = []; selectedIndex = -1;
     try { localStorage.removeItem("ws_autosave"); } catch (e) {}
@@ -3720,12 +3729,19 @@ function exportAs(fmt) {
 
 async function sendToPremiere() {
     if (segments.length === 0) return;
+    const baseSegs = settings.gapFill ? applyGapFill(segments, settings.gapMax) : segments;
+    const finalSegs = typeof window.preparePremiereCaptionSegments === "function"
+        ? await window.preparePremiereCaptionSegments(baseSegs) : baseSegs;
+    if (finalSegs === null) return;
+    if (!finalSegs.length) {
+        showToast(settings.uiLang === "tr" ? "Seçilen aralıklar tüm altyazıları kapatıyor; gönderilmedi" : "Selected ranges hide every caption; nothing was sent", "warning", 5000);
+        return;
+    }
     sendBtn.disabled = true;
     setStatus("Sending captions to Premiere…", "info");
     showProgress(true);
     hideSRTSaved();
 
-    const finalSegs = settings.gapFill ? applyGapFill(segments, settings.gapMax) : segments;
     // Premiere determines wrapping from its own caption style and text box.
     // Character-based wrapping here would reintroduce unwanted breaks.
     const srt       = premiereCaptionSRT(finalSegs);
@@ -3837,7 +3853,7 @@ async function runDiagnostics() {
 function builtinEngineReady() {
     const W = wcpp();
     if (!W) return false;
-    try { return fs.existsSync(W.whisperBin(extDir())) && fs.existsSync(W.ffmpegBin(extDir())); }
+    try { return fs.existsSync(W.whisperBin(extDir())) && W.ffmpegAvailable(extDir()); }
     catch (e) { return false; }
 }
 
@@ -4179,7 +4195,7 @@ function initTooltips() {
    files (and the extension↔desktop footer sync) stay untouched.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION = "1.4.0-preview.2";
+const APP_VERSION = "1.5.1";
 const GH_REPO = "mertrusen/subsper";
 const IS_DESKTOP_APP = (typeof window !== "undefined" && window.IS_DESKTOP === true);
 
@@ -4375,25 +4391,38 @@ function showRangePreview(title, ranges, onApply) {
     ov.id = "range-preview-ov";
     ov.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center";
     const total = ranges.reduce((a, r) => a + (r.end - r.start), 0);
+    const tr = settings.uiLang === "tr";
+    const repeatReview = ranges.some(r => r.selected === false && (r.label || r.keepLabel));
     const rows = ranges.map((r, i) => `
-        <label style="display:flex;gap:8px;align-items:center;padding:4px 2px;border-bottom:1px solid var(--border2);font-size:12px;cursor:pointer">
-          <input type="checkbox" class="rp-chk" data-i="${i}" checked>
-          <span style="flex:1">#${i + 1} &nbsp; ${formatTime(r.start)} → ${formatTime(r.end)}</span>
-          <span style="color:var(--text3)">${(r.end - r.start).toFixed(2)}s</span>
+        <label class="rp-row">
+          <input type="checkbox" class="rp-chk" data-i="${i}"${r.selected === false ? "" : " checked"}>
+          <span class="rp-row-main"><span class="rp-row-time">#${i + 1} · ${formatTime(r.start)} → ${formatTime(r.end)} · ${(r.end - r.start).toFixed(2)}s</span>
+            ${r.label ? `<span class="rp-row-text"><strong>${tr ? "Çıkarılacak:" : "Remove:"}</strong> ${escHtml(r.label)}</span>` : ""}
+            ${r.keepLabel ? `<span class="rp-row-text rp-keep"><strong>${tr ? "Kalacak:" : "Keep:"}</strong> ${escHtml(r.keepLabel)}</span>` : ""}
+            ${r.reason ? `<span class="rp-row-reason">${escHtml(r.reason)}</span>` : ""}
+          </span>
         </label>`).join("");
     ov.innerHTML = `
-      <div style="background:var(--bg2,#16181d);border:1px solid var(--border2,#333);border-radius:12px;max-width:440px;width:92%;max-height:70vh;display:flex;flex-direction:column;padding:16px">
+      <div class="rp-dialog">
         <div style="font-weight:700;font-size:13px;margin-bottom:4px">${escHtml(title)}</div>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:8px">${ranges.length} range(s) · ~${total.toFixed(1)}s — uncheck any you want to keep</div>
+        <div class="rp-summary">${ranges.length} ${tr ? "aralık" : "ranges"} · ~${total.toFixed(1)}s — ${repeatReview ? (tr ? "Kesilecek tekrarları işaretle" : "Select the takes to remove") : (tr ? "Kalacakların işaretini kaldır" : "Uncheck any you want to keep")}</div>
         <div style="overflow-y:auto;flex:1">${rows}</div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
-          <button class="btn-secondary" id="rp-cancel">Cancel</button>
-          <button class="btn-transcribe btn-compact" id="rp-apply" style="margin:0;width:auto;padding:6px 18px">Apply</button>
+          <button class="btn-secondary" id="rp-cancel">${tr ? "Vazgeç" : "Cancel"}</button>
+          <button class="btn-transcribe btn-compact" id="rp-apply" style="margin:0;width:auto;padding:6px 18px"></button>
         </div>
       </div>`;
     document.body.appendChild(ov);
     $("rp-cancel").onclick = () => ov.remove();
     ov.onclick = e => { if (e.target === ov) ov.remove(); };
+    const updateApply = () => {
+        const count = [...ov.querySelectorAll(".rp-chk")].filter(c => c.checked).length;
+        const apply = $("rp-apply");
+        apply.disabled = count === 0;
+        apply.textContent = repeatReview ? (tr ? `Seçilenleri kes (${count})` : `Cut selected (${count})`) : (tr ? `Uygula (${count})` : `Apply (${count})`);
+    };
+    ov.querySelectorAll(".rp-chk").forEach(c => c.addEventListener("change", updateApply));
+    updateApply();
     $("rp-apply").onclick = () => {
         const keep = [...ov.querySelectorAll(".rp-chk")].filter(c => c.checked).map(c => ranges[+c.dataset.i]);
         ov.remove();

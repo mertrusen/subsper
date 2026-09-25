@@ -33,6 +33,14 @@ jobs:
           done
       - name: Unit tests
         run: bash dev/test/run.sh
+      - name: Engine fallback and Setup navigation
+        run: |
+          node dev/test/ffmpeg-resolution.test.js
+          node dev/test/setup-navigation.test.js
+      - name: Version and Premiere caption exclusions
+        run: |
+          node dev/test/version-consistency.test.js
+          node dev/test/caption-exclusions.test.js
       - name: Premiere caption import contract
         run: node dev/test/host-captions.test.js
       # The unit suite runs without a DOM, so it cannot tell whether a click

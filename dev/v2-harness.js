@@ -185,6 +185,17 @@ function ok(cond, label) {
     console.log("— desktop mode (IS_DESKTOP=true) —");
     const d = await run(true);
     ok(has(d, "repeat-btn"), "repeat card injected");
+    const takes = [
+        { text: "Bugün lenf sistemini anlatacağım", seqStart: 0, seqEnd: 5 },
+        { text: "Bugün lenf sistemini anlatacağım", seqStart: 6, seqEnd: 10 },
+        { text: "Bugün lenf sistemini anlatacağım", seqStart: 11, seqEnd: 14 },
+        { text: "Bu başka bir konu", seqStart: 15, seqEnd: 19 },
+    ];
+    ok(JSON.stringify([...d.sandbox.__detectRepeats(takes, "last")]) === "[0,1]", "three repeats keep only final take");
+    ok(JSON.stringify([...d.sandbox.__detectRepeats(takes, "fastest")]) === "[0,1]", "three repeats keep only shortest take");
+    takes[0].seqEnd = 2;
+    ok(JSON.stringify([...d.sandbox.__detectRepeats(takes, "fastest")]) === "[1,2]", "shortest take can be first without retaining middle");
+    ok(d.sandbox.__repeatChoices(takes, "fastest").every(c => c.keep === 0), "review points to kept take");
     ok(has(d, "chapters-btn") && has(d, "viral-btn") && has(d, "broll-btn"), "content cards injected");
     ok(has(d, "pace-btn") && has(d, "social-btn"), "pace+social injected");
     ok(has(d, "chapters-save") && has(d, "prof-report-btn"), "extras injected");

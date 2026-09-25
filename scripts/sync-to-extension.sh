@@ -21,6 +21,7 @@ p = Path('extension/index.html')
 s = p.read_text()
 s = s.replace('<script src="js/desktop-shim.js"></script>', '<script src="js/CSInterface.js"></script>')
 s = s.replace('  <script src="js/desktop-app.js"></script>\n', '')
+s = s.replace('  <script src="js/ui-v3.js"></script>', '  <script src="js/ui-v3.js"></script>\n  <script src="js/caption-exclusions.js"></script>')
 p.write_text(s)
 PY
 bash dev/test/check-mirror.sh

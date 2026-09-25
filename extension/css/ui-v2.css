@@ -195,6 +195,18 @@ body.ui2-zoompro #panel-ed-work .tool-card > .panel-intro { display: none; }
 
 /* big trigger checkboxes */
 .ui2-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ui2-track-groups { display:flex; flex-direction:column; gap:16px; }
+.ui2-track-group { min-width:0; margin:0; padding:0; border:0; }
+.ui2-track-group legend { width:100%; margin-bottom:8px; padding:0; color:var(--text2); font-size:11px; font-weight:750; letter-spacing:.04em; text-transform:uppercase; }
+.ui2-track-list { grid-template-columns:1fr; gap:7px; }
+.rp-dialog { background:var(--bg2,#16181d); border:1px solid var(--border2,#333); border-radius:12px; width:min(560px,92vw); max-height:75vh; display:flex; flex-direction:column; padding:16px; }
+.rp-summary { font-size:12px; color:var(--text3); margin-bottom:10px; }
+.rp-row { display:flex; gap:10px; align-items:flex-start; padding:10px 4px; border-bottom:1px solid var(--border2); font-size:12px; cursor:pointer; }
+.rp-row input { flex:none; margin-top:3px; }
+.rp-row-main { display:grid; gap:5px; min-width:0; }
+.rp-row-time,.rp-row-reason { color:var(--text3); }
+.rp-row-text { overflow-wrap:anywhere; line-height:1.4; }
+.rp-keep { color:var(--success,#81d5ad); }
 .ui2-check {
   display: flex; align-items: center; gap: 8px;
   padding: 9px 10px; background: var(--bg3);

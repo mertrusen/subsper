@@ -62,7 +62,10 @@ DEPS="$WORK/deps"
 JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 
 mkdir -p "$OUT" "$WORK" "$DEPS"
-export PKG_CONFIG_PATH="$DEPS/lib/pkgconfig"
+# Isolate pkg-config from Homebrew: optional libass/fontconfig discovery can
+# otherwise link a private /opt/homebrew dylib into the supposedly portable exe.
+export PKG_CONFIG_LIBDIR="$DEPS/lib/pkgconfig"
+unset PKG_CONFIG_PATH
 log() { echo "[ffmpeg-lgpl] $*"; }
 
 # fetch <dir> <url…> — first mirror that answers wins. GNU Savannah in
@@ -204,6 +207,13 @@ log "licence gate passed — no GPL/non-free components"
 
 cp ./ffmpeg "$OUT/ffmpeg"
 chmod +x "$OUT/ffmpeg"
+
+if [ "$(uname -s)" = "Darwin" ]; then
+  if otool -L "$OUT/ffmpeg" | grep -E '/(opt/homebrew|usr/local|home/linuxbrew)/'; then
+    echo "REFUSING TO SHIP: ffmpeg depends on build-machine libraries" >&2
+    exit 1
+  fi
+fi
 
 log "→ $OUT/ffmpeg  ($(du -h "$OUT/ffmpeg" | cut -f1))"
 "$OUT/ffmpeg" -hide_banner -encoders 2>/dev/null | grep -E "h264_videotoolbox|aac " || true

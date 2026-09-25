@@ -11,6 +11,8 @@ Subsper turns speech into editable subtitles. This repository contains a standal
 
 **Release status:** [Subsper 1.4.0 Preview 2](https://github.com/mertrusen/subsper/releases/tag/v1.4.0-preview.2) contains Windows x64 and Apple Silicon macOS desktop installers plus the Premiere `.zxp`. The desktop installers are unsigned preview builds; signed final releases require the setup in [docs/SIGNING.md](docs/SIGNING.md). The older `v1.3` installers contain the old interface.
 
+The `main` branch currently contains 1.5.1 source changes; no 1.5.1 installer or `.zxp` has been published yet.
+
 The `main` branch may include editor changes newer than that packaged preview. Build or link the extension from source to try those changes before the next release.
 
 ## Features

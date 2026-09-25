@@ -1329,6 +1329,31 @@ function wsListAllTracks() {
     }
 }
 
+// Read-only inventory for Premiere-only caption exclusion zones. Each selected
+// video clip represents a time span where captions should not be imported.
+function wsListCaptionExclusionClips() {
+    try {
+        var seq = app.project.activeSequence;
+        if (!seq) return JSON.stringify({ success: false, error: "No active sequence." });
+        var projectPath = "";
+        try { projectPath = app.project.path || ""; } catch (ePath) {}
+        var out = { success: true, project: projectPath, sequence: seq.sequenceID || seq.name || "", tracks: [] };
+        for (var v = 0; v < seq.videoTracks.numTracks; v++) {
+            var tr = seq.videoTracks[v], clips = [];
+            for (var c = 0; c < tr.clips.numItems; c++) {
+                try {
+                    var item = tr.clips[c];
+                    var start = ticksToSeconds(item.start.ticks), end = ticksToSeconds(item.end.ticks);
+                    if (isNaN(start) || isNaN(end) || end <= start) continue;
+                    clips.push({ start: start, end: end, name: item.name || ("Clip " + (c + 1)) });
+                } catch (eClip) {}
+            }
+            out.tracks.push({ i: v, name: tr.name || "", clips: clips });
+        }
+        return JSON.stringify(out);
+    } catch (e) { return JSON.stringify({ success: false, error: e.toString() }); }
+}
+
 // ── Sync-safe range cutter for TARGETED tracks ────────────────────────────
 // Premiere blocks a ripple when any UNLOCKED track has content spanning the
 // gap — that is why cutting a subset of tracks left holes. So: temporarily

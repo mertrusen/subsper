@@ -69,6 +69,7 @@
 
 
   <!-- Header -->
+  <a class="v3-skip" href="#app-content">İçeriğe geç / Skip to content</a>
   <div class="header">
     <div class="brand">
       <span class="brand-mark" data-icon="captions"></span>
@@ -78,19 +79,19 @@
       </div>
     </div>
     <div class="header-right">
-      <button id="theme-btn" class="icon-btn" onclick="cycleTheme()" data-i18n-tip="tip_theme"></button>
+      <button id="theme-btn" class="icon-btn" onclick="cycleTheme()" data-i18n-tip="tip_theme" aria-label="Change theme"></button>
       <span class="setup-indicator" id="setup-indicator" data-i18n-tip="tip_tab_setup"></span>
     </div>
   </div>
 
   <div id="app-shell">
-    <nav id="v3-sidebar" aria-label="Workspace">
-      <button class="v3-nav active" data-v3-page="subtitles" onclick="ui2Open('subtitles')"><span class="v3-nav-num">01</span><span data-v3-text="transcript">Altyazılar</span></button>
-      <button class="v3-nav" data-v3-page="style" onclick="ui3Open('style')"><span class="v3-nav-num">02</span><span data-v3-text="style">Görünüm</span></button>
-      <button class="v3-nav" data-v3-page="export" onclick="ui3Open('export')"><span class="v3-nav-num">03</span><span data-v3-text="export">Çıktı al</span></button>
+    <nav id="v3-sidebar" aria-label="Workspace navigation">
+      <button class="v3-nav active" data-v3-page="subtitles" aria-current="page" onclick="ui2Open('subtitles')"><span class="v3-nav-num" aria-hidden="true">01</span><span data-v3-text="transcript">Altyazılar</span></button>
+      <button class="v3-nav" data-v3-page="style" onclick="ui3Open('style')"><span class="v3-nav-num" aria-hidden="true">02</span><span data-v3-text="style">Görünüm</span></button>
+      <button class="v3-nav" data-v3-page="export" onclick="ui3Open('export')"><span class="v3-nav-num" aria-hidden="true">03</span><span data-v3-text="export">Çıktı al</span></button>
       <div class="v3-nav-divider"></div>
-      <button class="v3-nav" data-v3-page="tools" onclick="ui3Open('tools')"><span class="v3-nav-symbol">✦</span><span data-v3-text="tools">Araçlar</span></button>
-      <button class="v3-nav" data-v3-page="settings" onclick="ui2Open('settings')"><span class="v3-nav-symbol">⚙</span><span data-v3-text="settings">Ayarlar</span></button>
+      <button class="v3-nav" data-v3-page="tools" onclick="ui3Open('tools')"><span class="v3-nav-symbol" aria-hidden="true">✦</span><span data-v3-text="tools">Araçlar</span></button>
+      <button class="v3-nav" data-v3-page="settings" onclick="ui2Open('settings')"><span class="v3-nav-symbol" aria-hidden="true">⚙</span><span data-v3-text="settings">Ayarlar</span></button>
     </nav>
     <main id="app-content">
 
@@ -100,11 +101,12 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
       <span id="page-back-label">Back</span>
     </button>
-    <span id="page-title"></span>
-    <button id="page-gear" onclick="ui2Gear()" style="display:none">
+    <span id="page-title" role="heading" aria-level="1"></span>
+    <button id="page-gear" onclick="ui2Gear()" style="display:none" aria-label="Subtitle settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
     </button>
   </div>
+  <p id="v3-page-context" hidden></p>
 
   <!-- ── UI v2: home screen (card grid) ───────────────────────────── -->
   <section id="v3-tools-page" class="v3-page" aria-label="Tools" style="display:none"></section>
@@ -343,7 +345,6 @@
         </div>
       </div>
       <div class="export-wrap">
-        <button class="btn-secondary" onclick="toggleExportMenu()" data-i18n-tip="tip_export"><span class="ic" data-icon="download"></span></button>
         <div class="export-menu" id="export-menu" style="display:none">
           <div class="export-menu-title" data-i18n="export_title">Export as…</div>
           <div class="menu-group-label" data-i18n="grp_files">Subtitle file</div>
@@ -357,7 +358,7 @@
           <div id="export-grp-project"></div>
         </div>
       </div>
-      <button class="btn-secondary" onclick="clearAll()" data-i18n-tip="tip_clear" data-i18n="act_clear">Clear</button>
+      <button class="btn-secondary" onclick="clearAll()" data-i18n-tip="tip_clear" aria-label="Tüm altyazıları temizle"><span class="ic" data-icon="trash"></span></button>
       <button class="btn-send" id="send-btn" onclick="sendToPremiere()" disabled data-i18n-tip="tip_send">
         <span class="ic" data-icon="send"></span><span data-i18n="act_send">Send to Premiere</span>
       </button>
@@ -1010,10 +1011,10 @@
   <div id="panel-setup" class="panel" style="display:none">
     <div class="setup-scroll">
 
-      <div class="setup-optional-banner" data-i18n="setup_optional">✓ Subsper works out of the box — no setup needed. This page is only for optional Pro features (speaker labels).</div>
+      <div class="setup-optional-banner" data-i18n="setup_optional">Check the engine and models below. Python and WhisperX are optional; install them only if you need speaker labels.</div>
 
       <div class="setup-section-title" style="display:flex; justify-content:space-between; align-items:center;">
-        <span data-i18n="sec_syscheck">System Check (optional / Pro)</span>
+        <span data-i18n="sec_syscheck">System Check</span>
       </div>
       <div id="checks-list"><div class="check-loading">Checking…</div></div>
 

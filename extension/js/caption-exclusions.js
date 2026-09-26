@@ -133,7 +133,9 @@
         button.textContent = L("Altyazısız bölgeler", "Caption-free zones");
         button.title = L("Premiere video katmanındaki klipleri altyazısız bölge olarak seç", "Choose video clips as caption-free zones");
         button.onclick = openPanel;
-        send.parentNode.insertBefore(button, send);
+        const tools = document.getElementById("actions-tools");
+        if (tools) tools.appendChild(button);
+        else send.parentNode.insertBefore(button, send);
     }
     const style = document.createElement("style");
     style.textContent = `#caption-zones-ov{position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:12px}

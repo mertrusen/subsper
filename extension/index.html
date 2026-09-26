@@ -328,6 +328,7 @@
 
     <!-- Actions bar -->
     <div class="actions-bar" id="actions-bar" style="display:none">
+      <div class="actions-tools" id="actions-tools">
       <span class="seg-count" id="seg-count" data-i18n-tip="tip_segcount"></span>
       <button class="btn-secondary" onclick="toggleFindReplace()" data-i18n-tip="tip_find"><span class="ic" data-icon="search"></span></button>
       <button class="btn-secondary" onclick="toggleSyncPanel()" data-i18n-tip="tip_sync"><span class="ic" data-icon="refresh"></span></button>
@@ -359,6 +360,7 @@
         </div>
       </div>
       <button class="btn-secondary" onclick="clearAll()" data-i18n-tip="tip_clear" aria-label="Tüm altyazıları temizle"><span class="ic" data-icon="trash"></span></button>
+      </div>
       <button class="btn-send" id="send-btn" onclick="sendToPremiere()" disabled data-i18n-tip="tip_send">
         <span class="ic" data-icon="send"></span><span data-i18n="act_send">Send to Premiere</span>
       </button>

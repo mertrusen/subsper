@@ -57,6 +57,8 @@ body.premiere-app .v3-nav { min-height:34px; padding:0 8px; font-size:11px; }
 body.premiere-app .v3-nav-caption { padding-bottom:6px; }
 body.premiere-app .v3-nav-divider { margin:7px 8px; }
 body.premiere-app #page-bar { min-height:38px; padding:0 14px; }
+/* The subtitle title leaves the way once the transcript is being read. */
+body.premiere-app[data-ui2page="subtitles"].v3-caption-scrolled #page-bar { display:none; }
 body.premiere-app #page-title { font-size:13px; }
 body.premiere-app #page-gear { height:27px; }
 body.premiere-app #panel-tx-work .status-bar { margin:8px 10px 0; }
@@ -128,6 +130,21 @@ html[lang="en"] #page-gear::after { content:"Settings"; }
 #wave-fit { padding:0 6px; font-size:10px; }
 #panel-tx-work .segments-wrap { padding:16px; }
 #panel-tx-work .actions-bar { padding:13px 16px; gap:7px; background:var(--bg2); }
+#panel-tx-work .actions-tools { display:flex; align-items:center; gap:7px; flex:1 1 auto; min-width:0; }
+#panel-tx-work .actions-tools .seg-count { flex:1 1 auto; }
+/* The primary action remains visible at the right; only secondary tools scroll in a narrow CEP panel. */
+body.premiere-app #panel-tx-work .actions-bar { flex-wrap:nowrap; gap:6px; padding:7px 9px; }
+body.premiere-app #panel-tx-work .actions-tools { gap:5px; overflow-x:auto; overflow-y:hidden; scrollbar-width:thin; }
+body.premiere-app #panel-tx-work .actions-tools::-webkit-scrollbar { height:3px; }
+body.premiere-app #panel-tx-work .actions-tools .seg-count { flex:0 0 auto; margin-right:auto; white-space:nowrap; }
+body.premiere-app #panel-tx-work .actions-tools .btn-secondary { flex:0 0 auto; min-width:32px; height:32px; padding:5px 7px; }
+body.premiere-app #panel-tx-work .actions-tools .export-wrap { flex:0 0 auto; }
+body.premiere-app #panel-tx-work .actions-tools .cz-open { width:auto; padding:5px 9px; }
+body.premiere-app #panel-tx-work #send-btn { flex:0 0 auto; margin-left:auto; height:32px; padding:5px 10px; font-size:11px; justify-content:center; }
+body.premiere-app #panel-tx-work #clean-menu { position:fixed; left:8px; right:auto; bottom:50px; }
+@media (max-width:640px) {
+  body.premiere-app #panel-tx-work .actions-tools .seg-count { display:none; }
+}
 #panel-tx-work .empty-state { margin:36px auto; max-width:540px; }
 #panel-tx-settings .setup-scroll,#panel-su-main .setup-scroll,#panel-setup .setup-scroll,#panel-ed-work .setup-scroll,#panel-au-work .setup-scroll { width:min(830px,100%); margin:0 auto; padding:28px; }
 #panel-ed-work,#panel-au-work,#panel-tx-settings,#panel-su-main,#panel-setup { background:var(--bg); }

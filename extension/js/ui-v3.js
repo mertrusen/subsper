@@ -15,6 +15,14 @@
   };
   const oldOpen = window.ui2Open, oldHome = window.ui2Home, oldGear = window.ui2Gear;
   function page() { return document.body.getAttribute("data-ui3-page") || "subtitles"; }
+  function updateCaptionChrome() {
+    if (desktop) return;
+    const work = $("panel-tx-work"), list = $("segments-wrap");
+    const visible = work && getComputedStyle(work).display !== "none";
+    document.body.classList.toggle("v3-caption-scrolled", !!visible &&
+      document.body.getAttribute("data-ui2page") === "subtitles" &&
+      ((work.scrollTop > 16) || (list && list.scrollTop > 16)));
+  }
   function nav(key) {
     document.body.setAttribute("data-ui3-page", key);
     const sidebar = $("v3-sidebar");
@@ -38,6 +46,7 @@
     const p = $("v3-tools-page"), e = $("v3-export-page");
     if (p) p.style.display = key === "tools" ? "block" : "none";
     if (e) e.style.display = key === "export" ? "block" : "none";
+    updateCaptionChrome();
   }
   window.ui2Home = function () { if (page() === "tool") ui3Open("tools"); else ui2Open("subtitles"); };
   window.ui2Open = function (key) {
@@ -73,10 +82,23 @@
   };
   window.ui2Gear = function () {
     oldGear();
+    updateCaptionChrome();
     const title = $("page-title");
     if (title && page() === "subtitles") title.textContent =
       currentSubTab.transcribe === "settings" ? L("Transkripsiyon ayarları", "Transcription settings") : L("Altyazılar", "Subtitles");
   };
+  if (!desktop) {
+    const oldToggleCleanMenu = window.toggleCleanMenu;
+    window.toggleCleanMenu = function () {
+      oldToggleCleanMenu();
+      const menu = $("clean-menu");
+      if (!menu || menu.style.display !== "block") return;
+      const trigger = menu.previousElementSibling;
+      const rect = trigger.getBoundingClientRect();
+      menu.style.left = Math.max(8, Math.min(rect.left, innerWidth - menu.offsetWidth - 8)) + "px";
+      menu.style.bottom = Math.max(8, innerHeight - rect.top + 8) + "px";
+    };
+  }
   function markStyleSections() {
     ["sec_style", "sec_karaoke"].forEach(id => {
       const heading = document.querySelector(`[data-i18n="${id}"]`);
@@ -268,6 +290,11 @@
     const version = document.querySelector(".brand-version");
     if (version && typeof APP_VERSION !== "undefined") version.textContent = "v" + APP_VERSION;
     oldOpen("subtitles"); nav("subtitles");
+    if (!desktop) {
+      [$("panel-tx-work"), $("segments-wrap")].forEach(el =>
+        el && el.addEventListener("scroll", updateCaptionChrome, { passive: true }));
+      updateCaptionChrome();
+    }
   }, 120);
   setTimeout(() => {
     const update = window.updateStylePreview;

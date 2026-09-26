@@ -74,6 +74,23 @@ HARNESS = """
   check("Altyazi sayfasi: kontroller gorunur", shown("#panel-tx-work .controls"), true);
   check("Altyazi sayfasi: transkript gorunur", shown("#panel-tx-work .work-right"), true);
 
+  // Premiere's transcript should claim the title space as soon as it scrolls.
+  // Its primary action must remain in the same row and to the right of tools.
+  document.body.classList.add("premiere-app", "v3-caption-scrolled");
+  check("kaydirilan altyazida baslik kapanir", shown("#page-bar"), false);
+  state("settings");
+  check("ayarlar sayfasinda baslik gorunur", shown("#page-bar"), true);
+  document.body.classList.remove("v3-caption-scrolled");
+  state("subtitles");
+  check("yukari donunce baslik gorunur", shown("#page-bar"), true);
+  var bar = document.getElementById("actions-bar");
+  bar.style.display = "flex";
+  var tools = document.getElementById("actions-tools");
+  var send = document.getElementById("send-btn");
+  check("araclar gonderme dugmesinden ayri", !!(tools && send && tools.parentElement === bar && send.parentElement === bar), true);
+  check("gonderme dugmesi ayni satirda", Math.abs(send.getBoundingClientRect().top - tools.getBoundingClientRect().top) < 2, true);
+  check("gonderme dugmesi en sagda", send.getBoundingClientRect().right <= bar.getBoundingClientRect().right + 1 && send.getBoundingClientRect().left >= tools.getBoundingClientRect().right - 1, true);
+
   state("batch");
   check("Toplu sayfasi: batch karti gorunur",  shown("#batch-card"), true);
   check("Toplu sayfasi: Tara butonu gorunur",  shown("#batch-scan"), true);

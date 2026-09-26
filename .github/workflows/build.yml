@@ -21,6 +21,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
+      - name: Install packaging schema without Electron binary
+        run: ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci
+      - name: Validate electron-builder configuration
+        run: node dev/test/electron-builder-config.test.js
       # GitHub runs `run:` steps under `bash -e`, so a bare `[ -f x ] && cmd`
       # aborts the step when the last file is missing. Use an explicit if.
       - name: Syntax-check every shipped script

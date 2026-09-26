@@ -1,7 +1,7 @@
 {
   "name": "subsper",
   "productName": "Subsper",
-  "version": "1.5.3-preview.2",
+  "version": "1.5.3-preview.3",
   "description": "Subsper — subtitles, audio cleanup, and silence cutting.",
   "main": "electron-main.js",
   "author": "zipheron",
@@ -18,6 +18,7 @@
     "version:set": "node scripts/set-version.mjs"
   },
   "devDependencies": {
+    "ajv": "^8.20.0",
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3"
   },
@@ -58,7 +59,9 @@
         "nsis"
       ],
       "artifactName": "Subsper-Setup-${version}.${ext}",
-      "publisherName": "zipheron"
+      "signtoolOptions": {
+        "publisherName": "zipheron"
+      }
     },
     "nsis": {
       "oneClick": false,

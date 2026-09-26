@@ -13,6 +13,7 @@ const csInterface = new CSInterface();
 // ── State ─────────────────────────────────────────────────────────────────
 let segments = [], seqInTime = 0, isRunning = false, selectedIndex = -1, toastTimer = null;
 let lastLanguage = "";
+let transcriptSequenceName = null, transcriptSourcePreference = null;
 // The segment currently highlighted as playing, so the follow loop can update
 // two nodes instead of walking the whole list every tick.
 let _playingNode = null;
@@ -36,6 +37,7 @@ const DEFAULT_SETTINGS = {
     silenceThreshold: -30,
     silenceMinDur:    0.6,
     silencePad:       0.05,       // seconds kept around speech when ripple-cutting
+    silenceAudioSource: "same",   // Premiere: only the speech source, never music/FX tracks mixed in
     customStyle:      null,
     bilingualOrder:   "source-first", // source-first | translation-first
     uiLang:           (typeof navigator !== "undefined" && /^tr/i.test(navigator.language || "")) ? "tr" : "en",
@@ -1399,16 +1401,46 @@ function splitByText(seg, text, opt, maxChars) {
 // engine (no Python); falls back to extract_audio.py only if the engine is absent.
 async function extractTimelineWav(seqInfo) {
     const tmp = path.join(os.tmpdir(), `subsper_sil_${Date.now()}.wav`);
-    const W = wcpp();
-    if (W) {
-        await W.extractClipsToWav(extDir(),
-            { clips: seqInfo.clips, duration: seqInfo.duration }, tmp, { env: spawnEnv() });
+    try {
+        const W = wcpp();
+        if (W) {
+            await W.extractClipsToWav(extDir(),
+                { clips: seqInfo.clips, duration: seqInfo.duration }, tmp, { env: spawnEnv() });
+            return tmp;
+        }
+        const clipsArg = JSON.stringify({ clips: seqInfo.clips, duration: seqInfo.duration });
+        const ex = await runPython("extract_audio.py", [clipsArg, tmp]);
+        if (!ex.success) throw new Error(ex.error || "Audio extraction failed.");
         return tmp;
+    } catch (error) {
+        try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (_) {}
+        throw error;
     }
-    const clipsArg = JSON.stringify({ clips: seqInfo.clips, duration: seqInfo.duration });
-    const ex = await runPython("extract_audio.py", [clipsArg, tmp]);
-    if (!ex.success) throw new Error(ex.error || "Audio extraction failed.");
-    return tmp;
+}
+function silenceSourceInfo(info) {
+    const preference = settings.silenceAudioSource === "same" || !settings.silenceAudioSource
+        ? (transcriptSequenceName === info.sequenceName && transcriptSourcePreference
+            ? transcriptSourcePreference : (settings.transcriptionAudioSource || "auto"))
+        : settings.silenceAudioSource;
+    const source = chooseTranscriptionClips(info, preference);
+    if (!source.clips.length) throw new Error(settings.uiLang === "tr"
+        ? "Seçilen konuşma kanalında ses klibi yok. Sessizlik sayfasından doğru kanalı seç."
+        : "No audio clips on the selected speech source. Choose the right track on the Silence page.");
+    return { ...info, clips: source.clips, silenceSource: source.label };
+}
+async function extractSilenceWav(info) {
+    const selected = silenceSourceInfo(info);
+    try { return await extractTimelineWav(selected); }
+    catch (error) {
+        // Auto can pick camera video whose linked audio is available only on
+        // A1. Match transcription's fallback instead of claiming ffmpeg is bad.
+        const automatic = !settings.silenceAudioSource || settings.silenceAudioSource === "same";
+        if (!automatic || selected.silenceSource !== "video") throw error;
+        const fallback = chooseTranscriptionClips({ allClips: (info.allClips || [])
+            .filter(c => /^audio\d+$/.test(c.track || "")) }, "auto");
+        if (!fallback.clips.length) throw error;
+        return await extractTimelineWav({ ...info, clips: fallback.clips });
+    }
 }
 // Detect silent gaps on a WAV. Prefers bundled ffmpeg; falls back to Python.
 async function detectSilencesOnWav(wav) {
@@ -1428,41 +1460,18 @@ async function detectSilences() {
     showSilenceProgress(true);
 
     try {
-        await loadHostJSX();
-        const seqInfo = await evalScript("getSequenceInfo()");
-        if (!seqInfo.success) {
-            setSilenceStatus(seqInfo.error || "Error reading timeline", "error");
-            showToast(seqInfo.error || "Error reading timeline", "error");
+        const { ranges, transcriptFallback } = await findSilenceRanges();
+        if (!ranges.length) {
+            setSilenceStatus(settings.uiLang === "tr" ? "Seçilen konuşma kaynağında boşluk bulunamadı; kanalı veya eşiği değiştir." : "No gap on the selected speech source; change the track or threshold.", "warning");
             return;
         }
-        if (!seqInfo.clips || seqInfo.clips.length === 0) {
-            setSilenceStatus("No audio clips on the timeline. Add a clip first.", "warning");
-            return;
-        }
-
-        setSilenceStatus(`Analyzing ${seqInfo.duration.toFixed(1)}s for silences…`, "info");
-        const tmpAudio = await extractTimelineWav(seqInfo);
-        const silences = await detectSilencesOnWav(tmpAudio);
-        try { if (fs.existsSync(tmpAudio)) fs.unlinkSync(tmpAudio); } catch {}
-
-        if (silences.length === 0) {
-            setSilenceStatus("No silences found. Try raising the threshold (e.g. -25 dB).", "warning");
-            showToast("No silences found", "info");
-            return;
-        }
-
-        const marks = silences.map(s => ({
-            start: seqInfo.inTime + s.start,
-            end:   seqInfo.inTime + s.end,
-            dur:   s.dur,
-        }));
-
         await evalScript("clearSilenceMarkers()");
-        const addRes = await evalScript(`addSilenceMarkers('${JSON.stringify(marks).replace(/'/g, "\\'")}')`);
+        const addRes = await evalScript(`addSilenceMarkers('${JSON.stringify(ranges).replace(/'/g, "\\'")}')`);
 
         if (addRes && addRes.success) {
-            setSilenceStatus(`✓ Marked ${addRes.added} silence(s) on the timeline`, "success");
-            showToast(`${addRes.added} silences marked on timeline`, "success");
+            setSilenceStatus(settings.uiLang === "tr"
+                ? `✓ ${addRes.added} ${transcriptFallback ? "altyazı aralığı" : "sessizlik"} işaretlendi`
+                : `✓ Marked ${addRes.added} ${transcriptFallback ? "caption gap(s)" : "silence(s)"}`, "success");
         } else {
             const msg = (addRes && addRes.error) || "Could not add markers.";
             setSilenceStatus(msg, "error");
@@ -1484,16 +1493,41 @@ async function findSilenceRanges() {
     if (!seqInfo.success) throw new Error(seqInfo.error || "Error reading timeline");
     if (!seqInfo.clips || seqInfo.clips.length === 0) throw new Error("No audio clips on the timeline. Add a clip first.");
 
-    const tmpAudio = await extractTimelineWav(seqInfo);
-    const silences = await detectSilencesOnWav(tmpAudio);
-    try { if (fs.existsSync(tmpAudio)) fs.unlinkSync(tmpAudio); } catch {}
+    const tmpAudio = await extractSilenceWav(seqInfo);
+    let silences;
+    try { silences = await detectSilencesOnWav(tmpAudio); }
+    finally { try { if (fs.existsSync(tmpAudio)) fs.unlinkSync(tmpAudio); } catch {} }
 
     const ranges = silences.map(s => ({
         start: seqInfo.inTime + s.start,
         end:   seqInfo.inTime + s.end,
         dur:   s.dur,
     }));
-    return { seqInfo, ranges };
+    if (!ranges.length) {
+        const candidates = transcriptGapRanges(seqInfo);
+        if (candidates.length) return { seqInfo, ranges: candidates, transcriptFallback: true };
+    }
+    return { seqInfo, ranges, transcriptFallback: false };
+}
+
+// Music embedded in a camera file keeps the waveform above every reasonable
+// threshold. Caption gaps are a cautious fallback only for the *same* sequence
+// that was just transcribed; each candidate starts unchecked for review.
+function transcriptGapRanges(seqInfo) {
+    if (!transcriptSequenceName || transcriptSequenceName !== seqInfo.sequenceName || segments.length < 2) return [];
+    const ordered = segments.slice().sort((a, b) => a.seqStart - b.seqStart);
+    const min = Math.max(0.2, Number(settings.silenceMinDur) || 0.6);
+    const ranges = [];
+    for (let i = 1; i < ordered.length; i++) {
+        const start = Math.max(seqInfo.inTime, Number(ordered[i - 1].seqEnd));
+        const end = Math.min(seqInfo.outTime, Number(ordered[i].seqStart));
+        if (Number.isFinite(start) && Number.isFinite(end) && end - start >= min && end - start <= 12)
+            ranges.push({ start, end, dur: +(end - start).toFixed(2), selected: false,
+                reason: settings.uiLang === "tr"
+                    ? "Altyazılar arasındaki konuşma boşluğu; müzik varsa kesmeden önce dinle."
+                    : "Speech gap between captions; listen before cutting if music is present." });
+    }
+    return ranges;
 }
 
 // ── Silence auto-cut (ripple delete) ──────────────────────────────────────
@@ -2507,6 +2541,7 @@ function _loadSRTData(data, filename) {
         return;
     }
     segments  = parsed;
+    transcriptSequenceName = null; transcriptSourcePreference = null;
     seqInTime = parsed[0].seqStart;
     renderSegments();
     updateSegCount();
@@ -2746,12 +2781,21 @@ function chooseTranscriptionClips(info, preference) {
     const all = Array.isArray(info && info.allClips) && info.allClips.length ? info.allClips : (info && info.clips) || [];
     const video = all.filter(c => /^video\d+$/.test(c.track || ""));
     const audio = all.filter(c => /^audio\d+$/.test(c.track || ""));
-    if (preference === "video") return { clips: video, label: "video" };
+    if (preference === "video") {
+        const first = video.map(c => c.track).sort((a, b) => +a.slice(5) - +b.slice(5))[0];
+        return { clips: first ? video.filter(c => c.track === first) : [], label: "video" };
+    }
     if (/^audio\d+$/.test(preference || "")) return { clips: audio.filter(c => c.track === preference), label: preference };
     // Camera sound is the most predictable default in Premiere. Mixing every
     // audio track can include music/effects and drown out speech. Editors with
     // a separate microphone can select its track explicitly in Settings.
-    if (video.length) return { clips: video, label: "video" };
+    // A higher video track can contain a transition, overlay or music-bearing
+    // B-roll. Analyze only the base picture unless the editor picks an audio
+    // track explicitly; mixing every video layer masks speech pauses.
+    if (video.length) {
+        const first = video.map(c => c.track).sort((a, b) => +a.slice(5) - +b.slice(5))[0];
+        return { clips: video.filter(c => c.track === first), label: "video" };
+    }
     const first = audio.length ? audio.map(c => c.track).sort()[0] : null;
     return { clips: first ? audio.filter(c => c.track === first) : [], label: first || "none" };
 }
@@ -2933,6 +2977,9 @@ async function startTranscription() {
             seqStart: seqInfo.inTime + seg.start,
             seqEnd:   seqInfo.inTime + seg.end,
         }));
+        transcriptSequenceName = seqInfo.sequenceName || null;
+        transcriptSourcePreference = source.label || null;
+        window.__repeatReviewRanges = [];
 
         applyPunctuationFilter({ silent: true });
         if (settings.captionPreviewEnabled && settings.captionPreviewAutoSplit)
@@ -3038,9 +3085,11 @@ function renderSegments() {
 
     const out = [];
     const preview = captionPreviewSettings();
+    const repeatRanges = Array.isArray(window.__repeatReviewRanges) ? window.__repeatReviewRanges : [];
     let overflowCount = 0;
     for (let idx = 0; idx < segments.length; idx++) {
         const seg = segments[idx];
+        const repeatCandidate = repeatRanges.some(r => r.start < seg.seqEnd - 0.1 && r.end > seg.seqStart + 0.1);
         const guide = preview.enabled ? captionVisualLines(seg.text, preview) : [];
         const overflow = guide.length > 2;
         if (overflow) overflowCount++;
@@ -3065,10 +3114,11 @@ function renderSegments() {
         }
 
         out.push(
-            `<div class="segment${matchCls}" data-idx="${idx}">` +
+            `<div class="segment${matchCls}${repeatCandidate ? " repeat-candidate" : ""}" data-idx="${idx}">` +
               `<div class="seg-header">` +
                 `<span class="seg-index" data-act="seek" data-tip="${tipSeek}" draggable="true">${idx + 1}</span>` +
                 `<span class="seg-time"  data-act="seek" data-tip="${tipSeek}">${formatTime(seg.seqStart)} → ${formatTime(seg.seqEnd)}</span>` +
+                (repeatCandidate ? `<span class="repeat-candidate-tag">${settings.uiLang === "tr" ? "Tekrar adayı" : "Repeat candidate"}</span>` : "") +
                 speakerHtml +
                 `<div class="seg-actions">` +
                   `<button class="seg-btn" data-act="edit"   data-tip="${tipEdit}">${icPencil}</button>` +
@@ -3424,6 +3474,8 @@ function clearAll() {
     if (!confirm(settings.uiLang === "tr" ? "Tüm altyazılar silinsin mi?" : "Delete all captions?")) return;
     pushUndo();
     segments = []; selectedIndex = -1;
+    transcriptSequenceName = null; transcriptSourcePreference = null;
+    window.__repeatReviewRanges = [];
     try { localStorage.removeItem("ws_autosave"); } catch (e) {}
     renderSegments(); updateSegCount(); actionsBar.style.display = "none";
     sendBtn.disabled = true;
@@ -4195,7 +4247,7 @@ function initTooltips() {
    files (and the extension↔desktop footer sync) stay untouched.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION = "1.5.1";
+const APP_VERSION = "1.5.2";
 const GH_REPO = "mertrusen/subsper";
 const IS_DESKTOP_APP = (typeof window !== "undefined" && window.IS_DESKTOP === true);
 
@@ -4392,7 +4444,7 @@ function showRangePreview(title, ranges, onApply) {
     ov.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center";
     const total = ranges.reduce((a, r) => a + (r.end - r.start), 0);
     const tr = settings.uiLang === "tr";
-    const repeatReview = ranges.some(r => r.selected === false && (r.label || r.keepLabel));
+    const optInReview = ranges.some(r => r.selected === false);
     const rows = ranges.map((r, i) => `
         <label class="rp-row">
           <input type="checkbox" class="rp-chk" data-i="${i}"${r.selected === false ? "" : " checked"}>
@@ -4405,7 +4457,7 @@ function showRangePreview(title, ranges, onApply) {
     ov.innerHTML = `
       <div class="rp-dialog">
         <div style="font-weight:700;font-size:13px;margin-bottom:4px">${escHtml(title)}</div>
-        <div class="rp-summary">${ranges.length} ${tr ? "aralık" : "ranges"} · ~${total.toFixed(1)}s — ${repeatReview ? (tr ? "Kesilecek tekrarları işaretle" : "Select the takes to remove") : (tr ? "Kalacakların işaretini kaldır" : "Uncheck any you want to keep")}</div>
+        <div class="rp-summary">${ranges.length} ${tr ? "aralık" : "ranges"} · ~${total.toFixed(1)}s — ${optInReview ? (tr ? "Kesilecek aralıkları işaretle" : "Select the ranges to remove") : (tr ? "Kalacakların işaretini kaldır" : "Uncheck any you want to keep")}</div>
         <div style="overflow-y:auto;flex:1">${rows}</div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
           <button class="btn-secondary" id="rp-cancel">${tr ? "Vazgeç" : "Cancel"}</button>
@@ -4419,7 +4471,7 @@ function showRangePreview(title, ranges, onApply) {
         const count = [...ov.querySelectorAll(".rp-chk")].filter(c => c.checked).length;
         const apply = $("rp-apply");
         apply.disabled = count === 0;
-        apply.textContent = repeatReview ? (tr ? `Seçilenleri kes (${count})` : `Cut selected (${count})`) : (tr ? `Uygula (${count})` : `Apply (${count})`);
+        apply.textContent = optInReview ? (tr ? `Seçilenleri kes (${count})` : `Cut selected (${count})`) : (tr ? `Uygula (${count})` : `Apply (${count})`);
     };
     ov.querySelectorAll(".rp-chk").forEach(c => c.addEventListener("change", updateApply));
     updateApply();
@@ -4950,6 +5002,8 @@ function _loadProjectData(data) {
         throw new Error("Invalid subtitle segments in project file.");
     pushUndo();
     segments = data.segments;
+    transcriptSequenceName = null; transcriptSourcePreference = null;
+    window.__repeatReviewRanges = [];
     if (typeof _originalSegments !== "undefined") {
         _originalSegments = Array.isArray(data.originalSegments) && data.originalSegments.every(s => s &&
             Number.isFinite(+s.seqStart) && Number.isFinite(+s.seqEnd) && +s.seqEnd >= +s.seqStart)

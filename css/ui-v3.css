@@ -47,6 +47,23 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .v3-nav-symbol { font-size:17px; font-weight:500; }
 .v3-nav.active .v3-nav-num,.v3-nav.active .v3-nav-symbol { color:var(--accent2); }
 body.premiere-app .v3-nav[data-v3-page="style"] { display:none; }
+/* CEP panels are often short even when docked wide. Keep the transcript in view. */
+body.premiere-app .header { min-height:40px; padding:0 12px; }
+body.premiere-app .brand-mark { width:23px; height:23px; border-radius:7px; }
+body.premiere-app .brand-title { font-size:13px; }
+body.premiere-app .brand-version { font-size:9px; }
+body.premiere-app #v3-sidebar { width:168px; flex-basis:168px; padding:9px 7px; }
+body.premiere-app .v3-nav { min-height:34px; padding:0 8px; font-size:11px; }
+body.premiere-app .v3-nav-caption { padding-bottom:6px; }
+body.premiere-app .v3-nav-divider { margin:7px 8px; }
+body.premiere-app #page-bar { min-height:38px; padding:0 14px; }
+body.premiere-app #page-title { font-size:13px; }
+body.premiere-app #page-gear { height:27px; }
+body.premiere-app #panel-tx-work .status-bar { margin:8px 10px 0; }
+body.premiere-app #panel-tx-work .controls { padding:10px 12px; }
+body.premiere-app #panel-tx-work .segments-wrap { padding:10px; }
+.repeat-candidate { box-shadow:inset 3px 0 0 #d79a54; }
+.repeat-candidate-tag { color:#e6b27a; font-size:10px; font-weight:650; white-space:nowrap; }
 .v3-nav-divider { height:1px; background:var(--border); margin:14px 10px; }
 .v3-sidebar-foot { margin-top:auto; padding:12px 10px 2px; display:flex; align-items:center; gap:8px; color:var(--text3); font-size:10px; border-top:1px solid var(--border); }
 .v3-sidebar-foot .dot { width:6px; height:6px; border-radius:50%; background:var(--green); }
@@ -203,6 +220,8 @@ body:not(.premiere-app) #audio-source-row { display:none; }
   #panel-tx-work .segments-wrap { flex:1; min-height:0; overflow-y:auto; }
 }
 @media (max-width:919px) {
+  body.premiere-app #v3-sidebar { width:100%; flex-basis:auto; padding:3px 6px; }
+  body.premiere-app .v3-nav { min-height:30px; }
   #v3-sidebar { width:100%; flex:0 0 auto; flex-direction:row; align-items:center; overflow-x:auto; padding:5px 8px; gap:2px; border-right:0; border-bottom:1px solid var(--border); scrollbar-width:thin; }
   #app-shell { flex-direction:column; }
   #v3-sidebar .v3-nav-caption,#v3-sidebar .v3-nav-divider,#v3-sidebar .v3-sidebar-foot { display:none; }

@@ -5,6 +5,7 @@
 var segments = [];
 var selectedIndex = -1;
 var lastLanguage = "";
+var transcriptSequenceName = null, transcriptSourcePreference = null;
 var seqInTime = 0;
 var _originalSegments = null;
 var APP_VERSION = "1.3.0";

@@ -97,6 +97,63 @@
         return result.sort((a, b) => a.cut - b.cut);
     }
     function detectRepeats(segs, keep) { return repeatChoices(segs, keep).map(x => x.cut); }
+    // Subtitle wrapping is editorial, not a take boundary. Compare short
+    // windows as well as individual captions so a repeated sentence split
+    // over two captions still appears in the review list.
+    function repeatRangeChoices(segs, keep) {
+        const result = repeatChoices(segs, keep).map(({ cut, keep: kept }) => ({
+            start: segs[cut].seqStart, end: segs[cut].seqEnd,
+            label: segs[cut].text, keepLabel: segs[kept].text,
+            selected: false, indices: [cut],
+        }));
+        const used = new Set(repeatGroups(segs).reduce((all, group) => all.concat(group), []));
+        const windows = [];
+        for (let i = 0; i < segs.length; i++) {
+            for (let length = 2; length <= 3 && i + length <= segs.length; length++) {
+                const last = i + length - 1;
+                const start = +segs[i].seqStart, end = +segs[last].seqEnd;
+                if (!(end > start) || end - start > 25) continue;
+                const wordList = tokens(segs.slice(i, last + 1).map(s => s.text).join(" "));
+                if (wordList.length < 4) continue;
+                windows.push({ i, last, start, end, wordList,
+                    text: segs.slice(i, last + 1).map(s => s.text).join(" ") });
+            }
+        }
+        const proposals = [];
+        for (let a = 0; a < windows.length; a++) {
+            const A = windows[a];
+            for (let b = a + 1; b < windows.length; b++) {
+                const B = windows[b];
+                if (B.start - A.end > 45) break;
+                if (B.i <= A.last) continue;
+                const shared = jaccard(A.wordList, B.wordList);
+                if (shared < 0.72) continue;
+                // Require comparable amount of speech, not just a shared
+                // topic word repeated in a longer, otherwise new sentence.
+                const ratio = Math.min(A.wordList.length, B.wordList.length) /
+                    Math.max(A.wordList.length, B.wordList.length);
+                if (ratio < 0.72) continue;
+                proposals.push({ A, B, score: shared * Math.min(A.wordList.length, B.wordList.length) });
+            }
+        }
+        proposals.sort((x, y) => y.score - x.score);
+        for (const { A, B } of proposals) {
+            const indices = [];
+            for (let i = A.i; i <= A.last; i++) indices.push(i);
+            for (let i = B.i; i <= B.last; i++) indices.push(i);
+            if (indices.some(i => used.has(i))) continue;
+            const cut = keep === "fastest" && A.end - A.start < B.end - B.start ? B : A;
+            const kept = cut === A ? B : A;
+            result.push({ start: cut.start, end: cut.end, label: cut.text,
+                keepLabel: kept.text, selected: false,
+                indices: Array.from({ length: cut.last - cut.i + 1 }, (_, k) => cut.i + k) });
+            indices.forEach(i => used.add(i));
+        }
+        return result.sort((a, b) => a.start - b.start)
+            .map(r => ({ start: r.start, end: r.end,
+                dur: +(r.end - r.start).toFixed(1), label: r.label,
+                keepLabel: r.keepLabel, selected: false }));
+    }
     // AI sometimes returns the FINAL take's range despite the prompt — remap
     // any cut that lands on the last of a duplicate pair back to the earlier one
     function fixKeepLast(ranges, segs) {
@@ -118,18 +175,14 @@
     window.__fixKeepLast = fixKeepLast; // unit-test hook
     window.__detectRepeats = detectRepeats; // unit-test hook
     window.__repeatChoices = repeatChoices; // unit-test hook
+    window.__repeatRangeChoices = repeatRangeChoices; // unit-test hook
 
     async function findRepeats() {
         if (needTranscript()) return;
         const btn = $id("repeat-btn"); if (btn) btn.disabled = true;
         try {
             const keep = ($id("repeat-keep") || {}).value || "last";
-            let ranges = repeatChoices(segments, keep).map(({ cut, keep: kept }) => ({
-                start: segments[cut].seqStart, end: segments[cut].seqEnd,
-                dur: +(segments[cut].seqEnd - segments[cut].seqStart).toFixed(1),
-                label: segments[cut].text, keepLabel: segments[kept].text,
-                selected: false,
-            }));
+            let ranges = repeatRangeChoices(segments, keep);
             let via = L("cihaz içi", "on-device");
             if (!ranges.length && aiAvailable()) {
                 showToast(L("Cihaz içi eşleşme yok — AI ile aranıyor…", "No on-device match — asking AI…"), "info", 3000);
@@ -153,9 +206,13 @@ ${_plainTranscript()}`);
                 } catch (e) { showToast("AI: " + e.message, "warning", 4000); }
             }
             if (!ranges.length) {
-                showToast(L("Tekrar çekim bulunamadı — kayıt temiz görünüyor ✓", "No repeated takes found — the recording looks clean ✓"), "success", 4000);
+                window.__repeatReviewRanges = [];
+                renderSegments();
+                showToast(L("Altyazı metninde güçlü tekrar eşleşmesi bulunamadı. Farklı söylenen çekimleri elle kontrol et.", "No strong repeat match in the transcript. Review differently worded takes manually."), "info", 5000);
                 return;
             }
+            window.__repeatReviewRanges = ranges;
+            renderSegments();
             showRangePreview(L(`Tekrarları incele (${via})`, `Review repeats (${via})`), ranges, async chosen => {
                 if (DESK) {   // desktop: export a trimmed copy instead of timeline cuts
                     if (window.applyTextCutsDesktop) await window.applyTextCutsDesktop(chosen);
@@ -166,10 +223,14 @@ ${_plainTranscript()}`);
                 const sel = await ensureTrackSel();   // shared with the Silence page's track picks
                 const r = await hostCut(chosen, sel);
                 if (r && r.success && r.removed > 0) {
+                    transcriptSequenceName = null;
+                    transcriptSourcePreference = null;
+                    window.__repeatReviewRanges = [];
+                    renderSegments();
                     const holes = r.holes
                         ? L(` · ${r.holes} boşluk kapanamadı`, ` · ${r.holes} gap(s) could not close`)
                         : "";
-                    showToast(L(`✓ ${r.removed} tekrar kesildi — Cmd/Ctrl+Z ile geri al`, `✓ Cut ${r.removed} repeat(s) — undo with Cmd/Ctrl+Z`) + holes, r.holes ? "warning" : "success", 5000);
+                    showToast(L(`✓ ${r.removed} tekrar kesildi. Timeline değişti; altyazıları yeniden yazıya dök. Cmd/Ctrl+Z geri alır.`, `✓ Cut ${r.removed} repeat(s). The timeline changed; transcribe captions again. Cmd/Ctrl+Z undoes.`) + holes, "warning", 8000);
                     if (r.holes && r.diag && r.diag.length) console.log("[Subsper] repeat cut diag:", r.diag);
                 }
                 else {
@@ -368,7 +429,7 @@ ${_plainTranscript()}`);
         paced:     { dur: 0.5,  pad: 0.08 },
         energetic: { dur: 0.35, pad: 0.04 },
     };
-    let _silWav = null, _silInfo = null;   // cached analysis audio
+    let _silWav = null, _silInfo = null, _silTranscriptFallback = false;   // cached analysis audio
 
     function silTarget() {
         const seg = $id("sil-target");
@@ -416,6 +477,12 @@ ${_plainTranscript()}`);
     async function redrawStrip() {
         if (!_silWav || !_silInfo) return;
         try {
+            if (_silTranscriptFallback) {
+                const gaps = transcriptGapRanges(_silInfo).map(r => ({ ...r,
+                    start: r.start - _silInfo.inTime, end: r.end - _silInfo.inTime }));
+                drawStrip(gaps, _silInfo);
+                return;
+            }
             const sil = await detectSilencesOnWav(_silWav);
             drawStrip(sil.map(s => ({ start: s.start, end: s.end, dur: s.dur })), _silInfo);
         } catch (e) {}
@@ -431,21 +498,40 @@ ${_plainTranscript()}`);
             if (!seqInfo.success) throw new Error(seqInfo.error || "Error reading timeline");
             if (!seqInfo.clips || !seqInfo.clips.length) throw new Error(L("Timeline'da ses klibi yok", "No audio clips on the timeline"));
             try { if (_silWav && fs.existsSync(_silWav)) fs.unlinkSync(_silWav); } catch (e) {}
-            _silWav = await extractTimelineWav(seqInfo);
+            _silWav = await extractSilenceWav(seqInfo);
             _silInfo = seqInfo;
+            _silTranscriptFallback = false;
             // auto threshold: try levels, pick the one whose silence share
             // lands in a sensible band (8-40%) — no guessing dB by hand
             const saved = settings.silenceThreshold;
             let best = saved, bestScore = -1, bestSil = null;
-            for (const th of [-45, -40, -35, -30, -25]) {
-                settings.silenceThreshold = th;
-                let sil = [];
-                try { sil = await detectSilencesOnWav(_silWav); } catch (e) { continue; }
-                const frac = sil.reduce((a, s) => a + s.dur, 0) / Math.max(0.001, seqInfo.duration);
-                const score = (frac >= 0.08 && frac <= 0.40) ? 1 - Math.abs(frac - 0.20) : -Math.abs(frac - 0.20);
-                if (score > bestScore) { bestScore = score; best = th; bestSil = sil; }
+            let analysisError = null, successful = 0;
+            try {
+                for (const th of [-45, -40, -35, -30, -25, -20, -15]) {
+                    settings.silenceThreshold = th;
+                    let sil;
+                    try { sil = await detectSilencesOnWav(_silWav); successful++; }
+                    catch (e) { analysisError = e; continue; }
+                    const frac = sil.reduce((a, s) => a + s.dur, 0) / Math.max(0.001, seqInfo.duration);
+                    const score = (frac >= 0.08 && frac <= 0.40) ? 1 - Math.abs(frac - 0.20) : -Math.abs(frac - 0.20);
+                    if (score > bestScore) { bestScore = score; best = th; bestSil = sil; }
+                }
+            } finally { settings.silenceThreshold = saved; }
+            if (!successful) throw analysisError || new Error(L("Ses analizi başlatılamadı", "Audio analysis could not run"));
+            if (!bestSil || !bestSil.length) {
+                const captionGaps = transcriptGapRanges(seqInfo);
+                if (captionGaps.length) {
+                    _silTranscriptFallback = true;
+                    drawStrip(captionGaps.map(r => ({ ...r, start: r.start - seqInfo.inTime,
+                        end: r.end - seqInfo.inTime })), seqInfo);
+                    setSilenceStatus(L(`${captionGaps.length} konuşma aralığı altyazıdan bulundu. Müzik aynı kaynaktaysa bunları dinleyerek seç; otomatik kesilmez.`,
+                        `${captionGaps.length} speech gap(s) found from captions. If music is embedded, listen and select them; none are cut automatically.`), "warning");
+                } else {
+                    drawStrip([], seqInfo);
+                    setSilenceStatus(L("Seçilen konuşma kanalında sessiz aralık bulunamadı. Doğru kanalı seç veya müziği kaynak sesinden ayır.", "No quiet gaps on the selected speech source. Choose the right track or separate music from the source."), "warning");
+                }
+                return;
             }
-            settings.silenceThreshold = saved;
             onSettingChange("silenceThreshold", best);
             const set = (id, v) => { const e = $id(id); if (e) e.value = v; };
             const txt = (id, v) => { const e = $id(id); if (e) e.textContent = v; };
@@ -462,8 +548,7 @@ ${_plainTranscript()}`);
         }
     }
     // ── track targeting: which tracks the cut/mute is allowed to touch ────
-    // Defaults: every video track ON, only A1 ON (music beds usually live on
-    // A2+). Selection persists in settings.silTrkSel = {v:[..], a:[..]}.
+    // Defaults: base video and the selected speech audio track only.
     async function loadTrackChecks(force) {
         const wrap = $id("sil-tracks"); if (!wrap) return;
         if (wrap.querySelector(".sil-trk") && !force) return;   // real checkboxes, not the hint
@@ -471,8 +556,7 @@ ${_plainTranscript()}`);
         await loadHostJSX();
         const r = await evalScript("wsListAllTracks()");
         if (!(r && r.success)) { wrap.innerHTML = `<div class="setting-hint">${(r && r.error) || "?"}</div>`; return; }
-        const on = (kind, i) => sel ? ((kind === "v" ? sel.v : sel.a) || []).includes(i)
-                                    : (kind === "v" || i === 0);
+        const on = (kind, i) => sel ? ((kind === "v" ? sel.v : sel.a) || []).includes(i) : false;
         const row = (t, kind) => `
             <label class="ui2-check" style="opacity:${t.clips ? 1 : .45}">
               <input type="checkbox" class="sil-trk" data-kind="${kind}" data-i="${t.i}"${t.clips && on(kind, t.i) ? " checked" : ""}${t.clips ? "" : " disabled"}>
@@ -488,8 +572,26 @@ ${_plainTranscript()}`);
             </div>` +
             `<div class="setting-hint" style="margin-top:6px">${L("İşaretli kanallar kesilir/susturulur; işaretsizlere (müzik, overlay, efekt katmanları) dokunulmaz.", "Checked tracks get cut/muted; unchecked ones (music, overlays, FX layers) are never touched.")}</div>`;
         wrap.querySelectorAll(".sil-trk").forEach(c => c.addEventListener("change", () => {
-            onSettingChange("silTrkSel", Object.assign({ ver: 2 }, trackSel()));
+            onSettingChange("silTrkSel", Object.assign({ ver: 3 }, trackSel()));
         }));
+    }
+    async function loadSilenceSourceChoices() {
+        const select = $id("sil-source"); if (!select) return;
+        await loadHostJSX();
+        const info = await evalScript("getSequenceInfo()");
+        if (!(info && info.success)) return;
+        const tracks = [...new Set((info.allClips || info.clips || []).map(c => c.track).filter(Boolean))];
+        select.replaceChildren();
+        const option = (value, label) => {
+            const el = document.createElement("option"); el.value = value; el.textContent = label;
+            select.appendChild(el);
+        };
+        option("same", L("Altyazıyla aynı konuşma kaynağı", "Same speech source as subtitles"));
+        if (tracks.some(t => /^video\d+$/.test(t))) option("video", L("Video kliplerinin sesi", "Video clip audio"));
+        tracks.filter(t => /^audio\d+$/.test(t)).sort((a, b) => +a.slice(5) - +b.slice(5))
+            .forEach(t => option(t, `A${+t.slice(5) + 1} · ${L("ses kanalı", "audio track")}`));
+        select.value = settings.silenceAudioSource || "same";
+        if (!select.value) select.value = "same";
     }
     function trackSel() {
         const boxes = document.querySelectorAll(".sil-trk");
@@ -503,46 +605,59 @@ ${_plainTranscript()}`);
         }
         return settings.silTrkSel || null;
     }
-    // Guarantee a selection BEFORE any cut, even if the user never opened the
-    // track list: default = every video track + A1 only, so music beds and FX
-    // audio survive out of the box. Saved once, reused everywhere.
+    // Default to the base picture and the speech audio track. Older defaults
+    // selected every media-looking video track, including transition overlays.
     async function ensureTrackSel() {
         // live checkboxes are the source of truth once rendered
         if (document.querySelector(".sil-trk")) return trackSel();
-        // saved picks count only if made by the working UI (ver 2) — older
+        // saved picks count only if made by the working UI (ver 3) — older
         // auto-saves came from a broken list that selected every video track
         const saved = settings.silTrkSel;
-        if (saved && saved.ver === 2 && (saved.v || saved.a)) return saved;
+        if (saved && saved.ver === 3 && (saved.v || saved.a)) return saved;
         try {
             await loadHostJSX();
             // default video selection = only tracks that carry real MEDIA clips
             // (adjustment layers / titles / graphic overlays have no media path
             // and are skipped by getSequenceInfo, so they stay untouched)
             const info = await evalScript("getSequenceInfo()");
-            if (info && info.success && info.clips && info.clips.length) {
-                const v = [...new Set(info.clips
+            if (info && info.success && (info.allClips || info.clips || []).length) {
+                const all = info.allClips || info.clips;
+                const v = [...new Set(all
                     .filter(c => /^video/i.test(String(c.track)))
                     .map(c => parseInt(String(c.track).replace(/\D/g, ""), 10))
                     .filter(n => !isNaN(n)))].sort((x, y) => x - y);
-                const def = { v, a: [0], ver: 2 };
+                const a = [...new Set(all
+                    .filter(c => /^audio/i.test(String(c.track)))
+                    .map(c => parseInt(String(c.track).replace(/\D/g, ""), 10))
+                    .filter(n => !isNaN(n)))].sort((x, y) => x - y);
+                const speech = settings.silenceAudioSource && settings.silenceAudioSource !== "same"
+                    ? settings.silenceAudioSource
+                    : (transcriptSourcePreference || settings.transcriptionAudioSource || "auto");
+                const basePaths = all.filter(c => c.track === "video" + v[0] && c.path).map(c => c.path);
+                const linked = all.find(c => /^audio\d+$/.test(c.track || "") &&
+                    basePaths.includes(c.path));
+                const preferred = /^audio\d+$/.test(speech) ? +speech.slice(5)
+                    : (linked ? +linked.track.slice(5) : (!v.length ? a[0] : -1));
+                const def = { v: v.length ? [v[0]] : [], a: a.includes(preferred) ? [preferred] : [], ver: 3 };
                 onSettingChange("silTrkSel", def);
                 return def;
             }
             const r = await evalScript("wsListAllTracks()");
             if (r && r.success) {
-                const def = { v: r.video.map(t => t.i), a: [0], ver: 2 };
+                const def = { v: r.video.length ? [r.video[0].i] : [], a: r.audio.length ? [r.audio[0].i] : [], ver: 3 };
                 onSettingChange("silTrkSel", def);
                 return def;
             }
         } catch (e) {}
-        return null; // couldn't read tracks — fall back to old all-tracks behavior
+        return null;
     }
-    // cut through host: sync-safe targeted cutter when a selection exists,
-    // the battle-tested all-tracks ripple otherwise
+    window.__ensureTrackSel = ensureTrackSel; // source-inventory regression test hook
+    // Never fall back to an all-tracks cut when track inventory cannot be read.
     async function hostCut(chosen, sel) {
-        const fn = sel ? "wsCutRangesSync" : "rippleDeleteRanges";
-        const arg = JSON.stringify(sel ? { ranges: chosen, v: sel.v, a: sel.a } : chosen).replace(/'/g, "\\'");
-        return evalScript(`${fn}('${arg}')`);
+        if (!sel || !((sel.v || []).length || (sel.a || []).length))
+            return { success: false, error: L("Kesilecek kanal seçili değil", "No track selected for cutting") };
+        const arg = JSON.stringify({ ranges: chosen, v: sel.v, a: sel.a }).replace(/'/g, "\\'");
+        return evalScript(`wsCutRangesSync('${arg}')`);
     }
 
     // Cut with track targeting (the stock cutSilences razors EVERY track —
@@ -551,10 +666,10 @@ ${_plainTranscript()}`);
         setSilenceStatus(L("Kesilecek boşluklar aranıyor…", "Finding gaps to cut…"), "info");
         showSilenceProgress(true);
         try {
-            const { ranges } = await findSilenceRanges();
+            const { ranges, transcriptFallback } = await findSilenceRanges();
             const pad = Math.max(0, parseFloat(settings.silencePad) || 0);
             const padded = ranges
-                .map(r => ({ start: r.start + pad, end: r.end - pad, dur: +(r.end - r.start - 2 * pad).toFixed(2) }))
+                .map(r => ({ ...r, start: r.start + pad, end: r.end - pad, dur: +(r.end - r.start - 2 * pad).toFixed(2) }))
                 .filter(r => r.dur > 0.05);
             if (!padded.length) {
                 setSilenceStatus(L("Kesilecek boşluk yok — eşiği yükseltmeyi dene", "Nothing to cut — try raising the threshold"), "warning");
@@ -564,17 +679,21 @@ ${_plainTranscript()}`);
             const selNote = sel && (sel.v || sel.a)
                 ? L(` (${(sel.v || []).length} video + ${(sel.a || []).length} ses kanalı)`, ` (${(sel.v || []).length} video + ${(sel.a || []).length} audio track(s))`)
                 : "";
-            showRangePreview(L("Sessizlikleri kes", "Cut silences") + selNote, padded, async chosen => {
+            showRangePreview((transcriptFallback
+                ? L("Altyazı aralıklarını dinleyerek seç", "Listen and select caption gaps")
+                : L("Sessizlikleri kes", "Cut silences")) + selNote, padded, async chosen => {
                 setSilenceStatus(L(`${chosen.length} boşluk kesiliyor…`, `Cutting ${chosen.length} gap(s)…`), "info");
                 showSilenceProgress(true);
                 try {
                     await evalScript("clearSilenceMarkers()");
                     const r = await hostCut(chosen, sel);
                     if (r && r.success && r.removed > 0) {
+                        transcriptSequenceName = null;
+                        transcriptSourcePreference = null;
                         const holes = r.holes
                             ? L(` · ${r.holes} boşluk kapanamadı (timeline'a bak)`, ` · ${r.holes} gap(s) could not close (check the timeline)`)
                             : "";
-                        setSilenceStatus(L(`✓ ${r.removed} parça kesildi — Cmd/Ctrl+Z geri alır`, `✓ Cut ${r.removed} item(s) — undo with Cmd/Ctrl+Z`) + holes, r.holes ? "warning" : "success");
+                        setSilenceStatus(L(`✓ ${r.removed} parça kesildi. Timeline değişti; altyazıları yeniden yazıya dök. Cmd/Ctrl+Z geri alır.`, `✓ Cut ${r.removed} item(s). The timeline changed; transcribe captions again. Cmd/Ctrl+Z undoes.`) + holes, "warning");
                         if (r.holes && r.diag && r.diag.length) {
                             console.log("[Subsper] cut diag:", r.diag);
                             showToast(L("Teşhis: ", "Diag: ") + r.diag.slice(0, 2).join(" | "), "warning", 9000);
@@ -599,7 +718,7 @@ ${_plainTranscript()}`);
             const { ranges } = await findSilenceRanges();
             const pad = Math.max(0, parseFloat(settings.silencePad) || 0);
             const padded = ranges
-                .map(r => ({ start: r.start + pad, end: r.end - pad, dur: +(r.end - r.start - 2 * pad).toFixed(2) }))
+                .map(r => ({ ...r, start: r.start + pad, end: r.end - pad, dur: +(r.end - r.start - 2 * pad).toFixed(2) }))
                 .filter(r => r.dur > 0.05);
             if (!padded.length) {
                 setSilenceStatus(L("Susturulacak boşluk yok", "Nothing to mute"), "warning");
@@ -654,6 +773,9 @@ ${_plainTranscript()}`);
         box.innerHTML = `
           <div class="ui2-row-label">${L("Hedef", "Target")}</div>
           ${segControl("sil-target", [["inout", "In/Out"], ["all", L("Tüm Timeline", "Whole timeline")]])}
+          <div class="ui2-row-label">${L("Analiz edilecek konuşma sesi", "Speech audio to analyze")}</div>
+          <select id="sil-source" class="settings-select" style="width:100%;margin-bottom:8px"><option value="same">${L("Altyazıyla aynı konuşma kaynağı", "Same speech source as subtitles")}</option></select>
+          <div class="setting-hint">${L("Müzik ve efekt kanalları analize karışmaz; kesilecek kanalları aşağıda ayrıca seçersin.", "Music and FX tracks stay out of the analysis; choose which tracks to cut separately below.")}</div>
           <div class="ui2-row-label">${L("Ritim — kesim ne kadar sıkı olsun", "Rhythm — how tight the cut feels")}</div>
           ${segControl("sil-rhythm", [
             ["calm", L("Sakin", "Calm")], ["measured", L("Ölçülü", "Measured")],
@@ -684,6 +806,12 @@ ${_plainTranscript()}`);
         });
         $id("sil-analyze").onclick = silAnalyze;
         $id("sil-run").onclick = silRun;
+        $id("sil-source").onchange = ev => {
+            onSettingChange("silenceAudioSource", ev.target.value);
+            try { if (_silWav && fs.existsSync(_silWav)) fs.unlinkSync(_silWav); } catch (e) {}
+            _silWav = null; _silInfo = null; _silTranscriptFallback = false;
+            const strip = $id("sil-strip-wrap"); if (strip) strip.style.display = "none";
+        };
         // click the schematic strip → move the Premiere playhead there
         $id("sil-strip").style.cursor = "pointer";
         $id("sil-strip").addEventListener("click", ev => {
@@ -695,7 +823,10 @@ ${_plainTranscript()}`);
         });
         $id("sil-tracks").addEventListener("click", () => loadTrackChecks(false));
         // ui-v2 calls this when the Silence page opens → list is there instantly
-        window.__silPageOpen = () => { loadTrackChecks(false).catch(() => {}); };
+        window.__silPageOpen = () => {
+            loadTrackChecks(false).catch(() => {});
+            loadSilenceSourceChoices().catch(() => {});
+        };
         document.body.classList.add("ui2-silpro");   // hides the two legacy buttons
     }
 
@@ -1620,7 +1751,7 @@ ${t}
             const { ranges } = await findSilenceRanges();
             const pad = Math.max(0, parseFloat(settings.silencePad) || 0);
             const padded = ranges
-                .map(r => ({ start: r.start + pad, end: r.end - pad, dur: +(r.end - r.start - 2 * pad).toFixed(2) }))
+                .map(r => ({ ...r, start: r.start + pad, end: r.end - pad, dur: +(r.end - r.start - 2 * pad).toFixed(2) }))
                 .filter(r => r.dur > 0.35);
             if (!padded.length) { setSilenceStatus(L("Uygun boşluk yok (min 0.35s)", "No suitable gaps (min 0.35s)"), "warning"); return; }
             const sel = await ensureTrackSel();

@@ -105,6 +105,8 @@ function run(desktop, opts) {
         },
         settings: { uiLang: "tr" },
         segments: [],
+        transcriptSourcePreference: null,
+        transcriptSequenceName: null,
         _originalSegments: null,
         APP_VERSION: "1.2.0",
         I18N: { en: {}, tr: {} },
@@ -196,6 +198,22 @@ function ok(cond, label) {
     takes[0].seqEnd = 2;
     ok(JSON.stringify([...d.sandbox.__detectRepeats(takes, "fastest")]) === "[1,2]", "shortest take can be first without retaining middle");
     ok(d.sandbox.__repeatChoices(takes, "fastest").every(c => c.keep === 0), "review points to kept take");
+    const wrappedTake = [
+        { text: "Lenf sistemi sadece damarlardan", seqStart: 0, seqEnd: 2 },
+        { text: "değil lenf bezlerinden oluşur", seqStart: 2, seqEnd: 4 },
+        { text: "Lenf sistemi", seqStart: 5, seqEnd: 6 },
+        { text: "sadece damarlardan değil", seqStart: 6, seqEnd: 7.5 },
+        { text: "lenf bezlerinden oluşur", seqStart: 7.5, seqEnd: 9 },
+    ];
+    const wrappedReview = d.sandbox.__repeatRangeChoices(wrappedTake, "last");
+    ok(wrappedReview.length === 1 && wrappedReview[0].start === 0 && wrappedReview[0].end === 4 && wrappedReview[0].selected === false,
+       "repeat review finds a take split across different subtitle boundaries");
+    ok(d.sandbox.__repeatRangeChoices([
+        { text: "Lenf sistemi damarlarda dolaşır", seqStart: 0, seqEnd: 2 },
+        { text: "Sonra başka görevleri yapar", seqStart: 2, seqEnd: 4 },
+        { text: "Lenf sistemi vücudu korur", seqStart: 5, seqEnd: 7 },
+        { text: "Bağışıklık hücreleri burada bulunur", seqStart: 7, seqEnd: 9 },
+    ], "last").length === 0, "shared topic alone does not mark a repeat");
     ok(has(d, "chapters-btn") && has(d, "viral-btn") && has(d, "broll-btn"), "content cards injected");
     ok(has(d, "pace-btn") && has(d, "social-btn"), "pace+social injected");
     ok(has(d, "chapters-save") && has(d, "prof-report-btn"), "extras injected");
@@ -221,6 +239,29 @@ function ok(cond, label) {
 
     console.log("— extension mode (regression) —");
     const e = await run(false);
+    e.sandbox.evalScript = async code => code === "getSequenceInfo()" ? {
+        success: true,
+        clips: [{ track: "audio0", path: "camera.mov" }],
+        allClips: [{ track: "video0", path: "camera.mov" }, { track: "video2", path: "overlay.mov" },
+                   { track: "audio0", path: "camera.mov" }, { track: "audio1", path: "music.wav" }],
+    } : { success: false };
+    const defaultCutTracks = await e.sandbox.__ensureTrackSel();
+    ok(JSON.stringify(defaultCutTracks.v) === "[0]" && JSON.stringify(defaultCutTracks.a) === "[0]",
+       "default cuts include base video even when Premiere clips contains audio only");
+    e.sandbox.settings.silTrkSel = null;
+    e.sandbox.settings.silenceAudioSource = "audio1";
+    const selectedSpeechTracks = await e.sandbox.__ensureTrackSel();
+    ok(JSON.stringify(selectedSpeechTracks.v) === "[0]" && JSON.stringify(selectedSpeechTracks.a) === "[1]",
+       "selected speech track is the only default audio cut target");
+    e.sandbox.settings.silTrkSel = null;
+    e.sandbox.settings.silenceAudioSource = "same";
+    e.sandbox.evalScript = async code => code === "getSequenceInfo()" ? {
+        success: true, clips: [{ track: "audio0", path: "music.wav" }],
+        allClips: [{ track: "video0", path: "camera.mov" }, { track: "audio0", path: "music.wav" }],
+    } : { success: false };
+    const noLinkedAudio = await e.sandbox.__ensureTrackSel();
+    ok(JSON.stringify(noLinkedAudio.v) === "[0]" && JSON.stringify(noLinkedAudio.a) === "[]",
+       "unlinked music is never an automatic cut target");
     ok(has(e, "repeat-btn") && has(e, "resize-btn") && has(e, "mc-scan"), "resize+multicam present");
     ok(has(e, "sil-run") && has(e, "zoompro-run"), "Silence/Zoom Pro present");
     ok(has(e, "duck-btn") && has(e, "markercut-btn"), "ducking+marker-cut present");

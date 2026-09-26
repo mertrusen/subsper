@@ -3,6 +3,7 @@
 
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
+const { pathToFileURL } = require("url");
 
 let win = null;
 
@@ -21,6 +22,14 @@ function createWindow() {
     },
   });
 
+  // The renderer has Node access for the local media engine. Never let a
+  // remote page inherit that privilege, including through a clicked link.
+  const appPage = pathToFileURL(path.join(__dirname, "index.html")).href;
+  win.webContents.on("will-navigate", (event, destination) => {
+    if (destination !== appPage) event.preventDefault();
+  });
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.on("will-attach-webview", event => event.preventDefault());
   win.loadFile(path.join(__dirname, "index.html"));
 
   // Content Security Policy — prevents XSS by blocking external scripts

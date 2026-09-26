@@ -2,13 +2,13 @@
 
 This folder contains the Premiere CEP extension from the [Subsper repository](../README.md). It shares the subtitle engine and most of its interface with Subsper Desktop. The extension reads an active sequence, creates editable subtitle segments, and can send captions back to the timeline.
 
-The [current preview release](https://github.com/mertrusen/subsper/releases/tag/v1.4.0-preview.2) includes a timestamped, self-signed `.zxp` and unsigned Windows/macOS desktop installers. Transcription needs local `whisper-cli` and `ffmpeg` binaries; the speech model downloads once on first use.
+The [current preview release](https://github.com/mertrusen/subsper/releases/tag/v1.5.3-preview.1) includes a timestamped, self-signed `.zxp` and unsigned Windows/macOS desktop installers. Transcription needs local `whisper-cli` and `ffmpeg` binaries; the speech model downloads once on first use.
 
 The `main` branch can be ahead of this package. Use the source setup below for the latest editor changes until a newer `.zxp` is released.
 
 ## Install the packaged extension
 
-1. Download `Subsper-Premiere-1.4.0-preview.2.zxp` from [Releases](https://github.com/mertrusen/subsper/releases/tag/v1.4.0-preview.2).
+1. Download `Subsper-Premiere-1.5.3-preview.1.zxp` from [Releases](https://github.com/mertrusen/subsper/releases/tag/v1.5.3-preview.1).
 2. Install it with a ZXP installer that supports sideloading self-signed CEP extensions. Restart Premiere.
 3. Open **Window → Extensions → Subsper**. If the panel reports a missing engine, install compatible `whisper-cli` and `ffmpeg` commands on your system path or use the source setup below.
 

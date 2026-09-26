@@ -76,9 +76,9 @@ the host at your firewall.
 
 ### 5. Licence activation
 
-When you enter a licence key it is sent to the payment provider for validation,
-along with a hashed device identifier so the key can be tied to your device
-allowance. No transcript or media is included.
+Licence activation is disabled in the current build. The app does not send a
+licence key or device identifier to a payment provider. This section must be
+updated before activation is enabled in a future release.
 
 ### 6. Optional Pro speaker labelling
 

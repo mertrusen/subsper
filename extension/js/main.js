@@ -4247,7 +4247,7 @@ function initTooltips() {
    files (and the extension↔desktop footer sync) stay untouched.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION = "1.5.2";
+const APP_VERSION = "1.5.3-preview.1";
 const GH_REPO = "mertrusen/subsper";
 const IS_DESKTOP_APP = (typeof window !== "undefined" && window.IS_DESKTOP === true);
 
@@ -4366,6 +4366,10 @@ async function checkForUpdates() {
     }
 }
 function openExternal(url) {
+    try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return;
+    } catch (e) { return; }
     try {
         if (IS_DESKTOP_APP) { _req("electron").shell.openExternal(url); return; }
     } catch (e) {}

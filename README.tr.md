@@ -4,9 +4,9 @@
 
 Subsper, konuşmayı düzenlenebilir altyazıya dönüştürür. Bu depoda aynı altyazı çekirdeğini paylaşan **masaüstü uygulaması** ve **Adobe Premiere Pro eklentisi** bulunur. Transkripsiyon, düzenleme ve dışa aktarma bilgisayarında çalışır. İsteğe bağlı çevrimiçi özelliklerin hangi veriyi gönderdiği [Gizlilik belgesinde](PRIVACY.md) açıklanır.
 
-**Güncel yayın:** [1.4.0 Preview 2](https://github.com/mertrusen/subsper/releases/tag/v1.4.0-preview.2) içinde Windows x64 ve Apple Silicon macOS masaüstü kurulum dosyaları ile Premiere `.zxp` paketi vardır. Masaüstü yükleyicileri bu önizlemede imzasızdır; imzalı final sürüm için [imzalama belgesindeki](docs/SIGNING.md) kurulum gerekir. `v1.3` kurulum dosyaları eski arayüze aittir.
+**Güncel yayın:** [1.5.3 Preview 1](https://github.com/mertrusen/subsper/releases/tag/v1.5.3-preview.1) içinde Windows x64 ve Apple Silicon macOS masaüstü kurulum dosyaları ile Premiere `.zxp` paketi vardır. Masaüstü yükleyicileri bu önizlemede imzasızdır; imzalı final sürüm için [imzalama belgesindeki](docs/SIGNING.md) kurulum gerekir. `v1.3` kurulum dosyaları eski arayüze aittir.
 
-`main` dalında şu anda 1.5.1 kaynak kodu vardır; 1.5.1 kurulum dosyası veya `.zxp` henüz yayımlanmadı.
+Kaynak kod ve önizleme paketleri 1.5.3-preview.1 sürümünü kullanır.
 
 ## Neler yapabilirsin?
 
@@ -20,7 +20,7 @@ Subsper, konuşmayı düzenlenebilir altyazıya dönüştürür. Bu depoda aynı
 
 ## Masaüstü uygulamasını çalıştır
 
-[Preview 2 yayınından](https://github.com/mertrusen/subsper/releases/tag/v1.4.0-preview.2) Windows x64 için `Subsper-Setup-1.4.0-preview.2.exe`, Apple Silicon Mac için `Subsper-1.4.0-preview.2-mac-arm64.dmg` dosyasını indir. Bu önizleme yükleyicileri imzasızdır. Kaynak koddan çalıştıracaksan Node.js, Git, CMake ve C/C++ derleme araçları kurulu olmalı. macOS FFmpeg derlemesi için `pkg-config` de gerekir. Windows'ta varsayılan GPU motoru için Vulkan SDK gerekir; yalnız CPU ile geliştirme yapacaksan `SKIP_WHISPER_GPU=1` ayarlayabilirsin. Yerel motorun hazırlanması zaman ve disk alanı kullanabilir.
+[Preview 1 yayınından](https://github.com/mertrusen/subsper/releases/tag/v1.5.3-preview.1) Windows x64 için `Subsper-Setup-1.5.3-preview.1.exe`, Apple Silicon Mac için `Subsper-1.5.3-preview.1-mac-arm64.dmg` dosyasını indir. Bu önizleme yükleyicileri imzasızdır. Kaynak koddan çalıştıracaksan Node.js, Git, CMake ve C/C++ derleme araçları kurulu olmalı. macOS FFmpeg derlemesi için `pkg-config` de gerekir. Windows'ta varsayılan GPU motoru için Vulkan SDK gerekir; yalnız CPU ile geliştirme yapacaksan `SKIP_WHISPER_GPU=1` ayarlayabilirsin. Yerel motorun hazırlanması zaman ve disk alanı kullanabilir.
 
 ```bash
 git clone https://github.com/mertrusen/subsper.git
@@ -63,7 +63,7 @@ CLI görsel stil içermez; düz SRT üretir.
 
 ## Premiere eklentisini kullan
 
-1. [Güncel yayından](https://github.com/mertrusen/subsper/releases/tag/v1.4.0-preview.2) `Subsper-Premiere-1.4.0-preview.2.zxp` dosyasını indir, kendinden imzalı CEP eklentilerini yükleyebilen bir ZXP yükleyiciyle kur ve Premiere'i yeniden başlat.
+1. [Güncel yayından](https://github.com/mertrusen/subsper/releases/tag/v1.5.3-preview.1) `Subsper-Premiere-1.5.3-preview.1.zxp` dosyasını indir, kendinden imzalı CEP eklentilerini yükleyebilen bir ZXP yükleyiciyle kur ve Premiere'i yeniden başlat.
 2. Yerel `whisper-cli` ve `ffmpeg` motorunu uyumlu masaüstü kurulumu, sistem yolu veya [eklenti kaynak kurulumu](extension/README.md) üzerinden sağla.
 3. Premiere'de **Window → Extensions → Subsper** panelini aç. Sekansı seç; yalnızca bir kısmını yazıya dökmek istiyorsan önce In/Out belirle.
 4. **Altyazı Oluştur → Ayarlar** içinde konuşma dilini ve gerekirse konuşmanın bulunduğu ses track'ini seç. Otomatik kaynak önce video sesini kullanır; ayrı mikrofon için doğru A1/A2 track'ini seç. Satır önizlemesini açıp kapatabilir; fontu listeden seçip puntoyu, kalınlığı, harf aralığını ve altyazı kutusunun genişliğini ayarlayabilirsin. Varsayılan örnek Helvetica Bold 50'dir. Olası üçüncü satırın başladığı **tek kelime** kırmızı işaretlenir. İstersen yeni transkripsiyonları bu kelimeden otomatik bölmeyi aç veya mevcut altyazıları ayarlardaki düğmeyle böl. Bu ölçüm tahminidir; Premiere farklı dizebilir. İstediğin kelimeye tıklayarak böl. **↑** ile veya altyazı numarasını komşu altyazıya sürükleyerek birleştir. **Cmd/Ctrl+Z** ile geri al. Önizleme gönderimi engellemez.
@@ -89,7 +89,7 @@ python3 dev/test/ui-audit.py
 python3 dev/test/settings-audit.py
 ```
 
-Chrome/Chromium varsa `dev/test/dom-harness.sh` ve `dev/test/page-isolation.sh` tarayıcı etkileşimlerini denetler. Birim testleri gerçek Premiere sekansı ve yükleyici testinin yerini tutmaz. Yerel paket denemeleri için Windows'ta `npm run dist:win`, macOS'ta `npm run dist:mac` kullanılır; bunlar yayın yapmaz. `v*` etiketli yayın iş akışı imzalı kurulum dosyaları gerektirir. [İmzalama açıklaması](docs/SIGNING.md) ve [lisans bildirimleri](THIRD-PARTY-NOTICES.md) ayrıntıları içerir.
+Chrome/Chromium varsa `dev/test/dom-harness.sh` ve `dev/test/page-isolation.sh` tarayıcı etkileşimlerini denetler. Birim testleri gerçek Premiere sekansı ve yükleyici testinin yerini tutmaz. Yerel paket denemeleri için Windows'ta `npm run dist:win`, macOS'ta `npm run dist:mac` kullanılır; bunlar yayın yapmaz. Kararlı sürüm etiketleri imzalı kurulum dosyaları gerektirir; önizleme etiketleri geliştirme için imzasız çıkabilir. [İmzalama açıklaması](docs/SIGNING.md) ve [lisans bildirimleri](THIRD-PARTY-NOTICES.md) ayrıntıları içerir.
 
 ## Sorun giderme
 
@@ -98,6 +98,7 @@ Chrome/Chromium varsa `dev/test/dom-harness.sh` ve `dev/test/page-isolation.sh` 
 - **SRT'de font/animasyon kayboldu:** görünüm için ASS veya altyazı gömülü video kullan.
 - **Proje videosuz açıldı:** `.subsper` medya dosyasını içermez; özgün dosyayı geri getir veya yeniden aç.
 - **Premiere sonucu farklı görünüyor:** yerel altyazılar Premiere'in kendi stilini kullanır; timeline sonucunu incele.
+- **macOS Electron veya Subsper'ı engelliyor:** bu kopyayı çalıştırma. `npm start`, macOS denetiminden geçmeyen yerel Electron'u açmayı reddeder. Kötü amaçlı yazılım/iptal uyarısını karantina kaldırarak veya yeniden imzalayarak aşma; doğrulanmış, imzalı ve noter onaylı bir dağıtım kullan.
 
 Hata ve istekler için [GitHub Issues](https://github.com/mertrusen/subsper/issues) kullan. Sürümü, işletim sistemini, tekrar adımlarını ve çıktı biçimini yaz; özel medya veya API anahtarını herkese açık mesaja ekleme.
 

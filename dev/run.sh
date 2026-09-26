@@ -1,23 +1,20 @@
 #!/usr/bin/env bash
-# Launch the desktop app for local testing.
-#
-# WHY THIS EXISTS: the repo lives under ~/Documents, which is synced by iCloud
-# Drive. iCloud mangles .app bundles (Electron.app loses Frameworks/Info.plist),
-# so `npx electron .` from node_modules gets killed by macOS as damaged/malware.
-# We keep a known-good Electron outside iCloud and point it at the repo.
-set -e
-DEV="$HOME/Library/Application Support/subsper-dev/electron"
-APP="$DEV/Electron.app/Contents/MacOS/Electron"
-REPO="$(cd "$(dirname "$0")/.." && pwd)"
+# Launch the desktop app only when macOS accepts the local Electron bundle.
+# A damaged or revoked bundle must be replaced, never unquarantined or re-signed.
+set -euo pipefail
 
-if [ ! -x "$APP" ]; then
-  echo "Electron not staged yet — extracting from the npm cache…"
-  Z=$(find "$HOME/Library/Caches/electron" -name "electron-v31*darwin-arm64.zip" | head -1)
-  [ -n "$Z" ] || { echo "No cached electron zip. Run: npm i electron@31 (then re-run)"; exit 1; }
-  rm -rf "$DEV"; mkdir -p "$DEV"
-  unzip -q "$Z" -d "$DEV"
-  xattr -cr "$DEV/Electron.app"
-  codesign --force --deep --sign - "$DEV/Electron.app" >/dev/null 2>&1 || true
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+APP="$REPO/node_modules/electron/dist/Electron.app"
+EXEC="$APP/Contents/MacOS/Electron"
+
+if [ ! -x "$EXEC" ]; then
+  echo "Electron is missing. Install dependencies from a trusted source." >&2
+  exit 1
+fi
+if ! codesign --verify --deep --strict "$APP" >/dev/null 2>&1 ||
+   ! spctl --assess --type execute "$APP" >/dev/null 2>&1; then
+  echo "macOS did not accept the Electron app. It will not be launched." >&2
+  exit 1
 fi
 
-exec "$APP" "$REPO" "$@"
+exec "$EXEC" "$REPO" "$@"

@@ -30,33 +30,47 @@ if (wantHelp || !files.length) {
   console.log("Usage: subsper-cli <media files…> [--model turbo|large|medium|small|base|tiny] [--lang auto|tr|en|…]");
   process.exit(wantHelp ? 0 : 1);
 }
+if (!model || !lang || files.some(f => f === "--model" || f === "--lang")) {
+  console.error("--model and --lang require a value");
+  process.exit(1);
+}
 
 const p2 = n => String(n).padStart(2, "0");
 const p3 = n => String(n).padStart(3, "0");
-const fmt = s => `${p2(Math.floor(s / 3600))}:${p2(Math.floor(s % 3600 / 60))}:${p2(Math.floor(s % 60))},${p3(Math.round(s % 1 * 1000))}`;
+const fmt = s => {
+  const ms = Math.max(0, Math.round(s * 1000));
+  return `${p2(Math.floor(ms / 3600000))}:${p2(Math.floor(ms / 60000) % 60)}:${p2(Math.floor(ms / 1000) % 60)},${p3(ms % 1000)}`;
+};
 
 const bar = f => process.stdout.write(`\r  ${Math.round(f * 100)}%   `);
 
 (async () => {
+  const inputs = files.map(input => ({ input, abs: path.resolve(input) }));
+  let fail = 0;
+  const ready = inputs.filter(({ input, abs }) => {
+    if (fs.existsSync(abs) && fs.statSync(abs).isFile()) return true;
+    console.error(`✗ not found: ${input}`);
+    fail++;
+    return false;
+  });
+  if (!ready.length) { process.exitCode = 1; return; }
   if (!W.modelExists(model)) {
     console.log(`Downloading ${model} model (one-time)…`);
     await W.ensureModel(model, f => bar(f));
     console.log("\n  model ready");
   }
-  let ok = 0, fail = 0;
-  for (const input of files) {
-    const abs = path.resolve(input);
-    if (!fs.existsSync(abs)) { console.error(`✗ not found: ${input}`); fail++; continue; }
+  let ok = 0;
+  for (const { input, abs } of ready) {
     const out = abs.replace(/\.[^.]+$/, "") + ".srt";
     console.log(`\n▸ ${path.basename(abs)}`);
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "subsper_cli_"));
     try {
-      const wav = path.join(os.tmpdir(), `subsper_cli_${Date.now()}.wav`);
+      const wav = path.join(workDir, "audio.wav");
       await W.toWav16k(ROOT, abs, wav, {});
       const r = await W.transcribeWav({
         appDir: ROOT, wavPath: wav, modelKey: model, language: lang,
         onLog: s => { const m = /progress\s*=\s*(\d+)\s*%/i.exec(s); if (m) bar(+m[1] / 100); },
       });
-      try { fs.unlinkSync(wav); } catch {}
       const srt = r.segments.map((s, i) =>
         `${i + 1}\n${fmt(s.start)} --> ${fmt(s.end)}\n${s.text.trim()}\n`).join("\n");
       fs.writeFileSync(out, srt, "utf8");
@@ -65,8 +79,10 @@ const bar = f => process.stdout.write(`\r  ${Math.round(f * 100)}%   `);
     } catch (e) {
       console.error(`\r✗ ${input}: ${e.message}`);
       fail++;
+    } finally {
+      fs.rmSync(workDir, { recursive: true, force: true });
     }
   }
   console.log(`\nDone — ${ok} ok, ${fail} failed`);
-  process.exit(fail && !ok ? 1 : 0);
+  if (fail) process.exitCode = 1;
 })();

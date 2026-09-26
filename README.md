@@ -9,9 +9,9 @@ Subsper turns speech into editable subtitles. This repository contains a standal
 | Desktop | Transcribe video/audio files, edit and style captions, export subtitle files or a video with subtitles burned in. | Windows x64 `.exe` and Apple Silicon macOS `.dmg` in [Releases](https://github.com/mertrusen/subsper/releases). |
 | Premiere extension | Transcribe an active sequence or In/Out range and send captions to the timeline. | `.zxp` package on [Releases](https://github.com/mertrusen/subsper/releases). |
 
-**Release status:** [Subsper 1.4.0 Preview 2](https://github.com/mertrusen/subsper/releases/tag/v1.4.0-preview.2) contains Windows x64 and Apple Silicon macOS desktop installers plus the Premiere `.zxp`. The desktop installers are unsigned preview builds; signed final releases require the setup in [docs/SIGNING.md](docs/SIGNING.md). The older `v1.3` installers contain the old interface.
+**Release status:** [Subsper 1.5.3 Preview 1](https://github.com/mertrusen/subsper/releases/tag/v1.5.3-preview.1) contains Windows x64 and Apple Silicon macOS desktop installers plus the Premiere `.zxp`. The desktop installers are unsigned preview builds; signed final releases require the setup in [docs/SIGNING.md](docs/SIGNING.md). The older `v1.3` installers contain the old interface.
 
-The `main` branch currently contains 1.5.1 source changes; no 1.5.1 installer or `.zxp` has been published yet.
+The source and preview packages use version 1.5.3-preview.1.
 
 The `main` branch may include editor changes newer than that packaged preview. Build or link the extension from source to try those changes before the next release.
 
@@ -26,7 +26,7 @@ Normal transcription uses a local model. The first use downloads it once; later 
 
 ## Desktop: install and use
 
-Download the installer for your platform from [Preview 2](https://github.com/mertrusen/subsper/releases/tag/v1.4.0-preview.2): `Subsper-Setup-1.4.0-preview.2.exe` for Windows x64 or `Subsper-1.4.0-preview.2-mac-arm64.dmg` for Apple Silicon macOS. These preview installers are unsigned. To run from source instead, install Node.js, Git, CMake, and a C/C++ build toolchain. The macOS FFmpeg build also needs `pkg-config`; on Windows, the default GPU engine build needs the Vulkan SDK (or set `SKIP_WHISPER_GPU=1` for a CPU-only development build). Native engine preparation builds or downloads whisper.cpp and an LGPL FFmpeg binary and can take time and disk space.
+Download the installer for your platform from [Preview 1](https://github.com/mertrusen/subsper/releases/tag/v1.5.3-preview.1): `Subsper-Setup-1.5.3-preview.1.exe` for Windows x64 or `Subsper-1.5.3-preview.1-mac-arm64.dmg` for Apple Silicon macOS. These preview installers are unsigned. To run from source instead, install Node.js, Git, CMake, and a C/C++ build toolchain. The macOS FFmpeg build also needs `pkg-config`; on Windows, the default GPU engine build needs the Vulkan SDK (or set `SKIP_WHISPER_GPU=1` for a CPU-only development build). Native engine preparation builds or downloads whisper.cpp and an LGPL FFmpeg binary and can take time and disk space.
 
 ```bash
 git clone https://github.com/mertrusen/subsper.git
@@ -69,7 +69,7 @@ The CLI uses the local model cache and native engine. It exports plain SRT, with
 
 ## Premiere: install and use
 
-1. Download `Subsper-Premiere-1.4.0-preview.2.zxp` from the [current release](https://github.com/mertrusen/subsper/releases/tag/v1.4.0-preview.2). Install it with a ZXP installer and restart Premiere. This preview is self-signed and timestamped, so use your installer's sideload flow if needed.
+1. Download `Subsper-Premiere-1.5.3-preview.1.zxp` from the [current release](https://github.com/mertrusen/subsper/releases/tag/v1.5.3-preview.1). Install it with a ZXP installer and restart Premiere. This preview is self-signed and timestamped, so use your installer's sideload flow if needed.
 2. Provide local `whisper-cli` and `ffmpeg` binaries through a compatible Desktop installation, your system path, or the source setup in [extension/README.md](extension/README.md). The speech model downloads on first use.
 3. Open **Window → Extensions → Subsper**, select a sequence, and transcribe it. Set In/Out first to limit the range.
 4. In **Subtitles → Settings**, choose the spoken language and, if needed, the audio track containing speech. Automatic source selection tries video sound first; select the correct A1/A2 track for a separate microphone. Toggle the line preview and choose its font, size, weight, tracking, and caption-box width (default example: Helvetica Bold 50). Only the word estimated to start a third line is marked red. You can opt into automatic splitting of new transcripts there or split existing captions with the settings button. Premiere may wrap differently. Click any word to split; use **↑** or drag a caption number onto an adjacent caption to merge. **Cmd/Ctrl+Z** undoes an edit. The preview never blocks sending.
@@ -110,6 +110,7 @@ The bundled FFmpeg build is kept LGPL-only and checked for GPL/non-free componen
 - **Font or animation disappears after SRT export:** use ASS or burn the subtitles into video when appearance matters.
 - **Project opens without video:** `.subsper` stores a media path, not the media file. Restore or reopen the original file.
 - **Premiere output differs from the preview:** native captions use Premiere's own styling; inspect the resulting timeline.
+- **macOS blocks Electron or Subsper:** stop using that copy. `npm start` refuses to launch a local Electron bundle that fails macOS checks. Do not remove its quarantine or re-sign it to get around a malware/revocation alert; use a verified signed and notarized distribution.
 
 Report problems in [GitHub Issues](https://github.com/mertrusen/subsper/issues). Include version, platform, reproduction steps, and output format. Do not post private media or API keys.
 

@@ -1,16 +1,17 @@
 # Code signing — what you have to buy and set
 
-Until these secrets exist, every customer meets a scary dialog before they ever
-see the product:
+Do not sell or distribute a final installer until signing and platform checks
+are in place. Unsigned packages can trigger platform warnings:
 
 | Platform | What an unsigned build looks like to a buyer |
 |---|---|
-| macOS | *"Subsper is damaged and can't be opened. You should move it to the Trash."* — Gatekeeper's wording for un-notarized apps. Reads exactly like a virus warning. |
+| macOS | Gatekeeper may refuse an unsigned or un-notarized app. A malware or revoked-notarization warning is a separate security block and must be investigated, not bypassed. |
 | Windows | SmartScreen: *"Windows protected your PC — unknown publisher"*, with **Run anyway** hidden behind *More info*. |
 | Premiere `.zxp` | ZXP installers warn about an unverified publisher. Self-signed is acceptable for sideloading, but only if it is **timestamped** — `scripts/build-zxp.sh` now refuses to produce an untimestamped signature. |
 
-CI builds unsigned when the secrets are absent, so forks and dry runs still
-work. A **tagged release fails** rather than publishing something unsigned.
+CI builds unsigned when secrets are absent. Stable version tags fail rather
+than publishing unsigned native installers; preview tags currently allow them
+for development only.
 
 ---
 
